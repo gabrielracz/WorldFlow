@@ -11,7 +11,7 @@ file(GLOB_RECURSE SRCS "${CMAKE_CURRENT_SOURCE_DIR}/src/*.cpp")
 file(GLOB_RECURSE HDRS "${CMAKE_CURRENT_SOURCE_DIR}/include/*.hpp")
 
 
-configure_file(${CMAKE_CURRENT_SOURCE_DIR}/include/path_config.h.in ${CMAKE_CURRENT_SOURCE_DIR}/include/path_config.h)
+configure_file(${CMAKE_CURRENT_SOURCE_DIR}/include/PathConfig.hpp.in ${CMAKE_CURRENT_SOURCE_DIR}/include/PathConfig.hpp)
 add_executable(${PROJ_NAME} ${HDRS} ${SRCS})
 # add_definitions(${COMPILER_FLAGS})
 target_include_directories(${PROJ_NAME} PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
@@ -24,6 +24,7 @@ add_subdirectory(libs)
 target_include_directories(${PROJ_NAME} PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}")
 target_link_libraries(${PROJ_NAME} vkbootstrap vma glm imgui stb_image fastgltf::fastgltf)
 target_link_libraries(${PROJ_NAME} Vulkan::Vulkan SDL2::SDL2)
+target_include_directories(${PROJ_NAME} PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/libs/vulkan")
 
 # shaders
 find_program(GLSL_VALIDATOR glslangValidator HINTS /usr/bin /usr/local/bin $ENV{VULKAN_SDK}/Bin/ $ENV{VULKAN_SDK}/Bin32/)
