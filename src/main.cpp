@@ -1,22 +1,19 @@
-#include <iostream>
-#include <vulkan/vulkan_core.h>
-#define GLFW_INCLUDE_VULKAN
-#include <glfw3.h>
+#include "SDL_events.h"
+#include "SDL_video.h"
+#include "SDL_vulkan.h"
+#include "glm/fwd.hpp"
+#include <SDL2/SDL.h>
+#include <vulkan/vulkan.h>
+#include <VkBootstrap.h>
 #include <glm/glm.hpp>
 
-#include <cstring>
-#include <cstdint>
-#include <vector>
-#include <algorithm>
-#include <optional>
-
+#include <iostream>
+#include <cstdlib>
+#include <atomic>
+#include <vulkan/vulkan_core.h>
 
 namespace Constants
 {
-const std::vector<const char*> ValidationLayers = {
-    "VK_LAYER_KHRONOS_validation"
-};
-
 #ifdef NDEBUG
 const bool IsValidationLayersEnabled = false;
 #else
@@ -24,285 +21,192 @@ const bool IsValidationLayersEnabled = true;
 #endif
 }
 
-struct QueueFamilyIndices
-{
-    std::optional<uint32_t> graphicsFamily;
-    std::optional<uint32_t> presentFamily;
-    
-    bool IsComplete()
-    {
-        return graphicsFamily.has_value() && presentFamily.has_value();
-    }
-};
-
 class Renderer
 {
 public:
-    Renderer(unsigned int width, unsigned int height, const std::string &winName)
-    :   _winSize(width, height), _winName(winName)
-    {
-    }
-    
+    Renderer(const std::string& name, unsigned int width, unsigned int height)
+    :   _name(name), _windowExtent{.width = width, .height = height} {}
+
     ~Renderer()
     {
-        vkDestroyDevice(this->_device, nullptr);
-        vkDestroySurfaceKHR(this->_vkInstance, this->_surface, nullptr);
-        vkDestroyInstance(this->_vkInstance, nullptr);
-        glfwDestroyWindow(this->_window);
-        glfwTerminate();
+        if(!this->_isInitialized) {
+            return;
+        }
+
+        this->destroySwapchain();
+        this->destroyVulkan();
+        SDL_DestroyWindow(this->_window);
+        SDL_Quit();
     }
 
     bool Init()
     {
-        return this->init_window() && this->init_vulkan();
+        this->_isInitialized =  this->initWindow() && this->initVulkan();    
+        return this->_isInitialized;
     }
 
     void Run()
     {
-        this->render_loop();
+        this->_running = true;
+        this->renderLoop();
     }
 
 private:
-
-void render_loop()
-{
-    while(!glfwWindowShouldClose(this->_window))
+    void pollEvents()
     {
-        glfwPollEvents();
-    }
-}
-
-bool init_window()
-{
-    glfwInit();
-    glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
-    glfwWindowHint(GLFW_RESIZABLE, GLFW_FALSE);
-    this->_window = glfwCreateWindow(this->_winSize.x, this->_winSize.y, this->_winName.c_str(), nullptr, nullptr);
-    return true;
-}
-
-bool is_validation_layers_supported()
-{
-    uint32_t layerCount;
-    vkEnumerateInstanceLayerProperties(&layerCount, nullptr);
-    std::vector<VkLayerProperties> availableLayers(layerCount);
-    vkEnumerateInstanceLayerProperties(&layerCount, availableLayers.data());
-
-    for (const char* layerName : Constants::ValidationLayers) {
-        bool layerFound = false;
-        for (const auto& layerProperties : availableLayers) {
-            if (std::strcmp(layerName, layerProperties.layerName) == 0) {
-                layerFound = true;
-                break;
+        SDL_Event event;
+        while(SDL_PollEvent(&event)) {
+            if(event.type == SDL_QUIT) {
+                this->_running = false;
             }
         }
-        if (!layerFound) {
+    }
+
+    void renderLoop()
+    {
+        while(this->_running) {
+            this->pollEvents();
+        }
+    }
+
+    bool initWindow()
+    {
+        SDL_Init(SDL_INIT_VIDEO);
+        SDL_WindowFlags windowFlags = (SDL_WindowFlags)(SDL_WINDOW_VULKAN);
+        this->_window = SDL_CreateWindow(
+            this->_name.c_str(),
+            SDL_WINDOWPOS_UNDEFINED,
+            SDL_WINDOWPOS_UNDEFINED,
+            this->_windowExtent.width,
+            this->_windowExtent.height,
+            windowFlags
+        );
+        return this->_window != nullptr;
+    }
+
+    bool initVulkan()
+    {
+        vkb::InstanceBuilder builder;
+        vkb::Result<vkb::Instance> instanceRet = builder
+            .set_app_name(this->_name.c_str())
+            .request_validation_layers(Constants::IsValidationLayersEnabled)
+            .use_default_debug_messenger()
+            .require_api_version(1, 3, 0)
+            .build();
+        
+        if(!instanceRet.has_value()) {
+            std::cerr << "[ERROR] Failed to build the vulkan instance" << std::endl;
             return false;
         }
-    }
-    return true;
-}
 
-bool create_vulkan_instance()
-{
-    if(Constants::IsValidationLayersEnabled && !this->is_validation_layers_supported()) {
-        std::cerr << "[Error] Validation layers requested but not supported" << std::endl;
-        return false;
-    }
+        vkb::Instance vkbInstance =  instanceRet.value();
+        this->_instance = vkbInstance.instance;
+        this->_debugMessenger = vkbInstance.debug_messenger;
 
-    VkApplicationInfo appInfo{};
-    appInfo.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO;
-    appInfo.pApplicationName = this->_winName.c_str();
-    appInfo.applicationVersion = VK_MAKE_VERSION(1, 0, 0);
-    appInfo.pEngineName = "No Engine";
-    appInfo.engineVersion = VK_MAKE_VERSION(1, 0, 0);
-    appInfo.apiVersion = VK_MAKE_VERSION(1, 0, 0);
 
-    uint32_t glfwExtensionCount = 0;
-    const char** glfwExtensions = nullptr;
-    glfwExtensions = glfwGetRequiredInstanceExtensions(&glfwExtensionCount);
+        SDL_Vulkan_CreateSurface(this->_window, this->_instance, &this->_surface);
+        VkPhysicalDeviceVulkan13Features features {
+            .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES,
+            .synchronization2 = true,
+            .dynamicRendering = true
+        };
 
-    VkInstanceCreateInfo createInfo{};
-    createInfo.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
-    createInfo.pApplicationInfo = &appInfo;
-    createInfo.enabledExtensionCount = glfwExtensionCount;
-    createInfo.ppEnabledExtensionNames = glfwExtensions;
+        VkPhysicalDeviceVulkan12Features features12 {
+            .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES,
+            .descriptorIndexing = true,
+            .bufferDeviceAddress = true
+        };
 
-    if(Constants::IsValidationLayersEnabled) {
-        createInfo.enabledLayerCount = static_cast<uint32_t>(Constants::ValidationLayers.size());
-        createInfo.ppEnabledLayerNames = Constants::ValidationLayers.data();
-    } else {
-        createInfo.enabledLayerCount = 0;
-        createInfo.ppEnabledLayerNames = nullptr;
-    }
+        vkb::PhysicalDeviceSelector selector {vkbInstance};
+        vkb::PhysicalDevice physDevice = selector
+            .set_minimum_version(1, 3)
+            .set_required_features_13(features)
+            .set_required_features_12(features12)
+            .set_surface(this->_surface)
+            .select()
+            .value();
+        
+        vkb::DeviceBuilder deviceBuilder {physDevice};
+        vkb::Device vkbDevice = deviceBuilder.build().value();
+        this->_device = vkbDevice.device;
+        this->_gpu = physDevice.physical_device;
 
-    if(vkCreateInstance(&createInfo, nullptr, &this->_vkInstance) != VK_SUCCESS) {
-        std::cerr << "[ERROR] vkCreateInstance failed" << std::endl;
-        return false;
+        std::cout << physDevice.properties.deviceName << std::endl;
+        return true;
     }
 
-    return true;
-}
+    bool createSwapchain(unsigned int width, unsigned int height)
+    {
+        vkb::SwapchainBuilder swapchainBuilder {this->_gpu, this->_device, this->_surface};
+        this->_swapchainImageFormat = VK_FORMAT_B8G8R8A8_UNORM;
+        vkb::Swapchain vkbSwapchain = swapchainBuilder
+            .set_desired_format(VkSurfaceFormatKHR{.format = this->_swapchainImageFormat, .colorSpace = VK_COLOR_SPACE_SRGB_NONLINEAR_KHR})
+            .set_desired_present_mode(VK_PRESENT_MODE_FIFO_RELAXED_KHR)
+            .set_desired_extent(width, height)
+            .add_image_usage_flags(VK_IMAGE_USAGE_TRANSFER_DST_BIT)
+            .build()
+            .value();
 
-QueueFamilyIndices get_supported_queue_families(const VkPhysicalDevice& device)
-{
-    QueueFamilyIndices indices{};
-    uint32_t queueFamilyCount = 0;
-    vkGetPhysicalDeviceQueueFamilyProperties(device, &queueFamilyCount, nullptr);
-    std::vector<VkQueueFamilyProperties> queueFamilies(queueFamilyCount);
-    vkGetPhysicalDeviceQueueFamilyProperties(device, &queueFamilyCount, queueFamilies.data());
+        this->_swapchainExtent     = vkbSwapchain.extent;
+        this->_swapchainImages     = vkbSwapchain.get_images().value();
+        this->_swapchainImageViews = vkbSwapchain.get_image_views().value();
+        return true;
+    }
 
-    int i = 0;
-    for (const auto& queueFamily : queueFamilies) {
-        VkBool32 presentSupport {false};
-        vkGetPhysicalDeviceSurfaceSupportKHR(device, i, this->_surface, &presentSupport);
-        if (queueFamily.queueFlags & VK_QUEUE_GRAPHICS_BIT) {
-            indices.graphicsFamily = i;
-            if(presentSupport)
-            {
-                indices.presentFamily = i;
-            }
-        } else if (indices.IsComplete())
+    void destroySwapchain()
+    {
+        vkDestroySwapchainKHR(this->_device, this->_swapchain, nullptr);
+        for(const VkImageView& view : this->_swapchainImageViews)
         {
-            break;
-        }
-        i++;
-    }
-
-    return indices;
-}
-
-
-bool is_device_suitable(const VkPhysicalDevice& device, VkPhysicalDeviceProperties& properties)
-{
-    // VkPhysicalDeviceProperties deviceProperties{};
-    VkPhysicalDeviceFeatures deviceFeatures{};
-    vkGetPhysicalDeviceProperties(device, &properties);
-    vkGetPhysicalDeviceFeatures(device, &deviceFeatures);
-    QueueFamilyIndices queueFamilies = this->get_supported_queue_families(device);
-
-    return deviceFeatures.geometryShader &&
-           queueFamilies.IsComplete() && queueFamilies.graphicsFamily == queueFamilies.presentFamily;
-}
-
-bool select_physical_device()
-{
-    uint32_t deviceCount = 0;
-    vkEnumeratePhysicalDevices(this->_vkInstance, &deviceCount, nullptr);
-    if(deviceCount == 0) {
-        std::cerr << "[ERROR] Failed to find GPU with Vulkan support" << std::endl;
-        return false;
-    }
-
-    std::vector<VkPhysicalDevice> devices(deviceCount);
-    vkEnumeratePhysicalDevices(this->_vkInstance, &deviceCount, devices.data());
-    for(const VkPhysicalDevice& dev : devices) {
-        if(this->is_device_suitable(dev, this->_physicalDeviceProperties)) {
-            this->_physicalDevice = dev;
-            this->_supportedQueueFamilies = this->get_supported_queue_families(dev);
-            std::cout << this->_physicalDeviceProperties.deviceName << std::endl;
-            break;
+            vkDestroyImageView(this->_device, view, nullptr);
         }
     }
-    return this->_physicalDevice != VK_NULL_HANDLE;   
-}
 
-bool create_logical_device()
-{
-    VkDeviceQueueCreateInfo queueCreateInfo{};
-    queueCreateInfo.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
-    queueCreateInfo.queueFamilyIndex = this->_supportedQueueFamilies.graphicsFamily.value();
-    queueCreateInfo.queueCount = 1;
-    const float queuePriority = 1.0f;
-    queueCreateInfo.pQueuePriorities = &queuePriority;
-
-    //TODO
-    VkPhysicalDeviceFeatures deviceFeatures{};
-
-    VkDeviceCreateInfo createInfo{};
-    createInfo.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
-    createInfo.pQueueCreateInfos = &queueCreateInfo;
-    createInfo.queueCreateInfoCount = 1;
-    createInfo.pEnabledFeatures = &deviceFeatures;
-    createInfo.enabledExtensionCount = 0;
-    // legacy enable device-specific validation layers
-    if (Constants::IsValidationLayersEnabled) {
-        createInfo.enabledLayerCount = static_cast<uint32_t>(Constants::ValidationLayers.size());
-        createInfo.ppEnabledLayerNames = Constants::ValidationLayers.data();
-    } else {
-        createInfo.enabledLayerCount = 0;
-        createInfo.ppEnabledLayerNames = nullptr;
+    void destroyVulkan()
+    {
+        vkDestroySurfaceKHR(this->_instance, this->_surface, nullptr);
+        vkDestroyDevice(this->_device, nullptr);
+        vkb::destroy_debug_utils_messenger(this->_instance, this->_debugMessenger);
+        vkDestroyInstance(this->_instance, nullptr);
     }
 
-    if(vkCreateDevice(this->_physicalDevice, &createInfo, nullptr, &this->_device) != VK_SUCCESS) {
-        std::cerr << "[ERROR] vkCreateDevice failed" << std::endl;
-        return false;
+    bool initSwapchain()
+    {
+        return createSwapchain(this->_windowExtent.width, this->_windowExtent.height);
     }
-
-    vkGetDeviceQueue(this->_device, this->_supportedQueueFamilies.graphicsFamily.value(), 0, &this->_graphicsQueue);
-
-    return true;
-}
-
-bool create_window_surface()
-{
-    if(glfwCreateWindowSurface(this->_vkInstance, this->_window, nullptr, &this->_surface) != VK_SUCCESS) {
-        std::cerr << "[ERROR] glfwCreateWindowSurface failed" << std::endl;
-        return false;
-    }
-    return true;
-}
-
-bool init_vulkan()
-{
-    if(!this->create_vulkan_instance()) {
-        std::cerr << "[ERROR] Failed to create vulkan instance" << std::endl;
-        return false;
-    }
-
-    if(!this->create_window_surface()) {
-        std::cerr << "[ERROR] Failed to create window surface" << std::endl;
-        return false;
-    }
-
-    if(!this->select_physical_device()) {
-        std::cerr << "[ERROR] Failed to select physical device" << std::endl;
-        return false;
-    }
-
-    if(!this->create_logical_device()) {
-        std::cerr << "[ERROR] Failed to create logical device" << std::endl;
-        return false;
-    }
-
-    return true;
-}
+    bool initCommands();
+    bool initSyncStructures();
 
 private:
-    GLFWwindow* _window {nullptr};
-    glm::ivec2 _winSize {600, 600};
-    std::string _winName {""};
+    SDL_Window* _window {};
+    VkExtent2D _windowExtent {}; 
+    bool _isInitialized {false};
 
-    VkInstance _vkInstance;
-    VkPhysicalDevice _physicalDevice {VK_NULL_HANDLE};
-    VkPhysicalDeviceProperties _physicalDeviceProperties {};
-    VkDevice _device {VK_NULL_HANDLE};
-    VkQueue _graphicsQueue {VK_NULL_HANDLE};
-    VkSurfaceKHR _surface {VK_NULL_HANDLE};
+    VkInstance _instance {};
+    VkDebugUtilsMessengerEXT _debugMessenger {};
+    VkPhysicalDevice _gpu {};
+    VkDevice _device {};
+    VkSurfaceKHR _surface {};
 
-    QueueFamilyIndices _supportedQueueFamilies {};
+    VkSwapchainKHR _swapchain;
+    VkFormat _swapchainImageFormat;
+    std::vector<VkImage> _swapchainImages;
+    std::vector<VkImageView> _swapchainImageViews;
+    VkExtent2D _swapchainExtent;
+
+    std::string _name {};
+    std::atomic<bool> _running {false};
 };
 
-
 int main(int argc, char* argv[])
-{
-    Renderer renderer(600, 600, "VulkanFlow");
-    if(!renderer.Init())
-    {
+{   
+    Renderer renderer("VulkanFlow", 600, 600);
+    if(!renderer.Init()) {
         std::cerr << "[ERROR] Failed to initialize renderer" << std::endl;
         return EXIT_FAILURE;
     }
 
     renderer.Run();
+
     return EXIT_SUCCESS;
 }
