@@ -3,34 +3,49 @@
 #include "SDL_vulkan.h"
 #include "glm/fwd.hpp"
 #include <SDL2/SDL.h>
+#include <cstddef>
 #include <vulkan/vulkan.h>
 #include <VkBootstrap.h>
 #include <glm/glm.hpp>
 
 #include <iostream>
 #include <cstdlib>
+#include <cstdint>
 #include <atomic>
 #include <vulkan/vulkan_core.h>
 
 namespace Constants
 {
 #ifdef NDEBUG
-const bool IsValidationLayersEnabled = false;
+constexpr bool IsValidationLayersEnabled = false;
 #else
-const bool IsValidationLayersEnabled = true;
+constexpr bool IsValidationLayersEnabled = true;
 #endif
+
+constexpr uint32_t FrameOverlap = 2;
 }
+
+struct FrameData
+{
+    VkCommandPool commandPool;
+    VkCommandBuffer commandBuffer;
+};
 
 class Renderer
 {
 public:
-    Renderer(const std::string& name, unsigned int width, unsigned int height)
+    Renderer(const std::string& name, uint32_t width, uint32_t height)
     :   _name(name), _windowExtent{.width = width, .height = height} {}
 
     ~Renderer()
     {
         if(!this->_isInitialized) {
             return;
+        }
+
+        vkDeviceWaitIdle(this->_device);
+        for(FrameData &frame : this->_frames) {
+            vkDestroyCommandPool(this->_device, frame.commandPool, nullptr);
         }
 
         this->destroySwapchain();
@@ -130,12 +145,14 @@ private:
         vkb::Device vkbDevice = deviceBuilder.build().value();
         this->_device = vkbDevice.device;
         this->_gpu = physDevice.physical_device;
-
         std::cout << physDevice.properties.deviceName << std::endl;
+
+        this->_graphicsQueue = vkbDevice.get_queue(vkb::QueueType::graphics).value();
+        this->_graphicsQueueFamily = vkbDevice.get_queue_index(vkb::QueueType::graphics).value();
         return true;
     }
 
-    bool createSwapchain(unsigned int width, unsigned int height)
+    bool createSwapchain(uint32_t width, uint32_t height)
     {
         vkb::SwapchainBuilder swapchainBuilder {this->_gpu, this->_device, this->_surface};
         this->_swapchainImageFormat = VK_FORMAT_B8G8R8A8_UNORM;
@@ -152,6 +169,42 @@ private:
         this->_swapchainImageViews = vkbSwapchain.get_image_views().value();
         return true;
     }
+
+    bool initSwapchain()
+    {
+        return createSwapchain(this->_windowExtent.width, this->_windowExtent.height);
+    }
+
+    bool initCommands()
+    {
+        const VkCommandPoolCreateInfo cmdPoolInfo {
+            .sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO,
+            .flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT,
+            .queueFamilyIndex = this->_graphicsQueueFamily
+        };
+
+        for(FrameData &frame : this->_frames) {
+            if(vkCreateCommandPool(this->_device, &cmdPoolInfo, nullptr, &frame.commandPool) != VK_SUCCESS) {
+                std::cerr << "[ERROR] Failed to create command pool" << std::endl;
+                return false;
+            }
+
+            const VkCommandBufferAllocateInfo cmdAllocInfo {
+                .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
+                .commandPool = frame.commandPool,
+                .level = VK_COMMAND_BUFFER_LEVEL_PRIMARY,
+                .commandBufferCount = 1,
+            };
+            if(vkAllocateCommandBuffers(this->_device, &cmdAllocInfo, &frame.commandBuffer) != VK_SUCCESS) {
+                std::cerr << "[ERROR] Failed to allocate command buffers" << std::endl;
+                return false;
+            }
+        }
+
+        return true;
+
+    }
+    bool initSyncStructures();
 
     void destroySwapchain()
     {
@@ -170,12 +223,8 @@ private:
         vkDestroyInstance(this->_instance, nullptr);
     }
 
-    bool initSwapchain()
-    {
-        return createSwapchain(this->_windowExtent.width, this->_windowExtent.height);
-    }
-    bool initCommands();
-    bool initSyncStructures();
+    FrameData& getCurrentFrame() { return this->_frames[this->_frameNumber & Constants::FrameOverlap]; }
+
 
 private:
     SDL_Window* _window {};
@@ -193,6 +242,12 @@ private:
     std::vector<VkImage> _swapchainImages;
     std::vector<VkImageView> _swapchainImageViews;
     VkExtent2D _swapchainExtent;
+
+    FrameData _frames[Constants::FrameOverlap] {};
+    uint32_t _frameNumber {};
+
+    VkQueue _graphicsQueue {};
+    uint32_t _graphicsQueueFamily {};
 
     std::string _name {};
     std::atomic<bool> _running {false};
