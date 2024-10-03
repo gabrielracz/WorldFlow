@@ -1,10 +1,11 @@
 cmake_minimum_required (VERSION 3.8)
 set(PROJ_NAME "engine")
 project (PROJ_NAME)
-set (CMAKE_RUNTIME_OUTPUT_DIRECTORY "${PROJECT_SOURCE_DIR}/bin")
-set (CMAKE_LIBRARY_OUTPUT_DIRECTORY "${PROJECT_SOURCE_DIR}/bin")
-set (CMAKE_CXX_STANDARD 17)
-# set(COMPILER_FLAGS "-Og -g")
+set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${PROJECT_SOURCE_DIR}/bin")
+set(CMAKE_LIBRARY_OUTPUT_DIRECTORY "${PROJECT_SOURCE_DIR}/bin")
+set(CMAKE_CXX_STANDARD 17)
+set(LIBRARY_PATH ${CMAKE_CURRENT_SOURCE_DIR}/libs)
+
 
 #sources
 file(GLOB_RECURSE SRCS "${CMAKE_CURRENT_SOURCE_DIR}/src/*.cpp")
@@ -13,6 +14,8 @@ file(GLOB_RECURSE HDRS "${CMAKE_CURRENT_SOURCE_DIR}/include/*.hpp")
 
 configure_file(${CMAKE_CURRENT_SOURCE_DIR}/include/PathConfig.hpp.in ${CMAKE_CURRENT_SOURCE_DIR}/include/PathConfig.hpp)
 add_executable(${PROJ_NAME} ${HDRS} ${SRCS})
+# set_target_properties(${PROJ_NAME} PROPERTIES DEBUG_POSTFIX _d)
+
 # add_definitions(${COMPILER_FLAGS})
 target_include_directories(${PROJ_NAME} PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
 
@@ -24,7 +27,12 @@ add_subdirectory(libs)
 target_include_directories(${PROJ_NAME} PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}")
 target_link_libraries(${PROJ_NAME} vkbootstrap vma glm imgui stb_image fastgltf::fastgltf)
 target_link_libraries(${PROJ_NAME} Vulkan::Vulkan SDL2::SDL2)
+
+find_library(GLFW_LIBRARY glfw3 HINTS ${LIBRARY_PATH}/glfw)
+target_link_libraries(${PROJ_NAME} ${GLFW_LIBRARY})
+
 target_include_directories(${PROJ_NAME} PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/libs/vulkan")
+target_include_directories(${PROJ_NAME} PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/libs/glfw")
 
 # shaders
 find_program(GLSL_VALIDATOR glslangValidator HINTS /usr/bin /usr/local/bin $ENV{VULKAN_SDK}/Bin/ $ENV{VULKAN_SDK}/Bin32/)
@@ -51,3 +59,41 @@ add_custom_target(
     Shaders 
     DEPENDS ${SPIRV_BINARY_FILES}
     )
+
+#     if(WIN32)
+#     # Avoid ZERO_CHECK target in Visual Studio
+#     set(CMAKE_SUPPRESS_REGENERATION TRUE)
+
+#     set_target_properties(${PROJ_NAME} PROPERTIES
+#         VS_GLOBAL_CXX_FLAGS "${VS_GLOBAL_CXX_FLAGS} /STACK:8388608"
+#     )
+    
+#     target_compile_options(${PROJ_NAME} PRIVATE "/bigobj")
+ 
+#     # This will use the proper libraries in debug mode in Visual Studio
+#     set_target_properties(${PROJ_NAME} PROPERTIES DEBUG_POSTFIX _d)
+
+#     # Specify the source directory containing DLLs
+#     set(SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/libs/lib)
+
+#     # Specify the destination directory
+#     set(DESTINATION_DIR ${CMAKE_CURRENT_BINARY_DIR}/Release)
+
+#     # Get a list of all DLLs in the source directory
+#     file(GLOB DLLS ${SOURCE_DIR}/*.dll)
+
+#     # Create a custom command for each DLL
+#     foreach(DLL ${DLLS})
+#         get_filename_component(DLL_NAME ${DLL} NAME)
+#         add_custom_command(
+#             TARGET ${PROJ_NAME} POST_BUILD
+#             COMMAND ${CMAKE_COMMAND} -E copy_if_different
+#                 ${DLL}
+#                 ${DESTINATION_DIR}/${DLL_NAME}
+#             COMMENT "Copying ${DLL_NAME} to ${DESTINATION_DIR}"
+#         )
+#     endforeach()
+
+#     # Create a custom target to group the commands
+#     add_custom_target(CopyDLLs ALL DEPENDS ${DLLS})
+# endif(WIN32)
