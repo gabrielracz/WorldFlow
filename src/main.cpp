@@ -1,9 +1,10 @@
 #include <iostream>
-#include "types.hpp"
+#include <vulkan/vulkan_core.h>
 #define GLFW_INCLUDE_VULKAN
 #include <glfw3.h>
 #include <glm/glm.hpp>
 
+#include <cstring>
 #include <cstdint>
 #include <vector>
 #include <algorithm>
@@ -90,7 +91,7 @@ bool is_validation_layers_supported()
     for (const char* layerName : Constants::ValidationLayers) {
         bool layerFound = false;
         for (const auto& layerProperties : availableLayers) {
-            if (strcmp(layerName, layerProperties.layerName) == 0) {
+            if (std::strcmp(layerName, layerProperties.layerName) == 0) {
                 layerFound = true;
                 break;
             }
@@ -151,16 +152,16 @@ QueueFamilyIndices get_supported_queue_families(const VkPhysicalDevice& device)
     std::vector<VkQueueFamilyProperties> queueFamilies(queueFamilyCount);
     vkGetPhysicalDeviceQueueFamilyProperties(device, &queueFamilyCount, queueFamilies.data());
 
-
     int i = 0;
     for (const auto& queueFamily : queueFamilies) {
         VkBool32 presentSupport {false};
         vkGetPhysicalDeviceSurfaceSupportKHR(device, i, this->_surface, &presentSupport);
-        if(presentSupport) {
-            indices.presentFamily = i;
-        }
         if (queueFamily.queueFlags & VK_QUEUE_GRAPHICS_BIT) {
             indices.graphicsFamily = i;
+            if(presentSupport)
+            {
+                indices.presentFamily = i;
+            }
         } else if (indices.IsComplete())
         {
             break;
@@ -172,17 +173,15 @@ QueueFamilyIndices get_supported_queue_families(const VkPhysicalDevice& device)
 }
 
 
-bool is_device_suitable(const VkPhysicalDevice& device)
+bool is_device_suitable(const VkPhysicalDevice& device, VkPhysicalDeviceProperties& properties)
 {
-    VkPhysicalDeviceProperties deviceProperties{};
+    // VkPhysicalDeviceProperties deviceProperties{};
     VkPhysicalDeviceFeatures deviceFeatures{};
-    vkGetPhysicalDeviceProperties(device, &deviceProperties);
+    vkGetPhysicalDeviceProperties(device, &properties);
     vkGetPhysicalDeviceFeatures(device, &deviceFeatures);
-    std::cout << deviceProperties.deviceName << std::endl;
     QueueFamilyIndices queueFamilies = this->get_supported_queue_families(device);
 
-    return deviceProperties.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU &&
-           deviceFeatures.geometryShader &&
+    return deviceFeatures.geometryShader &&
            queueFamilies.IsComplete() && queueFamilies.graphicsFamily == queueFamilies.presentFamily;
 }
 
@@ -198,9 +197,11 @@ bool select_physical_device()
     std::vector<VkPhysicalDevice> devices(deviceCount);
     vkEnumeratePhysicalDevices(this->_vkInstance, &deviceCount, devices.data());
     for(const VkPhysicalDevice& dev : devices) {
-        if(this->is_device_suitable(dev)) {
+        if(this->is_device_suitable(dev, this->_physicalDeviceProperties)) {
             this->_physicalDevice = dev;
             this->_supportedQueueFamilies = this->get_supported_queue_families(dev);
+            std::cout << this->_physicalDeviceProperties.deviceName << std::endl;
+            break;
         }
     }
     return this->_physicalDevice != VK_NULL_HANDLE;   
@@ -284,6 +285,7 @@ private:
 
     VkInstance _vkInstance;
     VkPhysicalDevice _physicalDevice {VK_NULL_HANDLE};
+    VkPhysicalDeviceProperties _physicalDeviceProperties {};
     VkDevice _device {VK_NULL_HANDLE};
     VkQueue _graphicsQueue {VK_NULL_HANDLE};
     VkSurfaceKHR _surface {VK_NULL_HANDLE};

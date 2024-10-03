@@ -1,11 +1,11 @@
 cmake_minimum_required (VERSION 3.8)
 set(PROJ_NAME "engine")
 project (PROJ_NAME)
-set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${PROJECT_SOURCE_DIR}/bin")
-set(CMAKE_LIBRARY_OUTPUT_DIRECTORY "${PROJECT_SOURCE_DIR}/bin")
+# set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${PROJECT_SOURCE_DIR}/bin")
+# set(CMAKE_LIBRARY_OUTPUT_DIRECTORY "${PROJECT_SOURCE_DIR}/bin")
 set(CMAKE_CXX_STANDARD 17)
 set(LIBRARY_PATH ${CMAKE_CURRENT_SOURCE_DIR}/libs)
-
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 #sources
 file(GLOB_RECURSE SRCS "${CMAKE_CURRENT_SOURCE_DIR}/src/*.cpp")
@@ -26,11 +26,15 @@ add_subdirectory(libs)
 
 target_include_directories(${PROJ_NAME} PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}")
 target_link_libraries(${PROJ_NAME} vkbootstrap vma glm imgui stb_image fastgltf::fastgltf)
-target_link_libraries(${PROJ_NAME} Vulkan::Vulkan SDL2::SDL2)
+# target_link_libraries(${PROJ_NAME} Vulkan::Vulkan SDL2::SDL2)
+target_link_libraries(${PROJ_NAME} Vulkan::Vulkan)
+if(NOT WIN32)
+    find_library(GLFW_LIBRARY glfw)
+elseif(WIN32)
+    find_library(GLFW_LIBRARY glfw3 HINTS ${LIBRARY_PATH}/glfw)
+endif(NOT WIN32)
 
-find_library(GLFW_LIBRARY glfw3 HINTS ${LIBRARY_PATH}/glfw)
 target_link_libraries(${PROJ_NAME} ${GLFW_LIBRARY})
-
 target_include_directories(${PROJ_NAME} PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/libs/vulkan")
 target_include_directories(${PROJ_NAME} PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/libs/glfw")
 
@@ -40,7 +44,7 @@ file(GLOB_RECURSE GLSL_SOURCE_FILES
     "${PROJECT_SOURCE_DIR}/shaders/*.frag"
     "${PROJECT_SOURCE_DIR}/shaders/*.vert"
     "${PROJECT_SOURCE_DIR}/shaders/*.comp"
-    )
+)
 
 foreach(GLSL ${GLSL_SOURCE_FILES})
   message(STATUS "BUILDING SHADER")

@@ -8,7 +8,7 @@ add_library(stb_image INTERFACE)
 
 add_subdirectory(fastgltf)
 add_subdirectory(fmt EXCLUDE_FROM_ALL)
-add_subdirectory(SDL EXCLUDE_FROM_ALL)
+# add_subdirectory(SDL EXCLUDE_FROM_ALL)
 
 target_sources(vkbootstrap PRIVATE 
   vkbootstrap/VkBootstrap.h
@@ -44,9 +44,11 @@ target_sources(imgui PRIVATE
   imgui/imgui_widgets.cpp
   imgui/imgui_tables.cpp
   imgui/imgui_impl_vulkan.cpp
-  imgui/imgui_impl_sdl2.cpp
+#   imgui/imgui_impl_glfw.cpp
+#   imgui/imgui_impl_sdl2.cpp
   )
 
-target_link_libraries(imgui PUBLIC Vulkan::Vulkan SDL2::SDL2)
+# target_link_libraries(imgui PUBLIC Vulkan::Vulkan SDL2::SDL2)
+target_link_libraries(imgui PUBLIC Vulkan::Vulkan)
 
 target_include_directories(stb_image INTERFACE stb_image)
