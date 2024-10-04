@@ -1,8 +1,5 @@
-#include "SDL_events.h"
-#include "SDL_video.h"
-#include "SDL_vulkan.h"
-#include "glm/fwd.hpp"
 #include <SDL2/SDL.h>
+#include "SDL_vulkan.h"
 #include <cstddef>
 #include <vulkan/vulkan.h>
 #include <VkBootstrap.h>
@@ -14,6 +11,9 @@
 #include <atomic>
 #include <vulkan/vulkan_core.h>
 
+#include "utils.hpp"
+
+
 namespace Constants
 {
 #ifdef NDEBUG
@@ -21,14 +21,17 @@ constexpr bool IsValidationLayersEnabled = false;
 #else
 constexpr bool IsValidationLayersEnabled = true;
 #endif
-
 constexpr uint32_t FrameOverlap = 2;
+constexpr uint64_t FenceTimeoutNs = 1000000000;
 }
 
 struct FrameData
 {
-    VkCommandPool commandPool;
-    VkCommandBuffer commandBuffer;
+    VkCommandPool commandPool {};
+    VkCommandBuffer commandBuffer {};
+    VkSemaphore swapchainSemaphore {};
+    VkSemaphore renderSemaphore {};
+    VkFence renderFence {};
 };
 
 class Renderer
@@ -46,6 +49,9 @@ public:
         vkDeviceWaitIdle(this->_device);
         for(FrameData &frame : this->_frames) {
             vkDestroyCommandPool(this->_device, frame.commandPool, nullptr);
+            vkDestroyFence(this->_device, frame.renderFence, nullptr);
+            vkDestroySemaphore(this->_device, frame.swapchainSemaphore, nullptr);
+            vkDestroySemaphore(this->_device, frame.renderSemaphore, nullptr);
         }
 
         this->destroySwapchain();
@@ -56,7 +62,12 @@ public:
 
     bool Init()
     {
-        this->_isInitialized =  this->initWindow() && this->initVulkan();    
+        this->_isInitialized =  this->initWindow() &&
+                                this->initVulkan() &&
+                                this->initSwapchain() &&
+                                this->initCommands() &&
+                                this->initSyncStructures();
+
         return this->_isInitialized;
     }
 
@@ -77,10 +88,19 @@ private:
         }
     }
 
+    bool draw()
+    {
+        // wait for gpu to be done with last frame
+        VK_ASSERT(vkWaitForFences(this->_device, 1, &this->getCurrentFrame().renderFence, true, Constants::FenceTimeoutNs));
+        VK_ASSERT(vkResetFences(this->_device, 1, &this->getCurrentFrame().renderFence));
+        return false;
+    }
+
     void renderLoop()
     {
         while(this->_running) {
             this->pollEvents();
+            this->draw();
         }
     }
 
@@ -167,6 +187,7 @@ private:
         this->_swapchainExtent     = vkbSwapchain.extent;
         this->_swapchainImages     = vkbSwapchain.get_images().value();
         this->_swapchainImageViews = vkbSwapchain.get_image_views().value();
+        this->_swapchain           = vkbSwapchain.swapchain;
         return true;
     }
 
@@ -184,10 +205,7 @@ private:
         };
 
         for(FrameData &frame : this->_frames) {
-            if(vkCreateCommandPool(this->_device, &cmdPoolInfo, nullptr, &frame.commandPool) != VK_SUCCESS) {
-                std::cerr << "[ERROR] Failed to create command pool" << std::endl;
-                return false;
-            }
+            VK_ASSERT(vkCreateCommandPool(this->_device, &cmdPoolInfo, nullptr, &frame.commandPool));
 
             const VkCommandBufferAllocateInfo cmdAllocInfo {
                 .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
@@ -195,16 +213,31 @@ private:
                 .level = VK_COMMAND_BUFFER_LEVEL_PRIMARY,
                 .commandBufferCount = 1,
             };
-            if(vkAllocateCommandBuffers(this->_device, &cmdAllocInfo, &frame.commandBuffer) != VK_SUCCESS) {
-                std::cerr << "[ERROR] Failed to allocate command buffers" << std::endl;
-                return false;
-            }
+            VK_ASSERT(vkAllocateCommandBuffers(this->_device, &cmdAllocInfo, &frame.commandBuffer));
         }
 
         return true;
 
     }
-    bool initSyncStructures();
+    bool initSyncStructures()
+    {
+        const VkFenceCreateInfo fenceInfo {
+            .sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO,
+            .flags = VK_FENCE_CREATE_SIGNALED_BIT // don't block on first wait
+        };
+
+        const VkSemaphoreCreateInfo semaphoreInfo = {
+            .sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO,
+        };
+
+        for(FrameData &frame : this->_frames) {
+            VK_ASSERT(vkCreateFence(this->_device, &fenceInfo, nullptr, &frame.renderFence));
+            VK_ASSERT(vkCreateSemaphore(this->_device, &semaphoreInfo, nullptr, &frame.swapchainSemaphore));
+            VK_ASSERT(vkCreateSemaphore(this->_device, &semaphoreInfo, nullptr, &frame.renderSemaphore));
+        }
+
+        return true;
+    }
 
     void destroySwapchain()
     {
