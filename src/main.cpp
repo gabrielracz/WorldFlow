@@ -22,7 +22,7 @@ constexpr bool IsValidationLayersEnabled = false;
 constexpr bool IsValidationLayersEnabled = true;
 #endif
 constexpr uint32_t FrameOverlap = 2;
-constexpr uint64_t FenceTimeoutNs = 1000000000;
+constexpr uint64_t TimeoutNs = 1000000000;
 }
 
 struct FrameData
@@ -91,9 +91,23 @@ private:
     bool draw()
     {
         // wait for gpu to be done with last frame
-        VK_ASSERT(vkWaitForFences(this->_device, 1, &this->getCurrentFrame().renderFence, true, Constants::FenceTimeoutNs));
+        VK_ASSERT(vkWaitForFences(this->_device, 1, &this->getCurrentFrame().renderFence, true, Constants::TimeoutNs));
         VK_ASSERT(vkResetFences(this->_device, 1, &this->getCurrentFrame().renderFence));
-        return false;
+
+        uint32_t swapchainImageIndex;
+        VK_CHECK(vkAcquireNextImageKHR(this->_device, this->_swapchain, Constants::TimeoutNs, this->getCurrentFrame().swapchainSemaphore, nullptr, &swapchainImageIndex));
+
+        VkCommandBuffer cmd = this->getCurrentFrame().commandBuffer;
+        VK_ASSERT(vkResetCommandBuffer(cmd, 0)); // we can safely reset as we waited on the fence
+        
+        VkCommandBufferBeginInfo cmdBeginInfo {
+            .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
+            .flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT
+        };
+
+        VK_ASSERT(vkBeginCommandBuffer(cmd, &cmdBeginInfo));
+
+        return true;
     }
 
     void renderLoop()
