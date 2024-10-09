@@ -6,12 +6,18 @@
 #include <glm/glm.hpp>
 
 #include <iostream>
+#include <fstream>
 #include <cstdlib>
 #include <cstdint>
 #include <atomic>
+#include <thread>
+#include <functional>
 #include <vulkan/vulkan_core.h>
+#include <cstddef>
 
 #include "utils.hpp"
+#include "shared/vk_images.h"
+#include "shared/vk_initializers.h"
 
 
 namespace Constants
@@ -46,6 +52,9 @@ public:
             return;
         }
 
+        this->_running = false;
+        this->_renderThread.join();
+
         vkDeviceWaitIdle(this->_device);
         for(FrameData &frame : this->_frames) {
             vkDestroyCommandPool(this->_device, frame.commandPool, nullptr);
@@ -74,8 +83,10 @@ public:
     void Run()
     {
         this->_running = true;
-        this->renderLoop();
+        this->_renderThread = std::thread(std::bind(&Renderer::renderLoop, this));
     }
+    
+    bool IsRunning() const { return this->_running; }
 
 private:
     void pollEvents()
@@ -94,8 +105,10 @@ private:
         VK_ASSERT(vkWaitForFences(this->_device, 1, &this->getCurrentFrame().renderFence, true, Constants::TimeoutNs));
         VK_ASSERT(vkResetFences(this->_device, 1, &this->getCurrentFrame().renderFence));
 
+        // register the semaphore to be signalled once the next frame (result of this call) is ready. does not block
         uint32_t swapchainImageIndex;
         VK_CHECK(vkAcquireNextImageKHR(this->_device, this->_swapchain, Constants::TimeoutNs, this->getCurrentFrame().swapchainSemaphore, nullptr, &swapchainImageIndex));
+        VkImage frameImage = this->_swapchainImages[swapchainImageIndex];
 
         VkCommandBuffer cmd = this->getCurrentFrame().commandBuffer;
         VK_ASSERT(vkResetCommandBuffer(cmd, 0)); // we can safely reset as we waited on the fence
@@ -105,8 +118,68 @@ private:
             .flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT
         };
 
+        // begin recording commands
         VK_ASSERT(vkBeginCommandBuffer(cmd, &cmdBeginInfo));
 
+
+        // make next swapchain image writeable
+        vkutil::transition_image(cmd, frameImage, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL);
+        VkClearColorValue clearValue {
+           (1 + std::sin(this->_frameNumber / 120.0f)) / 2.0f,
+           (1 + std::cos(this->_frameNumber / 120.0f)) / 2.0f,
+           (1 + std::sin(this->_frameNumber * 2.0f / 120.0f)) / 2.0f,
+           1.0f
+        };
+        VkImageSubresourceRange clearRange = vkinit::image_subresource_range(VK_IMAGE_ASPECT_COLOR_BIT);
+        vkCmdClearColorImage(cmd, frameImage, VK_IMAGE_LAYOUT_GENERAL, &clearValue, 1, &clearRange);
+        vkutil::transition_image(cmd, frameImage, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
+
+        VK_ASSERT(vkEndCommandBuffer(cmd)); //commands recorded
+
+        // prepare queue submission
+        VkCommandBufferSubmitInfo cmdInfo {
+            .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO,
+            .commandBuffer = cmd
+        };
+        VkSemaphoreSubmitInfo waitSwapchainInfo { // use pre-registered swapchain here wait semaphore to wait until swapchain is ready
+            .sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO,
+            .semaphore = this->getCurrentFrame().swapchainSemaphore,
+            .value = 1,
+            .stageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT_KHR
+        };
+        VkSemaphoreSubmitInfo signalRenderedInfo {
+            .sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO,
+            .semaphore = this->getCurrentFrame().renderSemaphore,
+            .value = 1,
+            .stageMask = VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT
+        };
+        VkSubmitInfo2 queueSubmitInfo = {
+            .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO_2,
+            .waitSemaphoreInfoCount = 1,
+            .pWaitSemaphoreInfos = &waitSwapchainInfo,
+            
+            .commandBufferInfoCount = 1,
+            .pCommandBufferInfos = &cmdInfo,
+
+            .signalSemaphoreInfoCount = 1,
+            .pSignalSemaphoreInfos = &signalRenderedInfo
+        };
+
+        // renderFence would now block until rendering is done (frame.renderSemaphore will also signal at this time)
+        VK_ASSERT(vkQueueSubmit2(this->_graphicsQueue, 1, &queueSubmitInfo, this->getCurrentFrame().renderFence));
+
+        // present rendered image:
+        VkPresentInfoKHR presentInfo {
+            .sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR,
+            .waitSemaphoreCount = 1,
+            .pWaitSemaphores = &this->getCurrentFrame().renderSemaphore, //wait for render complete signal
+
+            .swapchainCount = 1,
+            .pSwapchains = &this->_swapchain,
+            .pImageIndices = &swapchainImageIndex,
+        };
+        VK_ASSERT(vkQueuePresentKHR(this->_graphicsQueue, &presentInfo));
+        this->_frameNumber++;
         return true;
     }
 
@@ -115,6 +188,7 @@ private:
         while(this->_running) {
             this->pollEvents();
             this->draw();
+            std::this_thread::sleep_for(std::chrono::duration(std::chrono::milliseconds(16)));
         }
     }
 
@@ -277,6 +351,7 @@ private:
     SDL_Window* _window {};
     VkExtent2D _windowExtent {}; 
     bool _isInitialized {false};
+    std::thread _renderThread;
 
     VkInstance _instance {};
     VkDebugUtilsMessengerEXT _debugMessenger {};
@@ -301,7 +376,8 @@ private:
 };
 
 int main(int argc, char* argv[])
-{   
+{
+    std::cout << "hello" << std::endl;
     Renderer renderer("VulkanFlow", 600, 600);
     if(!renderer.Init()) {
         std::cerr << "[ERROR] Failed to initialize renderer" << std::endl;
@@ -309,6 +385,7 @@ int main(int argc, char* argv[])
     }
 
     renderer.Run();
+    while(renderer.IsRunning()) {}
 
     return EXIT_SUCCESS;
 }

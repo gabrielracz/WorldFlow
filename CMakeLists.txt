@@ -3,30 +3,36 @@ set(PROJ_NAME "engine")
 project (PROJ_NAME)
 # set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${PROJECT_SOURCE_DIR}/bin")
 # set(CMAKE_LIBRARY_OUTPUT_DIRECTORY "${PROJECT_SOURCE_DIR}/bin")
-set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD 20)
 set(LIBRARY_PATH ${CMAKE_CURRENT_SOURCE_DIR}/libs)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+set(CMAKE_BUILD_TYPE DEBUG)
+add_compile_options("/DEBUG")
 
 #sources
 file(GLOB_RECURSE SRCS "${CMAKE_CURRENT_SOURCE_DIR}/src/*.cpp")
 file(GLOB_RECURSE HDRS "${CMAKE_CURRENT_SOURCE_DIR}/include/*.hpp")
 
-
 configure_file(${CMAKE_CURRENT_SOURCE_DIR}/include/PathConfig.hpp.in ${CMAKE_CURRENT_SOURCE_DIR}/include/PathConfig.hpp)
-add_executable(${PROJ_NAME} ${HDRS} ${SRCS})
+add_executable(${PROJ_NAME} WIN32 ${HDRS} ${SRCS})
 # set_target_properties(${PROJ_NAME} PROPERTIES DEBUG_POSTFIX _d)
 
 # add_definitions(${COMPILER_FLAGS})
 target_include_directories(${PROJ_NAME} PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
-
+target_include_directories(${PROJ_NAME} PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/libs/vulkan")
+target_include_directories(${PROJ_NAME} PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/libs/glfw")
+target_include_directories(${PROJ_NAME} PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/libs/glfw")
+# target_include_directories(${PROJ_NAME} PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/libs/fmt/include")
 
 # libraries
 find_package(Vulkan REQUIRED)
 add_subdirectory(libs)
+add_subdirectory(shared)
 
 target_include_directories(${PROJ_NAME} PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}")
+target_link_libraries(${PROJ_NAME} vkguide_shared)
+target_link_libraries(${PROJ_NAME} Vulkan::Vulkan sdl2)
 target_link_libraries(${PROJ_NAME} vkbootstrap vma glm imgui stb_image fastgltf::fastgltf)
-target_link_libraries(${PROJ_NAME} Vulkan::Vulkan SDL2::SDL2)
 # target_link_libraries(${PROJ_NAME} Vulkan::Vulkan)
 if(NOT WIN32)
     find_library(GLFW_LIBRARY glfw)
@@ -35,8 +41,6 @@ elseif(WIN32)
 endif(NOT WIN32)
 
 target_link_libraries(${PROJ_NAME} ${GLFW_LIBRARY})
-target_include_directories(${PROJ_NAME} PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/libs/vulkan")
-target_include_directories(${PROJ_NAME} PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/libs/glfw")
 
 # shaders
 find_program(GLSL_VALIDATOR glslangValidator HINTS /usr/bin /usr/local/bin $ENV{VULKAN_SDK}/Bin/ $ENV{VULKAN_SDK}/Bin32/)
