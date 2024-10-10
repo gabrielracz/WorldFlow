@@ -7,7 +7,7 @@ set(CMAKE_CXX_STANDARD 20)
 set(LIBRARY_PATH ${CMAKE_CURRENT_SOURCE_DIR}/libs)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 set(CMAKE_BUILD_TYPE DEBUG)
-add_compile_options("/DEBUG")
+#add_compile_options("/DEBUG")
 
 #sources
 file(GLOB_RECURSE SRCS "${CMAKE_CURRENT_SOURCE_DIR}/src/*.cpp")
@@ -20,7 +20,6 @@ add_executable(${PROJ_NAME} WIN32 ${HDRS} ${SRCS})
 # add_definitions(${COMPILER_FLAGS})
 target_include_directories(${PROJ_NAME} PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
 target_include_directories(${PROJ_NAME} PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/libs/vulkan")
-target_include_directories(${PROJ_NAME} PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/libs/glfw")
 target_include_directories(${PROJ_NAME} PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/libs/glfw")
 # target_include_directories(${PROJ_NAME} PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/libs/fmt/include")
 

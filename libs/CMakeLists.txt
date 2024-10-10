@@ -29,6 +29,7 @@ target_include_directories(sdl2 INTERFACE $ENV{VULKAN_SDK}/Include/SDL2 )
 target_link_directories(sdl2 INTERFACE $ENV{VULKAN_SDK}/Lib )
 
 target_link_libraries(sdl2 INTERFACE SDL2 SDL2main)
+# target_link_libraries(sdl2 INTERFACE SDL2)
 
 add_library(imgui STATIC)
 

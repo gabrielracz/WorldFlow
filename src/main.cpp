@@ -344,7 +344,10 @@ private:
         vkDestroyInstance(this->_instance, nullptr);
     }
 
-    FrameData& getCurrentFrame() { return this->_frames[this->_frameNumber & Constants::FrameOverlap]; }
+    FrameData& getCurrentFrame()
+    { 
+        return this->_frames[this->_frameNumber % Constants::FrameOverlap];
+    }
 
 
 private:
@@ -377,7 +380,8 @@ private:
 
 int main(int argc, char* argv[])
 {
-    std::cout << "hello" << std::endl;
+    // std::cout << "hello" << std::endl;
+    SDL_Log("hello");
     Renderer renderer("VulkanFlow", 600, 600);
     if(!renderer.Init()) {
         std::cerr << "[ERROR] Failed to initialize renderer" << std::endl;
