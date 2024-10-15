@@ -5,6 +5,7 @@
 #include <unordered_map>
 #include <vector>
 #include <iostream>
+#include <deque>
 
 static std::unordered_map<VkResult, std::string> ErrorDescriptions = {
     {VK_SUCCESS, "Command successfully completed"},

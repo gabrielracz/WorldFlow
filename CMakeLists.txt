@@ -13,7 +13,7 @@ set(CMAKE_BUILD_TYPE DEBUG)
 file(GLOB_RECURSE SRCS "${CMAKE_CURRENT_SOURCE_DIR}/src/*.cpp")
 file(GLOB_RECURSE HDRS "${CMAKE_CURRENT_SOURCE_DIR}/include/*.hpp")
 
-configure_file(${CMAKE_CURRENT_SOURCE_DIR}/include/PathConfig.hpp.in ${CMAKE_CURRENT_SOURCE_DIR}/include/PathConfig.hpp)
+configure_file(${CMAKE_CURRENT_SOURCE_DIR}/include/path_config.hpp.in ${CMAKE_CURRENT_SOURCE_DIR}/include/path_config.hpp)
 add_executable(${PROJ_NAME} WIN32 ${HDRS} ${SRCS})
 # set_target_properties(${PROJ_NAME} PROPERTIES DEBUG_POSTFIX _d)
 

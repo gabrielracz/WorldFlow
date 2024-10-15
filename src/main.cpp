@@ -1,8 +1,12 @@
 #include <SDL2/SDL.h>
 #include "SDL_vulkan.h"
-#include <cstddef>
+
 #include <vulkan/vulkan.h>
 #include <VkBootstrap.h>
+
+#define VMA_IMPLEMENTATION
+#include "vk_mem_alloc.h"
+
 #include <glm/glm.hpp>
 
 #include <iostream>
@@ -14,6 +18,7 @@
 #include <functional>
 #include <vulkan/vulkan_core.h>
 #include <cstddef>
+#include <deque>
 
 #include "utils.hpp"
 #include "shared/vk_images.h"
@@ -31,6 +36,20 @@ constexpr uint32_t FrameOverlap = 2;
 constexpr uint64_t TimeoutNs = 1000000000;
 }
 
+// Actually a LIFO stack
+struct DeletionQueue
+{
+    void push(std::function<void()>&& function) { deletors.push_front(function); }
+    void flush()
+    {
+        for(auto func : deletors) {
+            func();
+        }
+        deletors.clear();
+    }
+    std::deque<std::function<void()>> deletors;
+};
+
 struct FrameData
 {
     VkCommandPool commandPool {};
@@ -38,7 +57,9 @@ struct FrameData
     VkSemaphore swapchainSemaphore {};
     VkSemaphore renderSemaphore {};
     VkFence renderFence {};
+    DeletionQueue deletionQueue;
 };
+
 
 class Renderer
 {
@@ -52,17 +73,15 @@ public:
             return;
         }
 
-        this->_running = false;
-        this->_renderThread.join();
-
         vkDeviceWaitIdle(this->_device);
         for(FrameData &frame : this->_frames) {
             vkDestroyCommandPool(this->_device, frame.commandPool, nullptr);
             vkDestroyFence(this->_device, frame.renderFence, nullptr);
             vkDestroySemaphore(this->_device, frame.swapchainSemaphore, nullptr);
             vkDestroySemaphore(this->_device, frame.renderSemaphore, nullptr);
+            frame.deletionQueue.flush();
         }
-
+        this->_mainDeletionQueue.flush();
         this->destroySwapchain();
         this->destroyVulkan();
         SDL_DestroyWindow(this->_window);
@@ -80,13 +99,13 @@ public:
         return this->_isInitialized;
     }
 
-    void Run()
+    void Render()
     {
-        this->_running = true;
-        this->_renderThread = std::thread(std::bind(&Renderer::renderLoop, this));
+        this->pollEvents();
+        this->draw();
     }
     
-    bool IsRunning() const { return this->_running; }
+    bool ShouldClose() const { return this->_shouldClose; }
 
 private:
     void pollEvents()
@@ -94,9 +113,21 @@ private:
         SDL_Event event;
         while(SDL_PollEvent(&event)) {
             if(event.type == SDL_QUIT) {
-                this->_running = false;
+                this->_shouldClose = true;
             }
         }
+    }
+
+    void drawBackground(VkCommandBuffer cmd)
+    {
+        VkClearColorValue clearValue {
+           (1 + std::sin(this->_frameNumber / 120.0f)) / 2.0f,
+           (1 + std::cos(this->_frameNumber / 120.0f)) / 2.0f,
+           (1 + std::sin(this->_frameNumber * 2.0f / 120.0f)) / 2.0f,
+           1.0f
+        };
+        VkImageSubresourceRange clearRange = vkinit::image_subresource_range(VK_IMAGE_ASPECT_COLOR_BIT);
+        vkCmdClearColorImage(cmd, this->_drawImage.image, VK_IMAGE_LAYOUT_GENERAL, &clearValue, 1, &clearRange);
     }
 
     bool draw()
@@ -104,6 +135,7 @@ private:
         // wait for gpu to be done with last frame
         VK_ASSERT(vkWaitForFences(this->_device, 1, &this->getCurrentFrame().renderFence, true, Constants::TimeoutNs));
         VK_ASSERT(vkResetFences(this->_device, 1, &this->getCurrentFrame().renderFence));
+        this->getCurrentFrame().deletionQueue.flush(); // delete per-frame objects
 
         // register the semaphore to be signalled once the next frame (result of this call) is ready. does not block
         uint32_t swapchainImageIndex;
@@ -112,28 +144,27 @@ private:
 
         VkCommandBuffer cmd = this->getCurrentFrame().commandBuffer;
         VK_ASSERT(vkResetCommandBuffer(cmd, 0)); // we can safely reset as we waited on the fence
-        
+
+
+        // begin recording commands
         VkCommandBufferBeginInfo cmdBeginInfo {
             .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
             .flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT
         };
-
-        // begin recording commands
         VK_ASSERT(vkBeginCommandBuffer(cmd, &cmdBeginInfo));
+        // make draw image writeable
+        vkutil::transition_image(cmd, this->_drawImage.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL);
+        
+        drawBackground(cmd);
+        
+        // prepare draw image -> swapchain image copy
+        vkutil::transition_image(cmd, this->_drawImage.image, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+        vkutil::transition_image(cmd, this->_swapchainImages[swapchainImageIndex], VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+        VkExtent2D drawExtent = {.width = this->_drawImage.imageExtent.width, .height = this->_drawImage.imageExtent.height};
+        vkutil::copy_image_to_image(cmd, this->_drawImage.image, this->_swapchainImages[swapchainImageIndex], drawExtent, this->_swapchainExtent);
 
-
-        // make next swapchain image writeable
-        vkutil::transition_image(cmd, frameImage, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL);
-        VkClearColorValue clearValue {
-           (1 + std::sin(this->_frameNumber / 120.0f)) / 2.0f,
-           (1 + std::cos(this->_frameNumber / 120.0f)) / 2.0f,
-           (1 + std::sin(this->_frameNumber * 2.0f / 120.0f)) / 2.0f,
-           1.0f
-        };
-        VkImageSubresourceRange clearRange = vkinit::image_subresource_range(VK_IMAGE_ASPECT_COLOR_BIT);
-        vkCmdClearColorImage(cmd, frameImage, VK_IMAGE_LAYOUT_GENERAL, &clearValue, 1, &clearRange);
-        vkutil::transition_image(cmd, frameImage, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
-
+        // transition to present format
+        vkutil::transition_image(cmd, this->_swapchainImages[swapchainImageIndex], VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
         VK_ASSERT(vkEndCommandBuffer(cmd)); //commands recorded
 
         // prepare queue submission
@@ -181,15 +212,6 @@ private:
         VK_ASSERT(vkQueuePresentKHR(this->_graphicsQueue, &presentInfo));
         this->_frameNumber++;
         return true;
-    }
-
-    void renderLoop()
-    {
-        while(this->_running) {
-            this->pollEvents();
-            this->draw();
-            std::this_thread::sleep_for(std::chrono::duration(std::chrono::milliseconds(16)));
-        }
     }
 
     bool initWindow()
@@ -257,6 +279,17 @@ private:
 
         this->_graphicsQueue = vkbDevice.get_queue(vkb::QueueType::graphics).value();
         this->_graphicsQueueFamily = vkbDevice.get_queue_index(vkb::QueueType::graphics).value();
+
+        // initialize allocator
+        VmaAllocatorCreateInfo allocatorInfo = {
+            .flags = VMA_ALLOCATOR_CREATE_BUFFER_DEVICE_ADDRESS_BIT,
+            .physicalDevice = this->_gpu,
+            .device = this->_device,
+            .instance = this->_instance, 
+        };
+        vmaCreateAllocator(&allocatorInfo, &this->_allocator);
+        this->_mainDeletionQueue.push([=](){vmaDestroyAllocator(this->_allocator);});
+
         return true;
     }
 
@@ -279,9 +312,48 @@ private:
         return true;
     }
 
+    bool createDrawImage()
+    {
+        // Hardcord image format to float16 and extent to current window size
+        this->_drawImage.imageFormat = VK_FORMAT_R16G16B16A16_SFLOAT;
+        this->_drawImage.imageExtent = VkExtent3D {
+            this->_windowExtent.width,
+            this->_windowExtent.height,
+            1
+        };
+
+        VkImageUsageFlags drawImageUses {};
+        drawImageUses |= VK_IMAGE_USAGE_TRANSFER_SRC_BIT; // allow copying from
+        drawImageUses |= VK_IMAGE_USAGE_TRANSFER_DST_BIT; // allow copying to
+        drawImageUses |= VK_IMAGE_USAGE_STORAGE_BIT; // read-write access in compute shaders
+        drawImageUses |= VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT; // able to be rendered to with graphics pipeline
+
+        VkImageCreateInfo imgInfo = vkinit::image_create_info(this->_drawImage.imageFormat, drawImageUses, this->_drawImage.imageExtent);
+        VmaAllocationCreateInfo imgAllocInfo = {
+            .usage = VMA_MEMORY_USAGE_GPU_ONLY,
+            .requiredFlags = VkMemoryPropertyFlags(VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT)
+        };
+        VK_ASSERT(vmaCreateImage(this->_allocator, &imgInfo, &imgAllocInfo, &this->_drawImage.image, &this->_drawImage.allocation, nullptr));
+
+        // create simple 1-1 view
+        VkImageViewCreateInfo imgViewInfo = vkinit::imageview_create_info(this->_drawImage.imageFormat, this->_drawImage.image, VK_IMAGE_ASPECT_COLOR_BIT);
+        VK_ASSERT(vkCreateImageView(this->_device, &imgViewInfo, nullptr, &this->_drawImage.imageView));
+
+        this->_mainDeletionQueue.push([=]() {
+            vkDestroyImageView(this->_device, this->_drawImage.imageView, nullptr);
+            vmaDestroyImage(this->_allocator, this->_drawImage.image, this->_drawImage.allocation);
+        });
+        return true;
+    }
+
     bool initSwapchain()
     {
-        return createSwapchain(this->_windowExtent.width, this->_windowExtent.height);
+        if(!createSwapchain(this->_windowExtent.width, this->_windowExtent.height)) {
+            std::cerr << "[ERROR] Failed to create swapchain" << std::endl;
+            return false;
+        }
+        createDrawImage();
+        return true;
     }
 
     bool initCommands()
@@ -354,7 +426,7 @@ private:
     SDL_Window* _window {};
     VkExtent2D _windowExtent {}; 
     bool _isInitialized {false};
-    std::thread _renderThread;
+    DeletionQueue _mainDeletionQueue;
 
     VkInstance _instance {};
     VkDebugUtilsMessengerEXT _debugMessenger {};
@@ -370,26 +442,30 @@ private:
 
     FrameData _frames[Constants::FrameOverlap] {};
     uint32_t _frameNumber {};
+    AllocatedImage _drawImage;
+    VkExtent3D _drawExtent;
 
     VkQueue _graphicsQueue {};
     uint32_t _graphicsQueueFamily {};
 
+    VmaAllocator _allocator {};
+
     std::string _name {};
-    std::atomic<bool> _running {false};
+    std::atomic<bool> _shouldClose {false};
 };
 
 int main(int argc, char* argv[])
 {
-    // std::cout << "hello" << std::endl;
-    SDL_Log("hello");
     Renderer renderer("VulkanFlow", 600, 600);
     if(!renderer.Init()) {
         std::cerr << "[ERROR] Failed to initialize renderer" << std::endl;
         return EXIT_FAILURE;
     }
 
-    renderer.Run();
-    while(renderer.IsRunning()) {}
+    while(!renderer.ShouldClose()) {
+        renderer.Render();
+        std::this_thread::sleep_for(std::chrono::duration(std::chrono::milliseconds(16)));
+    }
 
     return EXIT_SUCCESS;
 }
