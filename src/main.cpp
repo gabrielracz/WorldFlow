@@ -9,6 +9,11 @@
 
 #include <glm/glm.hpp>
 
+#include "utils.hpp"
+#include "shared/vk_images.h"
+#include "shared/vk_initializers.h"
+#include "shared/vk_descriptors.h"
+
 #include <iostream>
 #include <fstream>
 #include <cstdlib>
@@ -20,9 +25,6 @@
 #include <cstddef>
 #include <deque>
 
-#include "utils.hpp"
-#include "shared/vk_images.h"
-#include "shared/vk_initializers.h"
 
 
 namespace Constants
@@ -34,6 +36,7 @@ constexpr bool IsValidationLayersEnabled = true;
 #endif
 constexpr uint32_t FrameOverlap = 2;
 constexpr uint64_t TimeoutNs = 1000000000;
+constexpr uint32_t MaxDescriptorSets = 10;
 }
 
 // Actually a LIFO stack
@@ -59,7 +62,6 @@ struct FrameData
     VkFence renderFence {};
     DeletionQueue deletionQueue;
 };
-
 
 class Renderer
 {
@@ -94,7 +96,9 @@ public:
                                 this->initVulkan() &&
                                 this->initSwapchain() &&
                                 this->initCommands() &&
-                                this->initSyncStructures();
+                                this->initSyncStructures() &&
+                                this->initDescriptors() &&
+                                this->initDescriptors();
 
         return this->_isInitialized;
     }
@@ -132,7 +136,7 @@ private:
 
     bool draw()
     {
-        // wait for gpu to be done with last frame
+        // wait for gpu to be done with last frame and clean
         VK_ASSERT(vkWaitForFences(this->_device, 1, &this->getCurrentFrame().renderFence, true, Constants::TimeoutNs));
         VK_ASSERT(vkResetFences(this->_device, 1, &this->getCurrentFrame().renderFence));
         this->getCurrentFrame().deletionQueue.flush(); // delete per-frame objects
@@ -157,6 +161,7 @@ private:
         
         drawBackground(cmd);
         
+        // TODO: abstract into image class.
         // prepare draw image -> swapchain image copy
         vkutil::transition_image(cmd, this->_drawImage.image, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
         vkutil::transition_image(cmd, this->_swapchainImages[swapchainImageIndex], VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
@@ -288,7 +293,7 @@ private:
             .instance = this->_instance, 
         };
         vmaCreateAllocator(&allocatorInfo, &this->_allocator);
-        this->_mainDeletionQueue.push([=](){vmaDestroyAllocator(this->_allocator);});
+        this->_mainDeletionQueue.push([&](){vmaDestroyAllocator(this->_allocator);});
 
         return true;
     }
@@ -339,7 +344,7 @@ private:
         VkImageViewCreateInfo imgViewInfo = vkinit::imageview_create_info(this->_drawImage.imageFormat, this->_drawImage.image, VK_IMAGE_ASPECT_COLOR_BIT);
         VK_ASSERT(vkCreateImageView(this->_device, &imgViewInfo, nullptr, &this->_drawImage.imageView));
 
-        this->_mainDeletionQueue.push([=]() {
+        this->_mainDeletionQueue.push([&]() {
             vkDestroyImageView(this->_device, this->_drawImage.imageView, nullptr);
             vmaDestroyImage(this->_allocator, this->_drawImage.image, this->_drawImage.allocation);
         });
@@ -352,7 +357,10 @@ private:
             std::cerr << "[ERROR] Failed to create swapchain" << std::endl;
             return false;
         }
-        createDrawImage();
+        if(!createDrawImage()) {
+            std::cerr << "[ERROR] Failed to create draw image" << std::endl;
+            return false;
+        }
         return true;
     }
 
@@ -399,6 +407,57 @@ private:
         return true;
     }
 
+    bool initDescriptors()
+    {
+        // Create 10 sets, each containing one image binding
+        std::vector<DescriptorAllocator::PoolSizeRatio> sizes = {
+            {VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1}
+        };
+        this->_globalDescriptorAllocator.init_pool(this->_device, 10, sizes);
+        
+        // make the layout describing the bindings corresponding to the set
+        {
+            DescriptorLayoutBuilder builder;
+            builder.add_binding(0, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE);
+            this->_drawImageDescriptorLayout = builder.build(this->_device, VK_SHADER_STAGE_COMPUTE_BIT);
+        }
+
+        // allocate the descriptor set from the layout
+        this->_drawImageDescriptors = _globalDescriptorAllocator.allocate(this->_device, this->_drawImageDescriptorLayout);
+
+        VkDescriptorImageInfo imgInfo = {
+            .imageView = this->_drawImage.imageView,
+            .imageLayout = VK_IMAGE_LAYOUT_GENERAL
+        };
+
+        VkWriteDescriptorSet drawImageWrite = {
+            .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+            .dstSet = this->_drawImageDescriptors,
+            .dstBinding = 0,
+            .descriptorCount = 1,
+            .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
+            .pImageInfo = &imgInfo
+        };
+
+        vkUpdateDescriptorSets(this->_device, 1, &drawImageWrite, 0, nullptr);
+
+        this->_mainDeletionQueue.push([&]() {
+            this->_globalDescriptorAllocator.destroy_pool(this->_device);
+            vkDestroyDescriptorSetLayout(this->_device, this->_drawImageDescriptorLayout, nullptr);
+        });
+        return true;
+    }
+
+    bool initBackgroundPipelines()
+    {
+        return true;
+    }
+
+    bool initPipelines()
+    {
+        return true;
+    }
+
     void destroySwapchain()
     {
         vkDestroySwapchainKHR(this->_device, this->_swapchain, nullptr);
@@ -433,6 +492,8 @@ private:
     VkPhysicalDevice _gpu {};
     VkDevice _device {};
     VkSurfaceKHR _surface {};
+    VkQueue _graphicsQueue {};
+    uint32_t _graphicsQueueFamily {};
 
     VkSwapchainKHR _swapchain;
     VkFormat _swapchainImageFormat;
@@ -440,15 +501,19 @@ private:
     std::vector<VkImageView> _swapchainImageViews;
     VkExtent2D _swapchainExtent;
 
+    VmaAllocator _allocator {};
+
     FrameData _frames[Constants::FrameOverlap] {};
     uint32_t _frameNumber {};
     AllocatedImage _drawImage;
     VkExtent3D _drawExtent;
 
-    VkQueue _graphicsQueue {};
-    uint32_t _graphicsQueueFamily {};
+    VkPipeline _gradientPipelin;
+    VkPipelineLayout _gradientPipelineLayout;
 
-    VmaAllocator _allocator {};
+    DescriptorAllocator _globalDescriptorAllocator;
+    VkDescriptorSet _drawImageDescriptors;
+    VkDescriptorSetLayout _drawImageDescriptorLayout;
 
     std::string _name {};
     std::atomic<bool> _shouldClose {false};

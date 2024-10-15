@@ -1,2 +1,2 @@
-#define ASSETS_DIRECTORY "C:/Users/Gabi/Projects/VulkanFlow/assets"
-#define SHADER_DIRECTORY "C:/Users/Gabi/Projects/VulkanFlow/shaders
+#define ASSETS_DIRECTORY "/home/gabi/Projects/Athena/Thesis/VulkanFlow/assets"
+#define SHADER_DIRECTORY "/home/gabi/Projects/Athena/Thesis/VulkanFlow/shaders
