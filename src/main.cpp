@@ -9,10 +9,12 @@
 
 #include <glm/glm.hpp>
 
+#include "path_config.hpp"
 #include "utils.hpp"
 #include "shared/vk_images.h"
 #include "shared/vk_initializers.h"
 #include "shared/vk_descriptors.h"
+#include "shared/vk_pipelines.h"
 
 #include <iostream>
 #include <fstream>
@@ -98,7 +100,7 @@ public:
                                 this->initCommands() &&
                                 this->initSyncStructures() &&
                                 this->initDescriptors() &&
-                                this->initDescriptors();
+                                this->initPipelines();
 
         return this->_isInitialized;
     }
@@ -119,6 +121,7 @@ private:
             if(event.type == SDL_QUIT) {
                 this->_shouldClose = true;
             }
+
         }
     }
 
@@ -450,11 +453,50 @@ private:
 
     bool initBackgroundPipelines()
     {
+        VkPipelineLayoutCreateInfo computeLayout = {
+            .sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
+            .setLayoutCount = 1,
+            .pSetLayouts = &this->_drawImageDescriptorLayout
+        };
+        VK_ASSERT(vkCreatePipelineLayout(this->_device, &computeLayout, nullptr, &this->_gradientPipelineLayout));
+
+        VkShaderModule computeDrawShader;
+        if(!vkutil::load_shader_module(SHADER_DIRECTORY"/gradient.comp.sp", this->_device, &computeDrawShader)) {
+            std::cerr << "[ERROR] Failed to load compute shader" << std::endl;
+            return false;
+        }
+
+        VkPipelineShaderStageCreateInfo stageInfo = {
+            .sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
+            .stage = VK_SHADER_STAGE_COMPUTE_BIT,
+            .module = computeDrawShader,
+            .pName = "main"
+        };
+
+        VkComputePipelineCreateInfo computePipelineCreateInfo = {
+            .sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO,
+            .stage = stageInfo,
+            .layout = this->_gradientPipelineLayout
+        };
+
+        VK_ASSERT(vkCreateComputePipelines(this->_device, VK_NULL_HANDLE, 1, &computePipelineCreateInfo, nullptr, &this->_gradientPipeline));
+
+
+
+
+
+
+
         return true;
     }
 
     bool initPipelines()
     {
+        if(!initBackgroundPipelines()) {
+            std::cerr << "[ERROR] Failed to init background pipelines" << std::endl;
+            return false;
+        }
+
         return true;
     }
 
@@ -508,7 +550,7 @@ private:
     AllocatedImage _drawImage;
     VkExtent3D _drawExtent;
 
-    VkPipeline _gradientPipelin;
+    VkPipeline _gradientPipeline;
     VkPipelineLayout _gradientPipelineLayout;
 
     DescriptorAllocator _globalDescriptorAllocator;

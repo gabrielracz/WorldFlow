@@ -1,5 +1,7 @@
 ﻿#include <vk_pipelines.h>
 
+#include "../include/utils.hpp"
+
 #include "vk_initializers.h"
 #include <fstream>
 #include <iostream>
@@ -273,9 +275,7 @@ bool vkutil::load_shader_module(const char* filePath,
 
     // check that the creation goes well.
     VkShaderModule shaderModule;
-    if (vkCreateShaderModule(device, &createInfo, nullptr, &shaderModule) != VK_SUCCESS) {
-        return false;
-    }
+    VK_ASSERT(vkCreateShaderModule(device, &createInfo, nullptr, &shaderModule));
     *outShaderModule = shaderModule;
     return true;
 }
