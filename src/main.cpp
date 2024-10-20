@@ -67,7 +67,7 @@ struct FrameData
     DeletionQueue deletionQueue;
 };
 
-struct GradientPushConstants
+struct ComputePushConstants
 {
     float time {};
 };
@@ -114,7 +114,7 @@ public:
 
     void Render(double dt)
     {
-        elapsed += dt;
+        this->_elapsed += dt;
         this->pollEvents();
         this->draw();
     }
@@ -148,10 +148,10 @@ private:
 
         vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, this->_gradientPipelineLayout, 0, 1, &this->_drawImageDescriptors, 0, nullptr);
 
-        GradientPushConstants constants = {
+        ComputePushConstants constants = {
             .time = static_cast<float>(this->_elapsed)
         };
-        vkCmdPushConstants(cmd, this->_gradientPipelineLayout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(GradientPushConstants), &constants);
+        vkCmdPushConstants(cmd, this->_gradientPipelineLayout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(ComputePushConstants), &constants);
 
         vkCmdDispatch(cmd, std::ceil(this->_drawImage.imageExtent.width/16.0), std::ceil(this->_drawImage.imageExtent.height/16.0), 1);
     }
@@ -477,7 +477,7 @@ private:
         VkPushConstantRange pushConstants = {
             .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT,
             .offset = 0,
-            .size = sizeof(GradientPushConstants),
+            .size = sizeof(ComputePushConstants),
         };
 
         VkPipelineLayoutCreateInfo computeLayout = {
@@ -491,7 +491,7 @@ private:
         VK_ASSERT(vkCreatePipelineLayout(this->_device, &computeLayout, nullptr, &this->_gradientPipelineLayout));
 
         VkShaderModule computeDrawShader;
-        const char* shaderFileName = SHADER_DIRECTORY"/gradient.comp.spv";
+        const char* shaderFileName = SHADER_DIRECTORY"/random.comp.spv";
         if(!vkutil::load_shader_module(shaderFileName, this->_device, &computeDrawShader)) {
             std::cerr << "[ERROR] Failed to load compute shader " << shaderFileName << std::endl;
             return false;
