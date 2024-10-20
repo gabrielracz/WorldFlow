@@ -127,14 +127,18 @@ private:
 
     void drawBackground(VkCommandBuffer cmd)
     {
-        VkClearColorValue clearValue {
-           (1 + std::sin(this->_frameNumber / 120.0f)) / 2.0f,
-           (1 + std::cos(this->_frameNumber / 120.0f)) / 2.0f,
-           (1 + std::sin(this->_frameNumber * 2.0f / 120.0f)) / 2.0f,
-           1.0f
-        };
-        VkImageSubresourceRange clearRange = vkinit::image_subresource_range(VK_IMAGE_ASPECT_COLOR_BIT);
-        vkCmdClearColorImage(cmd, this->_drawImage.image, VK_IMAGE_LAYOUT_GENERAL, &clearValue, 1, &clearRange);
+        // VkClearColorValue clearValue {
+        //    (1 + std::sin(this->_frameNumber / 120.0f)) / 2.0f,
+        //    (1 + std::cos(this->_frameNumber / 120.0f)) / 2.0f,
+        //    (1 + std::sin(this->_frameNumber * 2.0f / 120.0f)) / 2.0f,
+        //    1.0f
+        // };
+        // VkImageSubresourceRange clearRange = vkinit::image_subresource_range(VK_IMAGE_ASPECT_COLOR_BIT);
+        // vkCmdClearColorImage(cmd, this->_drawImage.image, VK_IMAGE_LAYOUT_GENERAL, &clearValue, 1, &clearRange);
+
+        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, this->_gradientPipeline);
+        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, this->_gradientPipelineLayout, 0, 1, &this->_drawImageDescriptors, 0, nullptr);
+        vkCmdDispatch(cmd, std::ceil(this->_drawImage.imageExtent.width/16.0), std::ceil(this->_drawImage.imageExtent.height/16.0), 1);
     }
 
     bool draw()
@@ -248,7 +252,7 @@ private:
             .build();
         
         if(!instanceRet.has_value()) {
-            std::cerr << "[ERROR] Failed to build the vulkan instance" << std::endl;
+            std::cout << "[ERROR] Failed to build the vulkan instance" << std::endl;
             return false;
         }
 
@@ -283,7 +287,9 @@ private:
         vkb::Device vkbDevice = deviceBuilder.build().value();
         this->_device = vkbDevice.device;
         this->_gpu = physDevice.physical_device;
-        std::cout << physDevice.properties.deviceName << std::endl;
+        // print gpu properties
+        const uint32_t* wgs = physDevice.properties.limits.maxComputeWorkGroupCount;
+        std::cout << physDevice.properties.deviceName << " (" << wgs[0] << " x " << wgs[1] << " x " << wgs[2] << ")" << std::endl;
 
         this->_graphicsQueue = vkbDevice.get_queue(vkb::QueueType::graphics).value();
         this->_graphicsQueueFamily = vkbDevice.get_queue_index(vkb::QueueType::graphics).value();
@@ -357,11 +363,11 @@ private:
     bool initSwapchain()
     {
         if(!createSwapchain(this->_windowExtent.width, this->_windowExtent.height)) {
-            std::cerr << "[ERROR] Failed to create swapchain" << std::endl;
+            std::cout << "[ERROR] Failed to create swapchain" << std::endl;
             return false;
         }
         if(!createDrawImage()) {
-            std::cerr << "[ERROR] Failed to create draw image" << std::endl;
+            std::cout << "[ERROR] Failed to create draw image" << std::endl;
             return false;
         }
         return true;
@@ -453,6 +459,7 @@ private:
 
     bool initBackgroundPipelines()
     {
+        // Shader Pipe
         VkPipelineLayoutCreateInfo computeLayout = {
             .sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
             .setLayoutCount = 1,
@@ -461,8 +468,9 @@ private:
         VK_ASSERT(vkCreatePipelineLayout(this->_device, &computeLayout, nullptr, &this->_gradientPipelineLayout));
 
         VkShaderModule computeDrawShader;
-        if(!vkutil::load_shader_module(SHADER_DIRECTORY"/gradient.comp.sp", this->_device, &computeDrawShader)) {
-            std::cerr << "[ERROR] Failed to load compute shader" << std::endl;
+        const char* shaderFileName = SHADER_DIRECTORY"/gradient.comp.spv";
+        if(!vkutil::load_shader_module(shaderFileName, this->_device, &computeDrawShader)) {
+            std::cout << "[ERROR] Failed to load compute shader " << shaderFileName << std::endl;
             return false;
         }
 
@@ -481,22 +489,20 @@ private:
 
         VK_ASSERT(vkCreateComputePipelines(this->_device, VK_NULL_HANDLE, 1, &computePipelineCreateInfo, nullptr, &this->_gradientPipeline));
 
-
-
-
-
-
-
+        vkDestroyShaderModule(this->_device, computeDrawShader, nullptr);
+        this->_mainDeletionQueue.push([&]() {
+            vkDestroyPipelineLayout(this->_device, this->_gradientPipelineLayout, nullptr);
+            vkDestroyPipeline(this->_device, this->_gradientPipeline, nullptr);
+        });
         return true;
     }
 
     bool initPipelines()
     {
         if(!initBackgroundPipelines()) {
-            std::cerr << "[ERROR] Failed to init background pipelines" << std::endl;
+            std::cout << "[ERROR] Failed to init background pipelines" << std::endl;
             return false;
         }
-
         return true;
     }
 
@@ -548,7 +554,6 @@ private:
     FrameData _frames[Constants::FrameOverlap] {};
     uint32_t _frameNumber {};
     AllocatedImage _drawImage;
-    VkExtent3D _drawExtent;
 
     VkPipeline _gradientPipeline;
     VkPipelineLayout _gradientPipelineLayout;
@@ -565,14 +570,14 @@ int main(int argc, char* argv[])
 {
     Renderer renderer("VulkanFlow", 600, 600);
     if(!renderer.Init()) {
-        std::cerr << "[ERROR] Failed to initialize renderer" << std::endl;
+        std::cout << "[ERROR] Failed to initialize renderer" << std::endl;
         return EXIT_FAILURE;
     }
 
     while(!renderer.ShouldClose()) {
         renderer.Render();
-        std::this_thread::sleep_for(std::chrono::duration(std::chrono::milliseconds(16)));
+        // std::this_thread::sleep_for(std::chrono::duration(std::chrono::milliseconds(16)));
     }
-
+    std::cout << "Close" << std::endl;
     return EXIT_SUCCESS;
 }
