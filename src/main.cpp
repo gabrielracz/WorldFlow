@@ -1,6 +1,8 @@
 #include <SDL2/SDL.h>
 #include "SDL_vulkan.h"
 
+#include <chrono>
+#include <system_error>
 #include <vulkan/vulkan.h>
 #include <VkBootstrap.h>
 
@@ -65,6 +67,11 @@ struct FrameData
     DeletionQueue deletionQueue;
 };
 
+struct GradientPushConstants
+{
+    float time {};
+};
+
 class Renderer
 {
 public:
@@ -105,8 +112,9 @@ public:
         return this->_isInitialized;
     }
 
-    void Render()
+    void Render(double dt)
     {
+        elapsed += dt;
         this->pollEvents();
         this->draw();
     }
@@ -137,7 +145,14 @@ private:
         // vkCmdClearColorImage(cmd, this->_drawImage.image, VK_IMAGE_LAYOUT_GENERAL, &clearValue, 1, &clearRange);
 
         vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, this->_gradientPipeline);
+
         vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, this->_gradientPipelineLayout, 0, 1, &this->_drawImageDescriptors, 0, nullptr);
+
+        GradientPushConstants constants = {
+            .time = static_cast<float>(this->_elapsed)
+        };
+        vkCmdPushConstants(cmd, this->_gradientPipelineLayout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(GradientPushConstants), &constants);
+
         vkCmdDispatch(cmd, std::ceil(this->_drawImage.imageExtent.width/16.0), std::ceil(this->_drawImage.imageExtent.height/16.0), 1);
     }
 
@@ -459,18 +474,26 @@ private:
 
     bool initBackgroundPipelines()
     {
-        // Shader Pipe
+        VkPushConstantRange pushConstants = {
+            .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT,
+            .offset = 0,
+            .size = sizeof(GradientPushConstants),
+        };
+
         VkPipelineLayoutCreateInfo computeLayout = {
             .sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
             .setLayoutCount = 1,
-            .pSetLayouts = &this->_drawImageDescriptorLayout
+            .pSetLayouts = &this->_drawImageDescriptorLayout,
+
+            .pushConstantRangeCount = 1,
+            .pPushConstantRanges = &pushConstants
         };
         VK_ASSERT(vkCreatePipelineLayout(this->_device, &computeLayout, nullptr, &this->_gradientPipelineLayout));
 
         VkShaderModule computeDrawShader;
         const char* shaderFileName = SHADER_DIRECTORY"/gradient.comp.spv";
         if(!vkutil::load_shader_module(shaderFileName, this->_device, &computeDrawShader)) {
-            std::cout << "[ERROR] Failed to load compute shader " << shaderFileName << std::endl;
+            std::cerr << "[ERROR] Failed to load compute shader " << shaderFileName << std::endl;
             return false;
         }
 
@@ -564,6 +587,7 @@ private:
 
     std::string _name {};
     std::atomic<bool> _shouldClose {false};
+    double _elapsed {};
 };
 
 int main(int argc, char* argv[])
@@ -574,8 +598,10 @@ int main(int argc, char* argv[])
         return EXIT_FAILURE;
     }
 
+    const double startTime = GetTimestamp();
     while(!renderer.ShouldClose()) {
-        renderer.Render();
+        const double dt = GetTimestamp() - startTime;
+        renderer.Render(dt);
         // std::this_thread::sleep_for(std::chrono::duration(std::chrono::milliseconds(16)));
     }
     std::cout << "Close" << std::endl;

@@ -6,6 +6,7 @@
 #include <vector>
 #include <iostream>
 #include <deque>
+#include <chrono>
 
 static std::unordered_map<VkResult, std::string> ErrorDescriptions = {
     {VK_SUCCESS, "Command successfully completed"},
@@ -60,6 +61,11 @@ static bool VulkanCheckErrorStatus(VkResult x, const char* file, int line)
         return false;
     }
     else return true;
+}
+
+inline double GetTimestamp()
+{
+    return std::chrono::time_point_cast<std::chrono::milliseconds>(std::chrono::system_clock::now()).time_since_epoch().count();
 }
 
 #endif
