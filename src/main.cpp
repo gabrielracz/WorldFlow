@@ -119,6 +119,7 @@ public:
                                 this->initSyncStructures() &&
                                 // this->initDescriptors() &&
                                 this->initFeedbackShader() &&
+                                this->initBuffers() &&
                                 this->initPipelines()
                                 ;
 
@@ -445,6 +446,31 @@ private:
         return true;
     }
 
+    AllocatedBuffer createBuffer(size_t allocSize, VkBufferUsageFlags usage, VmaMemoryUsage memoryUsage)
+    {
+        // allocate buffer
+        VkBufferCreateInfo bufferInfo = {.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
+        bufferInfo.pNext = nullptr;
+        bufferInfo.size = allocSize;
+
+        bufferInfo.usage = usage;
+
+        VmaAllocationCreateInfo vmaallocInfo = {};
+        vmaallocInfo.usage = memoryUsage;
+        vmaallocInfo.flags = VMA_ALLOCATION_CREATE_MAPPED_BIT;
+        AllocatedBuffer newBuffer;
+
+        // allocate the buffer
+        VK_CHECK(vmaCreateBuffer(this->_allocator, &bufferInfo, &vmaallocInfo, &newBuffer.buffer, &newBuffer.allocation,
+            &newBuffer.info));
+        return newBuffer;
+    }
+
+    bool initBuffers()
+    {
+        return true;
+    }
+
     bool initFeedbackShader()
     {
         std::vector<DescriptorPool::DescriptorQuantity> sizes = {
@@ -491,9 +517,14 @@ private:
         this->_descriptorWriter.write_image(1, this->_feedbackImage.imageView, this->_simpleSampler, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
         this->_descriptorWriter.update_set(this->_device, this->_drawImageDescriptorSet);
 
+        this->_stagingBuffer = createBuffer(this->_feedbackImage.imageExtent.width*this->_feedbackImage.imageExtent.height*(4),
+                                            VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+                                            VMA_MEMORY_USAGE_CPU_TO_GPU);
+
         this->_mainDeletionQueue.push([&]() {
             vkDestroySampler(this->_device, this->_simpleSampler, nullptr);
             this->_descriptorPool.destroy(this->_device);
+            vmaDestroyBuffer(this->_allocator, this->_stagingBuffer.buffer, this->_stagingBuffer.allocation);
             vkDestroyDescriptorSetLayout(this->_device, this->_drawImageDescriptorLayout, nullptr);
         });
         return true;
@@ -659,7 +690,8 @@ private:
     double _elapsed {};
 
     //Test Scene
-    AllocatedImage _feedbackImage;
+    AllocatedImage _feedbackImage {};
+    AllocatedBuffer _stagingBuffer {};
     VkSampler _simpleSampler {};
 
 };
