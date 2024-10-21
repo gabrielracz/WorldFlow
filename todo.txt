@@ -19,5 +19,15 @@ Fluid boundaries with geometry
 Fluid subdivide (use mipmap or texture arrays to have LOD)
 Priority subdivide around geometry and high turbulence fluid
 
+
 Transform Geometry -> Update Grid -> Solve Fluid -> Integrate Force -> Render Fluid
+
+
+per-cell
+vec3 velocity
+vec3 density
+
+Potential Engineering Discussions
+SSBO vs. 3DTextures vs. UBO, try all 3 and report differences
+
 

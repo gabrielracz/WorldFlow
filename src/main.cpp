@@ -72,6 +72,16 @@ struct ComputePushConstants
     float time {};
 };
 
+static inline void
+printDeviceProperties(vkb::PhysicalDevice& dev)
+{
+    const uint32_t* wgs = dev.properties.limits.maxComputeWorkGroupCount;
+    std::cout << dev.properties.deviceName << "\n" <<
+    "WorkGroups:      " << wgs[0] << " x " << wgs[1] << " x " << wgs[2] << ") \n" << 
+    "PushConstants:   " << dev.properties.limits.maxPushConstantsSize << "\n" <<
+    "Uniform Buffers: " << dev.properties.limits.maxUniformBufferRange << std::endl;
+}
+
 class Renderer
 {
 public:
@@ -303,8 +313,7 @@ private:
         this->_device = vkbDevice.device;
         this->_gpu = physDevice.physical_device;
         // print gpu properties
-        const uint32_t* wgs = physDevice.properties.limits.maxComputeWorkGroupCount;
-        std::cout << physDevice.properties.deviceName << " (" << wgs[0] << " x " << wgs[1] << " x " << wgs[2] << ")" << std::endl;
+        printDeviceProperties(physDevice);
 
         this->_graphicsQueue = vkbDevice.get_queue(vkb::QueueType::graphics).value();
         this->_graphicsQueueFamily = vkbDevice.get_queue_index(vkb::QueueType::graphics).value();
@@ -428,6 +437,26 @@ private:
             VK_ASSERT(vkCreateSemaphore(this->_device, &semaphoreInfo, nullptr, &frame.renderSemaphore));
         }
 
+        return true;
+    }
+
+    bool initTestShader()
+    {
+        this->_feedbackImage.imageExtent = this->_drawImage.imageExtent;
+        this->_feedbackImage.imageFormat = VK_FORMAT_R16G16B16A16_SFLOAT;
+        VkImageCreateInfo imgCreateInfo = vkinit::image_create_info(
+            this->_feedbackImage.imageFormat,
+            VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_STORAGE_BIT,
+            this->_drawImage.imageExtent
+        );
+
+        VmaAllocationCreateInfo imgAllocInfo = {
+            .usage = VMA_MEMORY_USAGE_GPU_ONLY,
+            .requiredFlags = VkMemoryPropertyFlags(VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT)
+        };
+        vmaCreateImage(this->_allocator, &imgCreateInfo, &imgAllocInfo, &this->_feedbackImage.image, &this->_feedbackImage.allocation, nullptr);
+
+        VkImageViewCreateInfo viewCreateInfo = vkinit::imageview_create_info(this->_feedbackImage.imageFormat, this->_feedbackImage.image, VK_IMAGE_ASPECT_COLOR_BIT);
         return true;
     }
 
@@ -584,10 +613,15 @@ private:
     DescriptorAllocator _globalDescriptorAllocator;
     VkDescriptorSet _drawImageDescriptors;
     VkDescriptorSetLayout _drawImageDescriptorLayout;
+    DescriptorWriter _descriptorWriter;
 
     std::string _name {};
     std::atomic<bool> _shouldClose {false};
     double _elapsed {};
+
+    //Test Scene
+    AllocatedImage _feedbackImage;
+
 };
 
 int main(int argc, char* argv[])
