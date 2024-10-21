@@ -28,6 +28,7 @@
 #include <vulkan/vulkan_core.h>
 #include <cstddef>
 #include <deque>
+#include <csignal>
 
 
 
@@ -116,8 +117,10 @@ public:
                                 this->initSwapchain() &&
                                 this->initCommands() &&
                                 this->initSyncStructures() &&
-                                this->initDescriptors() &&
-                                this->initPipelines();
+                                // this->initDescriptors() &&
+                                this->initFeedbackShader() &&
+                                this->initPipelines()
+                                ;
 
         return this->_isInitialized;
     }
@@ -156,7 +159,7 @@ private:
 
         vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, this->_gradientPipeline);
 
-        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, this->_gradientPipelineLayout, 0, 1, &this->_drawImageDescriptors, 0, nullptr);
+        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, this->_gradientPipelineLayout, 0, 1, &this->_drawImageDescriptorSet, 0, nullptr);
 
         ComputePushConstants constants = {
             .time = static_cast<float>(this->_elapsed)
@@ -190,6 +193,7 @@ private:
         VK_ASSERT(vkBeginCommandBuffer(cmd, &cmdBeginInfo));
         // make draw image writeable
         vkutil::transition_image(cmd, this->_drawImage.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL);
+        vkutil::transition_image(cmd, this->_feedbackImage.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
         
         drawBackground(cmd);
         
@@ -253,6 +257,7 @@ private:
 
     bool initWindow()
     {
+        SDL_SetHint(SDL_HINT_NO_SIGNAL_HANDLERS, "1");
         SDL_Init(SDL_INIT_VIDEO);
         SDL_WindowFlags windowFlags = (SDL_WindowFlags)(SDL_WINDOW_VULKAN);
         this->_window = SDL_CreateWindow(
@@ -440,13 +445,19 @@ private:
         return true;
     }
 
-    bool initTestShader()
+    bool initFeedbackShader()
     {
+        std::vector<DescriptorPool::DescriptorQuantity> sizes = {
+            {VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 2}
+        };
+        this->_descriptorPool.init(this->_device, 10, sizes);
+
+        // Create feedback image that gets copied to each frame
         this->_feedbackImage.imageExtent = this->_drawImage.imageExtent;
         this->_feedbackImage.imageFormat = VK_FORMAT_R16G16B16A16_SFLOAT;
         VkImageCreateInfo imgCreateInfo = vkinit::image_create_info(
             this->_feedbackImage.imageFormat,
-            VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_STORAGE_BIT,
+            VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
             this->_drawImage.imageExtent
         );
 
@@ -454,19 +465,47 @@ private:
             .usage = VMA_MEMORY_USAGE_GPU_ONLY,
             .requiredFlags = VkMemoryPropertyFlags(VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT)
         };
-        vmaCreateImage(this->_allocator, &imgCreateInfo, &imgAllocInfo, &this->_feedbackImage.image, &this->_feedbackImage.allocation, nullptr);
-
+        VK_CHECK(vmaCreateImage(this->_allocator, &imgCreateInfo, &imgAllocInfo, &this->_feedbackImage.image, &this->_feedbackImage.allocation, nullptr));
         VkImageViewCreateInfo viewCreateInfo = vkinit::imageview_create_info(this->_feedbackImage.imageFormat, this->_feedbackImage.image, VK_IMAGE_ASPECT_COLOR_BIT);
+        VK_CHECK(vkCreateImageView(this->_device, &viewCreateInfo, nullptr, &this->_feedbackImage.imageView));
+        this->_mainDeletionQueue.push([&]() {
+            vmaDestroyImage(this->_allocator, this->_feedbackImage.image, this->_feedbackImage.allocation);
+            vkDestroyImageView(this->_device, this->_feedbackImage.imageView, nullptr);
+        });
+        
+        // Define descriptor layout
+        {
+            DescriptorLayoutBuilder builder;
+            builder.add_binding(0, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE);
+            builder.add_binding(1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
+            this->_drawImageDescriptorLayout = builder.build(this->_device, VK_SHADER_STAGE_COMPUTE_BIT);
+        }
+        this->_drawImageDescriptorSet = this->_descriptorPool.allocateSet(this->_device, this->_drawImageDescriptorLayout);
+
+        VkSamplerCreateInfo samplerCreateInfo = {
+            .sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO,
+        };
+        VK_ASSERT(vkCreateSampler(this->_device, &samplerCreateInfo, nullptr, &this->_simpleSampler));
+        this->_descriptorWriter.clear();
+        this->_descriptorWriter.write_image(0, this->_drawImage.imageView, 0, VK_IMAGE_LAYOUT_GENERAL, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE);
+        this->_descriptorWriter.write_image(1, this->_feedbackImage.imageView, this->_simpleSampler, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
+        this->_descriptorWriter.update_set(this->_device, this->_drawImageDescriptorSet);
+
+        this->_mainDeletionQueue.push([&]() {
+            vkDestroySampler(this->_device, this->_simpleSampler, nullptr);
+            this->_descriptorPool.destroy(this->_device);
+            vkDestroyDescriptorSetLayout(this->_device, this->_drawImageDescriptorLayout, nullptr);
+        });
         return true;
     }
 
     bool initDescriptors()
     {
-        // Create 10 sets, each containing one image binding
-        std::vector<DescriptorAllocator::PoolSizeRatio> sizes = {
-            {VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1}
+        // Create 10 sets, each containing two image binding
+        std::vector<DescriptorPool::DescriptorQuantity> sizes = {
+            {VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 2}
         };
-        this->_globalDescriptorAllocator.init_pool(this->_device, 10, sizes);
+        this->_descriptorPool.init(this->_device, 10, sizes);
         
         // make the layout describing the bindings corresponding to the set
         {
@@ -476,7 +515,7 @@ private:
         }
 
         // allocate the descriptor set from the layout
-        this->_drawImageDescriptors = _globalDescriptorAllocator.allocate(this->_device, this->_drawImageDescriptorLayout);
+        this->_drawImageDescriptorSet = _descriptorPool.allocateSet(this->_device, this->_drawImageDescriptorLayout);
 
         VkDescriptorImageInfo imgInfo = {
             .imageView = this->_drawImage.imageView,
@@ -485,7 +524,7 @@ private:
 
         VkWriteDescriptorSet drawImageWrite = {
             .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-            .dstSet = this->_drawImageDescriptors,
+            .dstSet = this->_drawImageDescriptorSet,
             .dstBinding = 0,
             .descriptorCount = 1,
             .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
@@ -495,7 +534,7 @@ private:
         vkUpdateDescriptorSets(this->_device, 1, &drawImageWrite, 0, nullptr);
 
         this->_mainDeletionQueue.push([&]() {
-            this->_globalDescriptorAllocator.destroy_pool(this->_device);
+            this->_descriptorPool.destroy(this->_device);
             vkDestroyDescriptorSetLayout(this->_device, this->_drawImageDescriptorLayout, nullptr);
         });
         return true;
@@ -610,8 +649,8 @@ private:
     VkPipeline _gradientPipeline;
     VkPipelineLayout _gradientPipelineLayout;
 
-    DescriptorAllocator _globalDescriptorAllocator;
-    VkDescriptorSet _drawImageDescriptors;
+    DescriptorPool _descriptorPool;
+    VkDescriptorSet _drawImageDescriptorSet;
     VkDescriptorSetLayout _drawImageDescriptorLayout;
     DescriptorWriter _descriptorWriter;
 
@@ -621,11 +660,19 @@ private:
 
     //Test Scene
     AllocatedImage _feedbackImage;
+    VkSampler _simpleSampler {};
 
 };
 
+void
+signalHandler(int sig)
+{
+    std::cout << "sig" << std::endl;
+}
+
 int main(int argc, char* argv[])
 {
+    std::signal(SIGINT, &signalHandler);
     Renderer renderer("VulkanFlow", 600, 600);
     if(!renderer.Init()) {
         std::cout << "[ERROR] Failed to initialize renderer" << std::endl;

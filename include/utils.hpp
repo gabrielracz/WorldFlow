@@ -65,7 +65,7 @@ static bool VulkanCheckErrorStatus(VkResult x, const char* file, int line)
 
 inline double GetTimestamp()
 {
-    return std::chrono::time_point_cast<std::chrono::milliseconds>(std::chrono::system_clock::now()).time_since_epoch().count();
+    return std::chrono::time_point_cast<std::chrono::seconds>(std::chrono::system_clock::now()).time_since_epoch().count();
 }
 
 #endif

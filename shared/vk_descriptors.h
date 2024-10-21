@@ -31,20 +31,20 @@ struct DescriptorWriter {
 //< writer
 // 
 //> descriptor_allocator
-struct DescriptorAllocator {
+struct DescriptorPool {
 
-    struct PoolSizeRatio{
+    struct DescriptorQuantity {
 		VkDescriptorType type;
-		float ratio;
+		float count;
     };
 
     VkDescriptorPool pool;
 
-    void init_pool(VkDevice device, uint32_t maxSets, std::span<PoolSizeRatio> poolRatios);
-    void clear_descriptors(VkDevice device);
-    void destroy_pool(VkDevice device);
+    void init(VkDevice device, uint32_t maxSets, std::span<DescriptorQuantity> descriptors);
+    void clear(VkDevice device);
+    void destroy(VkDevice device);
 
-    VkDescriptorSet allocate(VkDevice device, VkDescriptorSetLayout layout);
+    VkDescriptorSet allocateSet(VkDevice device, VkDescriptorSetLayout layout);
 };
 //< descriptor_allocator
 

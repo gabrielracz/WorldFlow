@@ -1,10 +1,11 @@
 #version 460
 
 // size of compute workgroup
-layout (local_size_x = 8, local_size_y = 8) in;
+layout (local_size_x = 16, local_size_y = 16) in;
 
 // descriptor bindings for the pipeline
 layout(rgba16f, set = 0, binding = 0) uniform image2D image;
+layout(set = 0, binding = 1) uniform sampler2D feedbackImage;
 
 layout(push_constant) uniform constants
 {
@@ -42,7 +43,11 @@ void main()
         return;
     }
 
-    ivec2 extent = imageSize(image);
+    if(mod(PushConstants.time, 2) == 0) {
+        imageStore(image, texelCoord, texture(feedbackImage, texelCoord));
+        return;
+    }
+
     float t = PushConstants.time + getID();
     vec4 color = vec4(noise(t), noise(t + 50), noise(t + 100), 1.0);
     imageStore(image, texelCoord, color);
