@@ -43,8 +43,8 @@ void main()
         return;
     }
 
-    if(mod(PushConstants.time, 2) == 0) {
-        imageStore(image, texelCoord, texture(feedbackImage, texelCoord));
+    imageStore(image, texelCoord, texture(feedbackImage, vec2(texelCoord.x/float(size.x), texelCoord.y/float(size.y))));
+    if(mod(PushConstants.time, 5)== 0) {
         return;
     }
 

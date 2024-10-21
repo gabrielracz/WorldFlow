@@ -9,6 +9,8 @@
 #define VMA_IMPLEMENTATION
 #include "vk_mem_alloc.h"
 
+
+#include <stb_image.h>
 #include <glm/glm.hpp>
 
 #include "path_config.hpp"
@@ -145,6 +147,31 @@ private:
             }
 
         }
+    }
+
+    // NOT SAFE TO RUN AFTER RENDER LOOP STARTED:
+    // TODO: update to use different queue so concurrent immediate operations are safe
+    bool immediateSubmit(std::function<void(VkCommandBuffer cmd)>&& immediateFunction)
+    {
+        VK_ASSERT(vkResetFences(this->_device, 1, &this->_immFence));
+        VK_ASSERT(vkResetCommandBuffer(this->_immCommandBuffer, 0));
+
+        // record the command buffer using user function
+        VkCommandBuffer cmd = this->_immCommandBuffer;
+        VkCommandBufferBeginInfo cmdBeginInfo = vkinit::command_buffer_begin_info(VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT);
+        VK_ASSERT(vkBeginCommandBuffer(cmd, &cmdBeginInfo));
+
+        immediateFunction(cmd);
+
+        VK_ASSERT(vkEndCommandBuffer(cmd));
+
+        // submit gpu commands
+        VkCommandBufferSubmitInfo cmdInfo = vkinit::command_buffer_submit_info(cmd);
+        VkSubmitInfo2 submit = vkinit::submit_info(&cmdInfo, nullptr, nullptr);
+        VK_ASSERT(vkQueueSubmit2(this->_graphicsQueue, 1, &submit, this->_immFence));
+
+        VK_ASSERT(vkWaitForFences(this->_device, 1, &this->_immFence, true, 9999999999));
+        return true;
     }
 
     void drawBackground(VkCommandBuffer cmd)
@@ -423,6 +450,14 @@ private:
             VK_ASSERT(vkAllocateCommandBuffers(this->_device, &cmdAllocInfo, &frame.commandBuffer));
         }
 
+        // immediate mode
+        VK_ASSERT(vkCreateCommandPool(this->_device, &cmdPoolInfo, nullptr, &this->_immCommandPool));
+        VkCommandBufferAllocateInfo immCmdAllocInfo = vkinit::command_buffer_allocate_info(this->_immCommandPool, 1);
+        VK_ASSERT(vkAllocateCommandBuffers(this->_device, &immCmdAllocInfo, &this->_immCommandBuffer));
+        this->_mainDeletionQueue.push([&]() {
+            vkDestroyCommandPool(this->_device, this->_immCommandPool, nullptr);
+        });
+
         return true;
 
     }
@@ -443,6 +478,8 @@ private:
             VK_ASSERT(vkCreateSemaphore(this->_device, &semaphoreInfo, nullptr, &frame.renderSemaphore));
         }
 
+        VK_ASSERT(vkCreateFence(this->_device, &fenceInfo, nullptr, &this->_immFence));
+        this->_mainDeletionQueue.push([&](){ vkDestroyFence(this->_device, this->_immFence, nullptr); });
         return true;
     }
 
@@ -473,14 +510,19 @@ private:
 
     bool initFeedbackShader()
     {
+        int w, h, nrChannel;
+        unsigned char* data = stbi_load(ASSETS_DIRECTORY"/monet-alpha-square.png", &w, &h, &nrChannel, STBI_rgb_alpha);
+
         std::vector<DescriptorPool::DescriptorQuantity> sizes = {
             {VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 2}
         };
         this->_descriptorPool.init(this->_device, 10, sizes);
 
         // Create feedback image that gets copied to each frame
-        this->_feedbackImage.imageExtent = this->_drawImage.imageExtent;
-        this->_feedbackImage.imageFormat = VK_FORMAT_R16G16B16A16_SFLOAT;
+        // this->_feedbackImage.imageExtent = VkExtent3D{.width = (unsigned int)w, .height = (unsigned int)h, .depth = 1};
+        this->_feedbackImage.imageExtent = _drawImage.imageExtent;
+        // this->_feedbackImage.imageFormat = VK_FORMAT_R16G16B16A16_SFLOAT;
+        this->_feedbackImage.imageFormat = VK_FORMAT_R8G8B8A8_UNORM;
         VkImageCreateInfo imgCreateInfo = vkinit::image_create_info(
             this->_feedbackImage.imageFormat,
             VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
@@ -516,16 +558,39 @@ private:
         this->_descriptorWriter.write_image(0, this->_drawImage.imageView, 0, VK_IMAGE_LAYOUT_GENERAL, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE);
         this->_descriptorWriter.write_image(1, this->_feedbackImage.imageView, this->_simpleSampler, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
         this->_descriptorWriter.update_set(this->_device, this->_drawImageDescriptorSet);
-
-        this->_stagingBuffer = createBuffer(this->_feedbackImage.imageExtent.width*this->_feedbackImage.imageExtent.height*(4),
-                                            VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
-                                            VMA_MEMORY_USAGE_CPU_TO_GPU);
-
         this->_mainDeletionQueue.push([&]() {
             vkDestroySampler(this->_device, this->_simpleSampler, nullptr);
             this->_descriptorPool.destroy(this->_device);
-            vmaDestroyBuffer(this->_allocator, this->_stagingBuffer.buffer, this->_stagingBuffer.allocation);
             vkDestroyDescriptorSetLayout(this->_device, this->_drawImageDescriptorLayout, nullptr);
+        });
+        
+        
+        // Create staging buffer to allow for CPU -> GPU image copies
+        this->_stagingBuffer = createBuffer(w*h*nrChannel,
+                                            VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+                                            VMA_MEMORY_USAGE_CPU_TO_GPU);
+        this->_mainDeletionQueue.push([&]() { vmaDestroyBuffer(this->_allocator, this->_stagingBuffer.buffer, this->_stagingBuffer.allocation); });
+
+        std::memcpy(this->_stagingBuffer.info.pMappedData, data, w*h*nrChannel);
+
+        this->immediateSubmit([&](VkCommandBuffer cmd) {
+            vkutil::transition_image(cmd, this->_feedbackImage.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+            VkBufferImageCopy copyRegion = {};
+            copyRegion.bufferOffset = 0;
+            copyRegion.bufferRowLength = 0;
+            copyRegion.bufferImageHeight = 0;
+
+            copyRegion.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+            copyRegion.imageSubresource.mipLevel = 0;
+            copyRegion.imageSubresource.baseArrayLayer = 0;
+            copyRegion.imageSubresource.layerCount = 1;
+            copyRegion.imageExtent = this->_feedbackImage.imageExtent;
+
+            vkCmdCopyBufferToImage(cmd, this->_stagingBuffer.buffer, this->_feedbackImage.image,
+                                   VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &copyRegion);
+
+            vkutil::transition_image(cmd, this->_feedbackImage.image, 
+                                     VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
         });
         return true;
     }
@@ -684,6 +749,11 @@ private:
     VkDescriptorSet _drawImageDescriptorSet;
     VkDescriptorSetLayout _drawImageDescriptorLayout;
     DescriptorWriter _descriptorWriter;
+
+    //immediate submit structures
+    VkFence _immFence;
+    VkCommandBuffer _immCommandBuffer;
+    VkCommandPool _immCommandPool;
 
     std::string _name {};
     std::atomic<bool> _shouldClose {false};
