@@ -32,6 +32,7 @@ struct AllocatedImage {
     VmaAllocation allocation;
     VkExtent3D imageExtent;
     VkFormat imageFormat;
+    VmaAllocationInfo info;
 };
 
 struct AllocatedBuffer {

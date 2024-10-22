@@ -105,7 +105,7 @@ public:
             vkDestroySemaphore(this->_device, frame.renderSemaphore, nullptr);
             frame.deletionQueue.flush();
         }
-        this->_mainDeletionQueue.flush();
+        this->_deletionQueue.flush();
         this->destroySwapchain();
         this->destroyVulkan();
         SDL_DestroyWindow(this->_window);
@@ -359,7 +359,7 @@ private:
             .instance = this->_instance, 
         };
         vmaCreateAllocator(&allocatorInfo, &this->_allocator);
-        this->_mainDeletionQueue.push([&](){vmaDestroyAllocator(this->_allocator);});
+        this->_deletionQueue.push([&](){vmaDestroyAllocator(this->_allocator);});
 
         return true;
     }
@@ -410,7 +410,7 @@ private:
         VkImageViewCreateInfo imgViewInfo = vkinit::imageview_create_info(this->_drawImage.imageFormat, this->_drawImage.image, VK_IMAGE_ASPECT_COLOR_BIT);
         VK_ASSERT(vkCreateImageView(this->_device, &imgViewInfo, nullptr, &this->_drawImage.imageView));
 
-        this->_mainDeletionQueue.push([&]() {
+        this->_deletionQueue.push([&]() {
             vkDestroyImageView(this->_device, this->_drawImage.imageView, nullptr);
             vmaDestroyImage(this->_allocator, this->_drawImage.image, this->_drawImage.allocation);
         });
@@ -454,7 +454,7 @@ private:
         VK_ASSERT(vkCreateCommandPool(this->_device, &cmdPoolInfo, nullptr, &this->_immCommandPool));
         VkCommandBufferAllocateInfo immCmdAllocInfo = vkinit::command_buffer_allocate_info(this->_immCommandPool, 1);
         VK_ASSERT(vkAllocateCommandBuffers(this->_device, &immCmdAllocInfo, &this->_immCommandBuffer));
-        this->_mainDeletionQueue.push([&]() {
+        this->_deletionQueue.push([&]() {
             vkDestroyCommandPool(this->_device, this->_immCommandPool, nullptr);
         });
 
@@ -479,27 +479,30 @@ private:
         }
 
         VK_ASSERT(vkCreateFence(this->_device, &fenceInfo, nullptr, &this->_immFence));
-        this->_mainDeletionQueue.push([&](){ vkDestroyFence(this->_device, this->_immFence, nullptr); });
+        this->_deletionQueue.push([&](){ vkDestroyFence(this->_device, this->_immFence, nullptr); });
         return true;
     }
 
-    AllocatedBuffer createBuffer(size_t allocSize, VkBufferUsageFlags usage, VmaMemoryUsage memoryUsage)
+    AllocatedBuffer createBuffer(size_t allocSize, VkBufferUsageFlags usage, VmaMemoryUsage memoryUsage, bool autoCleanup = true)
     {
         // allocate buffer
-        VkBufferCreateInfo bufferInfo = {.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
-        bufferInfo.pNext = nullptr;
-        bufferInfo.size = allocSize;
+        VkBufferCreateInfo bufferInfo = {
+            .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+            .size = allocSize,
+            .usage = usage
+        };
+        VmaAllocationCreateInfo vmaallocInfo = {
+            .flags = VMA_ALLOCATION_CREATE_MAPPED_BIT,
+            .usage = memoryUsage,
+        };
 
-        bufferInfo.usage = usage;
-
-        VmaAllocationCreateInfo vmaallocInfo = {};
-        vmaallocInfo.usage = memoryUsage;
-        vmaallocInfo.flags = VMA_ALLOCATION_CREATE_MAPPED_BIT;
         AllocatedBuffer newBuffer;
-
-        // allocate the buffer
-        VK_CHECK(vmaCreateBuffer(this->_allocator, &bufferInfo, &vmaallocInfo, &newBuffer.buffer, &newBuffer.allocation,
-            &newBuffer.info));
+        VK_CHECK(vmaCreateBuffer(this->_allocator, &bufferInfo, &vmaallocInfo, &newBuffer.buffer, &newBuffer.allocation, &newBuffer.info));
+        if(autoCleanup) {
+            this->_deletionQueue.push([this, newBuffer]() {
+                vmaDestroyBuffer(this->_allocator, newBuffer.buffer, newBuffer.allocation);
+            });
+        }
         return newBuffer;
     }
 
@@ -508,39 +511,101 @@ private:
         return true;
     }
 
+    AllocatedImage createImage(VkExtent3D extent, VkImageUsageFlags usageFlags, VkImageAspectFlags aspectFlags, VkFormat format, bool autoCleanup = true)
+    {
+        AllocatedImage newImg {};
+        newImg.imageExtent = extent;
+        newImg.imageFormat = format;
+        VkImageCreateInfo imgCreateInfo = {
+            .sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
+            .imageType = VK_IMAGE_TYPE_2D,
+            .format = newImg.imageFormat,
+            .extent = newImg.imageExtent,
+            .mipLevels = 1,
+            .arrayLayers = 1,
+            .samples = VK_SAMPLE_COUNT_1_BIT, //MSAA samples, 1 = disabled
+            .tiling = VK_IMAGE_TILING_OPTIMAL,
+            .usage = usageFlags
+        };
+        VmaAllocationCreateInfo imgAllocCreateInfo = {
+            .usage = VMA_MEMORY_USAGE_GPU_ONLY,
+            .requiredFlags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT
+        };
+        VK_CHECK(vmaCreateImage(this->_allocator, &imgCreateInfo, &imgAllocCreateInfo, &newImg.image, &newImg.allocation, &newImg.info));
+
+        VkImageViewCreateInfo imgViewCreateInfo = {
+            .sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
+            .image = newImg.image,
+            .viewType = VK_IMAGE_VIEW_TYPE_2D,
+            .format = newImg.imageFormat,
+            .subresourceRange = {
+                .aspectMask = aspectFlags,
+                .baseMipLevel = 0,
+                .levelCount = 1,
+                .baseArrayLayer = 0,
+                .layerCount = 1,
+            }
+        };
+        VK_CHECK(vkCreateImageView(this->_device, &imgViewCreateInfo, nullptr, &newImg.imageView));
+
+        if(autoCleanup) {
+            this->_deletionQueue.push([this, newImg]() {
+                vmaDestroyImage(this->_allocator, newImg.image, newImg.allocation);
+                vkDestroyImageView(this->_device, newImg.imageView, nullptr);
+            });
+        }
+        return newImg;
+    }
+
+    bool copyBufferToImage(AllocatedBuffer buffer, AllocatedImage image)
+    {
+        this->immediateSubmit([buffer, image](VkCommandBuffer cmd) {
+            vkutil::transition_image(cmd, image.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+            VkBufferImageCopy copyRegion = {};
+            copyRegion.bufferOffset = 0;
+            copyRegion.bufferRowLength = 0;
+            copyRegion.bufferImageHeight = 0;
+
+            copyRegion.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+            copyRegion.imageSubresource.mipLevel = 0;
+            copyRegion.imageSubresource.baseArrayLayer = 0;
+            copyRegion.imageSubresource.layerCount = 1;
+            copyRegion.imageExtent = image.imageExtent;
+
+            vkCmdCopyBufferToImage(cmd, buffer.buffer, image.image,
+                                   VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &copyRegion);
+
+            vkutil::transition_image(cmd, image.image, 
+                                     VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+        });
+        return true;
+    }
+
     bool initFeedbackShader()
     {
         int w, h, nrChannel;
         unsigned char* data = stbi_load(ASSETS_DIRECTORY"/monet-alpha-square.png", &w, &h, &nrChannel, STBI_rgb_alpha);
+        this->_feedbackImage = this->createImage(
+            VkExtent3D(w, h, 1),
+            VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
+            VK_IMAGE_ASPECT_COLOR_BIT,
+            VK_FORMAT_R8G8B8A8_UNORM
+        );
+        
+        // Create staging buffer to allow for CPU -> GPU image copies
+        this->_stagingBuffer = this->createBuffer(
+            w*h*nrChannel,
+            VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+            VMA_MEMORY_USAGE_CPU_TO_GPU
+        );
+        std::memcpy(this->_stagingBuffer.info.pMappedData, data, w*h*nrChannel);
+        this->copyBufferToImage(this->_stagingBuffer, this->_feedbackImage);
 
         std::vector<DescriptorPool::DescriptorQuantity> sizes = {
             {VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 2}
         };
         this->_descriptorPool.init(this->_device, 10, sizes);
 
-        // Create feedback image that gets copied to each frame
-        // this->_feedbackImage.imageExtent = VkExtent3D{.width = (unsigned int)w, .height = (unsigned int)h, .depth = 1};
-        this->_feedbackImage.imageExtent = _drawImage.imageExtent;
-        // this->_feedbackImage.imageFormat = VK_FORMAT_R16G16B16A16_SFLOAT;
-        this->_feedbackImage.imageFormat = VK_FORMAT_R8G8B8A8_UNORM;
-        VkImageCreateInfo imgCreateInfo = vkinit::image_create_info(
-            this->_feedbackImage.imageFormat,
-            VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
-            this->_drawImage.imageExtent
-        );
-
-        VmaAllocationCreateInfo imgAllocInfo = {
-            .usage = VMA_MEMORY_USAGE_GPU_ONLY,
-            .requiredFlags = VkMemoryPropertyFlags(VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT)
-        };
-        VK_CHECK(vmaCreateImage(this->_allocator, &imgCreateInfo, &imgAllocInfo, &this->_feedbackImage.image, &this->_feedbackImage.allocation, nullptr));
-        VkImageViewCreateInfo viewCreateInfo = vkinit::imageview_create_info(this->_feedbackImage.imageFormat, this->_feedbackImage.image, VK_IMAGE_ASPECT_COLOR_BIT);
-        VK_CHECK(vkCreateImageView(this->_device, &viewCreateInfo, nullptr, &this->_feedbackImage.imageView));
-        this->_mainDeletionQueue.push([&]() {
-            vmaDestroyImage(this->_allocator, this->_feedbackImage.image, this->_feedbackImage.allocation);
-            vkDestroyImageView(this->_device, this->_feedbackImage.imageView, nullptr);
-        });
-        
         // Define descriptor layout
         {
             DescriptorLayoutBuilder builder;
@@ -554,44 +619,20 @@ private:
             .sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO,
         };
         VK_ASSERT(vkCreateSampler(this->_device, &samplerCreateInfo, nullptr, &this->_simpleSampler));
+        this->_deletionQueue.push([&]() { vkDestroySampler(this->_device, this->_simpleSampler, nullptr); });
+
+        // Fill in the descriptors
         this->_descriptorWriter.clear();
         this->_descriptorWriter.write_image(0, this->_drawImage.imageView, 0, VK_IMAGE_LAYOUT_GENERAL, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE);
         this->_descriptorWriter.write_image(1, this->_feedbackImage.imageView, this->_simpleSampler, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
         this->_descriptorWriter.update_set(this->_device, this->_drawImageDescriptorSet);
-        this->_mainDeletionQueue.push([&]() {
-            vkDestroySampler(this->_device, this->_simpleSampler, nullptr);
+        this->_deletionQueue.push([&]() {
             this->_descriptorPool.destroy(this->_device);
             vkDestroyDescriptorSetLayout(this->_device, this->_drawImageDescriptorLayout, nullptr);
         });
+
         
         
-        // Create staging buffer to allow for CPU -> GPU image copies
-        this->_stagingBuffer = createBuffer(w*h*nrChannel,
-                                            VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
-                                            VMA_MEMORY_USAGE_CPU_TO_GPU);
-        this->_mainDeletionQueue.push([&]() { vmaDestroyBuffer(this->_allocator, this->_stagingBuffer.buffer, this->_stagingBuffer.allocation); });
-
-        std::memcpy(this->_stagingBuffer.info.pMappedData, data, w*h*nrChannel);
-
-        this->immediateSubmit([&](VkCommandBuffer cmd) {
-            vkutil::transition_image(cmd, this->_feedbackImage.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
-            VkBufferImageCopy copyRegion = {};
-            copyRegion.bufferOffset = 0;
-            copyRegion.bufferRowLength = 0;
-            copyRegion.bufferImageHeight = 0;
-
-            copyRegion.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-            copyRegion.imageSubresource.mipLevel = 0;
-            copyRegion.imageSubresource.baseArrayLayer = 0;
-            copyRegion.imageSubresource.layerCount = 1;
-            copyRegion.imageExtent = this->_feedbackImage.imageExtent;
-
-            vkCmdCopyBufferToImage(cmd, this->_stagingBuffer.buffer, this->_feedbackImage.image,
-                                   VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &copyRegion);
-
-            vkutil::transition_image(cmd, this->_feedbackImage.image, 
-                                     VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-        });
         return true;
     }
 
@@ -629,7 +670,7 @@ private:
 
         vkUpdateDescriptorSets(this->_device, 1, &drawImageWrite, 0, nullptr);
 
-        this->_mainDeletionQueue.push([&]() {
+        this->_deletionQueue.push([&]() {
             this->_descriptorPool.destroy(this->_device);
             vkDestroyDescriptorSetLayout(this->_device, this->_drawImageDescriptorLayout, nullptr);
         });
@@ -677,7 +718,7 @@ private:
         VK_ASSERT(vkCreateComputePipelines(this->_device, VK_NULL_HANDLE, 1, &computePipelineCreateInfo, nullptr, &this->_gradientPipeline));
 
         vkDestroyShaderModule(this->_device, computeDrawShader, nullptr);
-        this->_mainDeletionQueue.push([&]() {
+        this->_deletionQueue.push([&]() {
             vkDestroyPipelineLayout(this->_device, this->_gradientPipelineLayout, nullptr);
             vkDestroyPipeline(this->_device, this->_gradientPipeline, nullptr);
         });
@@ -720,7 +761,7 @@ private:
     SDL_Window* _window {};
     VkExtent2D _windowExtent {}; 
     bool _isInitialized {false};
-    DeletionQueue _mainDeletionQueue;
+    DeletionQueue _deletionQueue;
 
     VkInstance _instance {};
     VkDebugUtilsMessengerEXT _debugMessenger {};
