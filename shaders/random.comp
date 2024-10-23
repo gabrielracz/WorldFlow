@@ -12,43 +12,21 @@ layout(push_constant) uniform constants
     float time;
 } PushConstants;
 
-
-float rand(float n){return fract(sin(n) * 43758.5453123);}
-
-float noise(float p){
-	float fl = floor(p);
-  float fc = fract(p);
-	return mix(rand(fl), rand(fl + 1.0), fc);
-}
-
 uint getID() {
     return gl_GlobalInvocationID.z * (gl_NumWorkGroups.x * gl_NumWorkGroups.y * gl_WorkGroupSize.x * gl_WorkGroupSize.y) +
            gl_GlobalInvocationID.y * (gl_NumWorkGroups.x * gl_WorkGroupSize.x) +
            gl_GlobalInvocationID.x;
 }
-	
-// float noise(vec2 n) {
-// 	const vec2 d = vec2(0.0, 1.0);
-//   vec2 b = floor(n), f = smoothstep(vec2(0.0), vec2(1.0), fract(n));
-// 	return mix(mix(rand(b), rand(b + d.yx), f.x), mix(rand(b + d.xy), rand(b + d.yy), f.x), f.y);
-// }
-
 
 void main()
 {
     ivec2 texelCoord = ivec2(gl_GlobalInvocationID.xy);
-    ivec2 size = imageSize(image);
+    ivec2 texSize = imageSize(image);
+    float t = (PushConstants.time*0.002) + (getID() * 0.0001);
 
-    if(texelCoord.x >= size.x || texelCoord.y >= size.y) {
-        return;
-    }
+    float u = (texelCoord.x + (5*sin(t))) / float(texSize.x);
+    float v = (texelCoord.y + (5*sin(2*t))) / float(texSize.y);
+    vec4 color = texture(feedbackImage, vec2(u, v));
 
-    imageStore(image, texelCoord, texture(feedbackImage, vec2(texelCoord.x/float(size.x), texelCoord.y/float(size.y))));
-    if(mod(PushConstants.time, 5)== 0) {
-        return;
-    }
-
-    float t = PushConstants.time + getID();
-    vec4 color = vec4(noise(t), noise(t + 50), noise(t + 100), 1.0);
     imageStore(image, texelCoord, color);
 }

@@ -119,8 +119,8 @@ public:
                                 this->initSwapchain() &&
                                 this->initCommands() &&
                                 this->initSyncStructures() &&
-                                // this->initDescriptors() &&
-                                this->initFeedbackShader() &&
+                                this->initAssets() &&
+                                this->initDescriptors() &&
                                 this->initBuffers() &&
                                 this->initPipelines()
                                 ;
@@ -219,8 +219,14 @@ private:
             .flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT
         };
         VK_ASSERT(vkBeginCommandBuffer(cmd, &cmdBeginInfo));
+        if(this->_frameNumber > 1) {
+            vkutil::transition_image(cmd, this->_drawImage.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+            vkutil::transition_image(cmd, this->_feedbackImage.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+            vkutil::copy_image_to_image(cmd, this->_drawImage.image, this->_feedbackImage.image, this->_drawImage.imageExtent, this->_feedbackImage.imageExtent);
+        }
+
         // make draw image writeable
-        vkutil::transition_image(cmd, this->_drawImage.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL);
+        vkutil::transition_image(cmd, this->_drawImage.image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_GENERAL);
         vkutil::transition_image(cmd, this->_feedbackImage.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
         
         drawBackground(cmd);
@@ -230,7 +236,7 @@ private:
         vkutil::transition_image(cmd, this->_drawImage.image, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
         vkutil::transition_image(cmd, this->_swapchainImages[swapchainImageIndex], VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
         VkExtent2D drawExtent = {.width = this->_drawImage.imageExtent.width, .height = this->_drawImage.imageExtent.height};
-        vkutil::copy_image_to_image(cmd, this->_drawImage.image, this->_swapchainImages[swapchainImageIndex], drawExtent, this->_swapchainExtent);
+        vkutil::copy_image_to_image(cmd, this->_drawImage.image, this->_swapchainImages[swapchainImageIndex], this->_drawImage.imageExtent, VkExtent3D(this->_swapchainExtent.width, this->_swapchainExtent.height, 1));
 
         // transition to present format
         vkutil::transition_image(cmd, this->_swapchainImages[swapchainImageIndex], VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
@@ -581,7 +587,7 @@ private:
         return true;
     }
 
-    bool initFeedbackShader()
+    bool initAssets()
     {
         int w, h, nrChannel;
         unsigned char* data = stbi_load(ASSETS_DIRECTORY"/monet-alpha-square.png", &w, &h, &nrChannel, STBI_rgb_alpha);
@@ -591,7 +597,6 @@ private:
             VK_IMAGE_ASPECT_COLOR_BIT,
             VK_FORMAT_R8G8B8A8_UNORM
         );
-        
         // Create staging buffer to allow for CPU -> GPU image copies
         this->_stagingBuffer = this->createBuffer(
             w*h*nrChannel,
@@ -600,7 +605,11 @@ private:
         );
         std::memcpy(this->_stagingBuffer.info.pMappedData, data, w*h*nrChannel);
         this->copyBufferToImage(this->_stagingBuffer, this->_feedbackImage);
+        return true;
+    }
 
+    bool initDescriptors()
+    {
         std::vector<DescriptorPool::DescriptorQuantity> sizes = {
             {VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 2}
         };
@@ -626,50 +635,6 @@ private:
         this->_descriptorWriter.write_image(0, this->_drawImage.imageView, 0, VK_IMAGE_LAYOUT_GENERAL, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE);
         this->_descriptorWriter.write_image(1, this->_feedbackImage.imageView, this->_simpleSampler, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
         this->_descriptorWriter.update_set(this->_device, this->_drawImageDescriptorSet);
-        this->_deletionQueue.push([&]() {
-            this->_descriptorPool.destroy(this->_device);
-            vkDestroyDescriptorSetLayout(this->_device, this->_drawImageDescriptorLayout, nullptr);
-        });
-
-        
-        
-        return true;
-    }
-
-    bool initDescriptors()
-    {
-        // Create 10 sets, each containing two image binding
-        std::vector<DescriptorPool::DescriptorQuantity> sizes = {
-            {VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 2}
-        };
-        this->_descriptorPool.init(this->_device, 10, sizes);
-        
-        // make the layout describing the bindings corresponding to the set
-        {
-            DescriptorLayoutBuilder builder;
-            builder.add_binding(0, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE);
-            this->_drawImageDescriptorLayout = builder.build(this->_device, VK_SHADER_STAGE_COMPUTE_BIT);
-        }
-
-        // allocate the descriptor set from the layout
-        this->_drawImageDescriptorSet = _descriptorPool.allocateSet(this->_device, this->_drawImageDescriptorLayout);
-
-        VkDescriptorImageInfo imgInfo = {
-            .imageView = this->_drawImage.imageView,
-            .imageLayout = VK_IMAGE_LAYOUT_GENERAL
-        };
-
-        VkWriteDescriptorSet drawImageWrite = {
-            .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-            .dstSet = this->_drawImageDescriptorSet,
-            .dstBinding = 0,
-            .descriptorCount = 1,
-            .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
-            .pImageInfo = &imgInfo
-        };
-
-        vkUpdateDescriptorSets(this->_device, 1, &drawImageWrite, 0, nullptr);
-
         this->_deletionQueue.push([&]() {
             this->_descriptorPool.destroy(this->_device);
             vkDestroyDescriptorSetLayout(this->_device, this->_drawImageDescriptorLayout, nullptr);
@@ -823,8 +788,12 @@ int main(int argc, char* argv[])
     }
 
     const double startTime = GetTimestamp();
+    double lastFrameTime = startTime;
     while(!renderer.ShouldClose()) {
-        const double dt = GetTimestamp() - startTime;
+        const double currentFrameTime = GetTimestamp();
+        const double dt = currentFrameTime - lastFrameTime;
+        lastFrameTime = currentFrameTime;
+        
         renderer.Render(dt);
         // std::this_thread::sleep_for(std::chrono::duration(std::chrono::milliseconds(16)));
     }
