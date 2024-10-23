@@ -9,6 +9,7 @@ layout(rgba16f, set = 0, binding = 0) uniform image2D image;
 layout(push_constant) uniform constants
 {
     float time;
+    float dt;
 } PushConstants;
 
 void main()

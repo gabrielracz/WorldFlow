@@ -73,6 +73,7 @@ struct FrameData
 struct ComputePushConstants
 {
     float time {};
+    float dt {};
 };
 
 static inline void
@@ -132,10 +133,11 @@ public:
     {
         this->_elapsed += dt;
         this->pollEvents();
-        this->draw();
+        this->draw(dt);
     }
     
     bool ShouldClose() const { return this->_shouldClose; }
+    void Close() { this->_shouldClose = true; }
 
 private:
     void pollEvents()
@@ -174,7 +176,7 @@ private:
         return true;
     }
 
-    void drawBackground(VkCommandBuffer cmd)
+    void drawBackground(VkCommandBuffer cmd, double dt)
     {
         // VkClearColorValue clearValue {
         //    (1 + std::sin(this->_frameNumber / 120.0f)) / 2.0f,
@@ -185,19 +187,63 @@ private:
         // VkImageSubresourceRange clearRange = vkinit::image_subresource_range(VK_IMAGE_ASPECT_COLOR_BIT);
         // vkCmdClearColorImage(cmd, this->_drawImage.image, VK_IMAGE_LAYOUT_GENERAL, &clearValue, 1, &clearRange);
 
-        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, this->_gradientPipeline);
+        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, this->_computePipeline);
 
-        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, this->_gradientPipelineLayout, 0, 1, &this->_drawImageDescriptorSet, 0, nullptr);
+        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, this->_computePipelineLayout, 0, 1, &this->_drawImageDescriptorSet, 0, nullptr);
 
         ComputePushConstants constants = {
-            .time = static_cast<float>(this->_elapsed)
+            .time = static_cast<float>(this->_elapsed),
+            .dt   = static_cast<float>(dt)
         };
-        vkCmdPushConstants(cmd, this->_gradientPipelineLayout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(ComputePushConstants), &constants);
+        vkCmdPushConstants(cmd, this->_computePipelineLayout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(ComputePushConstants), &constants);
 
         vkCmdDispatch(cmd, std::ceil(this->_drawImage.imageExtent.width/16.0), std::ceil(this->_drawImage.imageExtent.height/16.0), 1);
     }
 
-    bool draw()
+    void diffuseBackground(VkCommandBuffer cmd, double dt)
+    {
+        VkImageMemoryBarrier imageBarrier = {
+            .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
+            .srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT, // Waiting for shader writes to complete
+            .dstAccessMask = VK_ACCESS_SHADER_READ_BIT, // Next dispatch can only read
+            .oldLayout = VK_IMAGE_LAYOUT_GENERAL, // Expected layout before the barrier
+            .newLayout = VK_IMAGE_LAYOUT_GENERAL, // Expected layout after the barrier
+            .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+            .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+            .image = VK_NULL_HANDLE, // UPDATE
+            .subresourceRange = {
+                .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT, // Assuming a color image
+                .baseMipLevel = 0,
+                .levelCount = 1,
+                .baseArrayLayer = 0,
+                .layerCount = 1
+            }
+        };
+        for(AllocatedImage& img : this->_diffusionImages) {
+            vkutil::transition_image(cmd, img.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL);
+        }
+
+        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, this->_computePipeline);
+        for(int i = 0; i < 3; i++) {
+            int pingPongDescriptorIndex = i % 2;
+            vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, this->_computePipelineLayout, 0, 1, &this->_diffusionDescriptorSets[pingPongDescriptorIndex], 0, nullptr);
+
+            ComputePushConstants constants = {
+                .time = static_cast<float>(this->_elapsed),
+                .dt   = static_cast<float>(dt)
+            };
+            vkCmdPushConstants(cmd, this->_computePipelineLayout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(ComputePushConstants), &constants);
+
+            vkCmdDispatch(cmd, std::ceil(this->_drawImage.imageExtent.width/16.0), std::ceil(this->_drawImage.imageExtent.height/16.0), 1);
+            
+            // wait for all image writes to be complete
+            imageBarrier.image = this->_diffusionImages[pingPongDescriptorIndex].image;
+            vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0,
+                                 0, nullptr, 0, nullptr, 1, &imageBarrier);
+        }
+    }
+
+    bool draw(double dt)
     {
         // wait for gpu to be done with last frame and clean
         VK_ASSERT(vkWaitForFences(this->_device, 1, &this->getCurrentFrame().renderFence, true, Constants::TimeoutNs));
@@ -219,27 +265,36 @@ private:
             .flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT
         };
         VK_ASSERT(vkBeginCommandBuffer(cmd, &cmdBeginInfo));
-        if(this->_frameNumber > 1) {
-            vkutil::transition_image(cmd, this->_drawImage.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
-            vkutil::transition_image(cmd, this->_feedbackImage.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
-            vkutil::copy_image_to_image(cmd, this->_drawImage.image, this->_feedbackImage.image, this->_drawImage.imageExtent, this->_feedbackImage.imageExtent);
-        }
-
-        // make draw image writeable
-        vkutil::transition_image(cmd, this->_drawImage.image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_GENERAL);
-        vkutil::transition_image(cmd, this->_feedbackImage.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
         
-        drawBackground(cmd);
+        // handle image transitions
+        // if(this->_frameNumber > 1) {
+        //     vkutil::transition_image(cmd, this->_drawImage.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+        //     vkutil::transition_image(cmd, this->_feedbackImage.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+
+        //     vkutil::copy_image_to_image(cmd, this->_drawImage.image, this->_feedbackImage.image, this->_drawImage.imageExtent, this->_feedbackImage.imageExtent);
+
+        //     vkutil::transition_image(cmd, this->_drawImage.image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_GENERAL);
+        //     vkutil::transition_image(cmd, this->_feedbackImage.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_GENERAL);
+        // } else {
+        // vkutil::transition_image(cmd, this->_drawImage.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL);
+        // vkutil::transition_image(cmd, this->_feedbackImage.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL);
+        // }
+        
+        // drawBackground(cmd, dt);
+        diffuseBackground(cmd, dt);
         
         // TODO: abstract into image class.
         // prepare draw image -> swapchain image copy
-        vkutil::transition_image(cmd, this->_drawImage.image, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
-        vkutil::transition_image(cmd, this->_swapchainImages[swapchainImageIndex], VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
-        VkExtent2D drawExtent = {.width = this->_drawImage.imageExtent.width, .height = this->_drawImage.imageExtent.height};
-        vkutil::copy_image_to_image(cmd, this->_drawImage.image, this->_swapchainImages[swapchainImageIndex], this->_drawImage.imageExtent, VkExtent3D(this->_swapchainExtent.width, this->_swapchainExtent.height, 1));
+        AllocatedImage& drawImage = this->_diffusionImages[1];
+        VkImage& swapchainImage = this->_swapchainImages[swapchainImageIndex];
+
+        vkutil::transition_image(cmd, drawImage.image, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+        vkutil::transition_image(cmd, swapchainImage, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+        VkExtent2D drawExtent = {.width = drawImage.imageExtent.width, .height = drawImage.imageExtent.height};
+        vkutil::copy_image_to_image(cmd, drawImage.image, swapchainImage, drawImage.imageExtent, VkExtent3D(this->_swapchainExtent.width, this->_swapchainExtent.height, 1));
 
         // transition to present format
-        vkutil::transition_image(cmd, this->_swapchainImages[swapchainImageIndex], VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
+        vkutil::transition_image(cmd, swapchainImage, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
         VK_ASSERT(vkEndCommandBuffer(cmd)); //commands recorded
 
         // prepare queue submission
@@ -392,7 +447,8 @@ private:
     bool createDrawImage()
     {
         // Hardcord image format to float16 and extent to current window size
-        this->_drawImage.imageFormat = VK_FORMAT_R16G16B16A16_SFLOAT;
+        // this->_drawImage.imageFormat = VK_FORMAT_R16G16B16A16_SFLOAT;
+        this->_drawImage.imageFormat = VK_FORMAT_R8G8B8A8_UNORM;
         this->_drawImage.imageExtent = VkExtent3D {
             this->_windowExtent.width,
             this->_windowExtent.height,
@@ -563,9 +619,9 @@ private:
         return newImg;
     }
 
-    bool copyBufferToImage(AllocatedBuffer buffer, AllocatedImage image)
+    bool copyBufferToImage(AllocatedBuffer buffer, AllocatedImage image, VkImageLayout finalLayout = VK_IMAGE_LAYOUT_GENERAL)
     {
-        this->immediateSubmit([buffer, image](VkCommandBuffer cmd) {
+        this->immediateSubmit([buffer, image, finalLayout](VkCommandBuffer cmd) {
             vkutil::transition_image(cmd, image.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
             VkBufferImageCopy copyRegion = {};
             copyRegion.bufferOffset = 0;
@@ -582,7 +638,7 @@ private:
                                    VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &copyRegion);
 
             vkutil::transition_image(cmd, image.image, 
-                                     VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+                                     VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, finalLayout);
         });
         return true;
     }
@@ -593,10 +649,20 @@ private:
         unsigned char* data = stbi_load(ASSETS_DIRECTORY"/monet-alpha-square.png", &w, &h, &nrChannel, STBI_rgb_alpha);
         this->_feedbackImage = this->createImage(
             VkExtent3D(w, h, 1),
-            VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
+            VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_STORAGE_BIT,
             VK_IMAGE_ASPECT_COLOR_BIT,
             VK_FORMAT_R8G8B8A8_UNORM
         );
+
+        for(AllocatedImage& img : this->_diffusionImages) {
+            img = this->createImage(
+                VkExtent3D(w, h, 1),
+                VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_STORAGE_BIT,
+                VK_IMAGE_ASPECT_COLOR_BIT,
+                VK_FORMAT_R8G8B8A8_UNORM
+            );
+        }
+
         // Create staging buffer to allow for CPU -> GPU image copies
         this->_stagingBuffer = this->createBuffer(
             w*h*nrChannel,
@@ -604,7 +670,14 @@ private:
             VMA_MEMORY_USAGE_CPU_TO_GPU
         );
         std::memcpy(this->_stagingBuffer.info.pMappedData, data, w*h*nrChannel);
-        this->copyBufferToImage(this->_stagingBuffer, this->_feedbackImage);
+        // this->copyBufferToImage(this->_stagingBuffer, this->_feedbackImage);
+        this->copyBufferToImage(this->_stagingBuffer, this->_diffusionImages[0]);
+        // this->copyBufferToImage(this->_stagingBuffer, this->_diffusionImages[1]);
+
+        immediateSubmit([&](VkCommandBuffer cmd) {
+            for(AllocatedImage& img : this->_diffusionImages)
+                vkutil::transition_image(cmd, img.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL);
+        });
         return true;
     }
 
@@ -619,10 +692,14 @@ private:
         {
             DescriptorLayoutBuilder builder;
             builder.add_binding(0, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE);
-            builder.add_binding(1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
+            builder.add_binding(1, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE);
             this->_drawImageDescriptorLayout = builder.build(this->_device, VK_SHADER_STAGE_COMPUTE_BIT);
         }
         this->_drawImageDescriptorSet = this->_descriptorPool.allocateSet(this->_device, this->_drawImageDescriptorLayout);
+
+        this->_diffusionDescriptorSets[0] = this->_descriptorPool.allocateSet(this->_device, this->_drawImageDescriptorLayout);
+        this->_diffusionDescriptorSets[1] = this->_descriptorPool.allocateSet(this->_device, this->_drawImageDescriptorLayout);
+
 
         VkSamplerCreateInfo samplerCreateInfo = {
             .sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO,
@@ -633,8 +710,19 @@ private:
         // Fill in the descriptors
         this->_descriptorWriter.clear();
         this->_descriptorWriter.write_image(0, this->_drawImage.imageView, 0, VK_IMAGE_LAYOUT_GENERAL, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE);
-        this->_descriptorWriter.write_image(1, this->_feedbackImage.imageView, this->_simpleSampler, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
+        this->_descriptorWriter.write_image(1, this->_feedbackImage.imageView, 0, VK_IMAGE_LAYOUT_GENERAL, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE);
         this->_descriptorWriter.update_set(this->_device, this->_drawImageDescriptorSet);
+
+        // fill the diffusion sets
+        this->_descriptorWriter.clear();
+        this->_descriptorWriter.write_image(0, this->_diffusionImages[0].imageView, 0, VK_IMAGE_LAYOUT_GENERAL, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE);
+        this->_descriptorWriter.write_image(1, this->_diffusionImages[1].imageView, 0, VK_IMAGE_LAYOUT_GENERAL, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE);
+        this->_descriptorWriter.update_set(this->_device, this->_diffusionDescriptorSets[0]);
+        this->_descriptorWriter.clear();
+        this->_descriptorWriter.write_image(0, this->_diffusionImages[1].imageView, 0, VK_IMAGE_LAYOUT_GENERAL, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE);
+        this->_descriptorWriter.write_image(1, this->_diffusionImages[0].imageView, 0, VK_IMAGE_LAYOUT_GENERAL, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE);
+        this->_descriptorWriter.update_set(this->_device, this->_diffusionDescriptorSets[1]);
+
         this->_deletionQueue.push([&]() {
             this->_descriptorPool.destroy(this->_device);
             vkDestroyDescriptorSetLayout(this->_device, this->_drawImageDescriptorLayout, nullptr);
@@ -658,10 +746,10 @@ private:
             .pushConstantRangeCount = 1,
             .pPushConstantRanges = &pushConstants
         };
-        VK_ASSERT(vkCreatePipelineLayout(this->_device, &computeLayout, nullptr, &this->_gradientPipelineLayout));
+        VK_ASSERT(vkCreatePipelineLayout(this->_device, &computeLayout, nullptr, &this->_computePipelineLayout));
 
         VkShaderModule computeDrawShader;
-        const char* shaderFileName = SHADER_DIRECTORY"/random.comp.spv";
+        const char* shaderFileName = SHADER_DIRECTORY"/diffusion.comp.spv";
         if(!vkutil::load_shader_module(shaderFileName, this->_device, &computeDrawShader)) {
             std::cerr << "[ERROR] Failed to load compute shader " << shaderFileName << std::endl;
             return false;
@@ -677,15 +765,15 @@ private:
         VkComputePipelineCreateInfo computePipelineCreateInfo = {
             .sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO,
             .stage = stageInfo,
-            .layout = this->_gradientPipelineLayout
+            .layout = this->_computePipelineLayout
         };
 
-        VK_ASSERT(vkCreateComputePipelines(this->_device, VK_NULL_HANDLE, 1, &computePipelineCreateInfo, nullptr, &this->_gradientPipeline));
+        VK_ASSERT(vkCreateComputePipelines(this->_device, VK_NULL_HANDLE, 1, &computePipelineCreateInfo, nullptr, &this->_computePipeline));
 
         vkDestroyShaderModule(this->_device, computeDrawShader, nullptr);
         this->_deletionQueue.push([&]() {
-            vkDestroyPipelineLayout(this->_device, this->_gradientPipelineLayout, nullptr);
-            vkDestroyPipeline(this->_device, this->_gradientPipeline, nullptr);
+            vkDestroyPipelineLayout(this->_device, this->_computePipelineLayout, nullptr);
+            vkDestroyPipeline(this->_device, this->_computePipeline, nullptr);
         });
         return true;
     }
@@ -748,11 +836,12 @@ private:
     uint32_t _frameNumber {};
     AllocatedImage _drawImage;
 
-    VkPipeline _gradientPipeline;
-    VkPipelineLayout _gradientPipelineLayout;
+    VkPipeline _computePipeline;
+    VkPipelineLayout _computePipelineLayout;
 
     DescriptorPool _descriptorPool;
     VkDescriptorSet _drawImageDescriptorSet;
+    VkDescriptorSet _diffusionDescriptorSets[2] {};
     VkDescriptorSetLayout _drawImageDescriptorLayout;
     DescriptorWriter _descriptorWriter;
 
@@ -767,20 +856,14 @@ private:
 
     //Test Scene
     AllocatedImage _feedbackImage {};
+    AllocatedImage _diffusionImages[2] {};
     AllocatedBuffer _stagingBuffer {};
     VkSampler _simpleSampler {};
 
 };
 
-void
-signalHandler(int sig)
-{
-    std::cout << "sig" << std::endl;
-}
-
 int main(int argc, char* argv[])
 {
-    std::signal(SIGINT, &signalHandler);
     Renderer renderer("VulkanFlow", 600, 600);
     if(!renderer.Init()) {
         std::cout << "[ERROR] Failed to initialize renderer" << std::endl;
