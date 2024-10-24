@@ -4,8 +4,8 @@
 layout (local_size_x = 16, local_size_y = 16) in;
 
 // descriptor bindings for the pipeline
-layout(rgba8, set = 0, binding = 0) uniform image2D image;
-layout(rgba8, set = 0, binding = 1) uniform readonly image2D feedbackImage;
+layout(rgba8, set = 0, binding = 0) uniform readonly image2D inputImage;
+layout(rgba8, set = 0, binding = 1) uniform writeonly image2D outputImage;
 
 layout(push_constant) uniform constants {
     float time;
@@ -15,22 +15,22 @@ layout(push_constant) uniform constants {
 void main()
 {
     ivec2 texelCoord = ivec2(gl_GlobalInvocationID.xy);
-    vec2 imgSize = vec2(imageSize(image));
-    float diffRate =  1000.0;
+    vec2 imgSize = vec2(imageSize(outputImage));
+    float diffRate =  0.01;
     float a = diffRate*PushConstants.dt*imgSize.x*imgSize.y; 
 
     int i = int(gl_GlobalInvocationID.x);
     int j = int(gl_GlobalInvocationID.y);
 
-    vec4 l = imageLoad(feedbackImage, ivec2(i-1, j  ));
-    vec4 u = imageLoad(feedbackImage, ivec2(i  , j+1));
-    vec4 r = imageLoad(feedbackImage, ivec2(i+1, j  ));
-    vec4 d = imageLoad(feedbackImage, ivec2(i  , j-1));
+    vec4 l = imageLoad(inputImage, ivec2(i-1, j  ));
+    vec4 u = imageLoad(inputImage, ivec2(i  , j+1));
+    vec4 r = imageLoad(inputImage, ivec2(i+1, j  ));
+    vec4 d = imageLoad(inputImage, ivec2(i  , j-1));
 
 
-    vec4 x = imageLoad(feedbackImage, ivec2(i, j));
+    vec4 x = imageLoad(inputImage, ivec2(i, j));
 
     vec4 result = (x + a*(l + u + r + d)) / (1+4*a);
     // vec4 result = x;
-    imageStore(image, texelCoord, result);
+    imageStore(outputImage, texelCoord, result);
 }

@@ -285,7 +285,7 @@ private:
         
         // TODO: abstract into image class.
         // prepare draw image -> swapchain image copy
-        AllocatedImage& drawImage = this->_diffusionImages[1];
+        AllocatedImage& drawImage = this->_diffusionImages[0];
         VkImage& swapchainImage = this->_swapchainImages[swapchainImageIndex];
 
         vkutil::transition_image(cmd, drawImage.image, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
