@@ -2,6 +2,7 @@
 #include "SDL_vulkan.h"
 
 #include <chrono>
+#include <stdexcept>
 #include <system_error>
 #include <vulkan/vulkan.h>
 #include <VkBootstrap.h>
@@ -75,8 +76,10 @@ struct FrameData
 
 struct ComputePipeline
 {
-    VkPipeline pipeline;
-    VkPipelineLayout layout;
+    VkPipeline pipeline {};
+    VkPipelineLayout layout {};
+    std::vector<VkDescriptorSet> descriptorSets {};
+    VkDescriptorSetLayout descriptorLayout {};
 };
 
 struct ComputePushConstants
@@ -131,9 +134,9 @@ public:
                                 initSwapchain() &&
                                 initCommands() &&
                                 initSyncStructures() &&
+                                initBuffers() &&
                                 initAssets() &&
                                 initDescriptors() &&
-                                initBuffers() &&
                                 initPipelines()
                                 ;
 
@@ -198,22 +201,21 @@ private:
         // VkImageSubresourceRange clearRange = vkinit::image_subresource_range(VK_IMAGE_ASPECT_COLOR_BIT);
         // vkCmdClearColorImage(cmd, this->_drawImage.image, VK_IMAGE_LAYOUT_GENERAL, &clearValue, 1, &clearRange);
 
-        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, this->_computePipeline);
+        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, this->_drawImagePipeline.pipeline);
 
-        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, this->_computePipelineLayout, 0, 1, &this->_drawImageDescriptorSet, 0, nullptr);
+        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, this->_drawImagePipeline.layout, 0, 1, &this->_drawImagePipeline.descriptorSets[0], 0, nullptr);
 
         ComputePushConstants constants = {
             .time = static_cast<float>(this->_elapsed),
             .dt   = static_cast<float>(dt)
         };
-        vkCmdPushConstants(cmd, this->_computePipelineLayout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(ComputePushConstants), &constants);
+        vkCmdPushConstants(cmd, this->_drawImagePipeline.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(ComputePushConstants), &constants);
 
         vkCmdDispatch(cmd, std::ceil(this->_drawImage.imageExtent.width/16.0), std::ceil(this->_drawImage.imageExtent.height/16.0), 1);
     }
 
     bool addDensity(VkCommandBuffer cmd, double dt)
     {
-        
         return true;
     }
 
@@ -240,16 +242,16 @@ private:
             }
         };
 
-        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, this->_computePipeline);
+        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, this->_diffusionPipeline.pipeline);
         for(int i = 0; i < Constants::DiffusionIterations; i++) {
             int pingPongDescriptorIndex = i % 2;
-            vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, this->_computePipelineLayout, 0, 1, &this->_diffusionDescriptorSets[pingPongDescriptorIndex], 0, nullptr);
+            vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, this->_diffusionPipeline.layout, 0, 1, &this->_diffusionPipeline.descriptorSets[pingPongDescriptorIndex], 0, nullptr);
 
             ComputePushConstants constants = {
                 .time = static_cast<float>(this->_elapsed),
                 .dt   = static_cast<float>(dt)
             };
-            vkCmdPushConstants(cmd, this->_computePipelineLayout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(ComputePushConstants), &constants);
+            vkCmdPushConstants(cmd, this->_diffusionPipeline.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(ComputePushConstants), &constants);
 
             vkCmdDispatch(cmd, std::ceil(this->_drawImage.imageExtent.width/16.0), std::ceil(this->_drawImage.imageExtent.height/16.0), 1);
             
@@ -699,18 +701,25 @@ private:
         };
         this->_descriptorPool.init(this->_device, 10, sizes);
 
-        // Define descriptor layout
-        {
-            DescriptorLayoutBuilder builder;
-            builder.add_binding(0, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE);
-            builder.add_binding(1, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE);
-            this->_drawImageDescriptorLayout = builder.build(this->_device, VK_SHADER_STAGE_COMPUTE_BIT);
-        }
-        this->_drawImageDescriptorSet = this->_descriptorPool.allocateSet(this->_device, this->_drawImageDescriptorLayout);
+        // Draw Image
+        this->_drawImagePipeline.descriptorLayout = DescriptorLayoutBuilder::newLayout()
+            .add_binding(0, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE)
+            .add_binding(1, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE)
+            .build(this->_device, VK_SHADER_STAGE_COMPUTE_BIT);
+        this->_drawImagePipeline.descriptorSets.push_back(this->_descriptorPool.allocateSet(this->_device, this->_drawImagePipeline.descriptorLayout));
 
-        this->_diffusionDescriptorSets[0] = this->_descriptorPool.allocateSet(this->_device, this->_drawImageDescriptorLayout);
-        this->_diffusionDescriptorSets[1] = this->_descriptorPool.allocateSet(this->_device, this->_drawImageDescriptorLayout);
+        // Diffusion
+        this->_diffusionPipeline.descriptorLayout = DescriptorLayoutBuilder::newLayout()
+            .add_binding(0, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE)
+            .add_binding(1, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE)
+            .build(this->_device, VK_SHADER_STAGE_COMPUTE_BIT);
+        this->_diffusionPipeline.descriptorSets.push_back(this->_descriptorPool.allocateSet(this->_device, this->_diffusionPipeline.descriptorLayout));
+        this->_diffusionPipeline.descriptorSets.push_back(this->_descriptorPool.allocateSet(this->_device, this->_diffusionPipeline.descriptorLayout));
 
+        this->_addSourcePipeline.descriptorLayout = DescriptorLayoutBuilder::newLayout()
+            .add_binding(0, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE)
+            .build(this->_device, VK_SHADER_STAGE_COMPUTE_BIT);
+        this->_addSourcePipeline.descriptorSets.push_back(this->_descriptorPool.allocateSet(this->_device, this->_addSourcePipeline.descriptorLayout));
 
         VkSamplerCreateInfo samplerCreateInfo = {
             .sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO,
@@ -718,31 +727,40 @@ private:
         VK_ASSERT(vkCreateSampler(this->_device, &samplerCreateInfo, nullptr, &this->_simpleSampler));
         this->_deletionQueue.push([&]() { vkDestroySampler(this->_device, this->_simpleSampler, nullptr); });
 
-        // Fill in the descriptors
-        this->_descriptorWriter.clear();
-        this->_descriptorWriter.write_image(0, this->_drawImage.imageView, 0, VK_IMAGE_LAYOUT_GENERAL, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE);
-        this->_descriptorWriter.update_set(this->_device, this->_drawImageDescriptorSet);
+        // Basic Draw Image
+        this->_descriptorWriter
+            .clear()
+            .write_image(0, this->_drawImage.imageView, 0, VK_IMAGE_LAYOUT_GENERAL, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE)
+            .update_set(this->_device, this->_drawImagePipeline.descriptorSets[0]);
 
-        // fill the diffusion sets
-        this->_descriptorWriter.clear();
-        this->_descriptorWriter.write_image(0, this->_densityImages[0].imageView, 0, VK_IMAGE_LAYOUT_GENERAL, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE);
-        this->_descriptorWriter.write_image(1, this->_densityImages[1].imageView, 0, VK_IMAGE_LAYOUT_GENERAL, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE);
-        this->_descriptorWriter.update_set(this->_device, this->_diffusionDescriptorSets[0]);
-        this->_descriptorWriter.clear();
-        this->_descriptorWriter.write_image(0, this->_densityImages[1].imageView, 0, VK_IMAGE_LAYOUT_GENERAL, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE);
-        this->_descriptorWriter.write_image(1, this->_densityImages[0].imageView, 0, VK_IMAGE_LAYOUT_GENERAL, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE);
-        this->_descriptorWriter.update_set(this->_device, this->_diffusionDescriptorSets[1]);
+        // Add Source
+        this->_descriptorWriter
+            .clear()
+            .write_image(0, this->_densityImages[0].imageView, 0, VK_IMAGE_LAYOUT_GENERAL, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE)
+            .update_set(this->_device, this->_addSourcePipeline.descriptorSets[0]);
+
+        // Diffusion
+        this->_descriptorWriter
+            .clear()
+            .write_image(0, this->_densityImages[0].imageView, 0, VK_IMAGE_LAYOUT_GENERAL, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE)
+            .write_image(1, this->_densityImages[1].imageView, 0, VK_IMAGE_LAYOUT_GENERAL, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE)
+            .update_set(this->_device, this->_diffusionPipeline.descriptorSets[0])
+            .clear()
+            .write_image(0, this->_densityImages[1].imageView, 0, VK_IMAGE_LAYOUT_GENERAL, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE)
+            .write_image(1, this->_densityImages[0].imageView, 0, VK_IMAGE_LAYOUT_GENERAL, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE)
+            .update_set(this->_device, this->_diffusionPipeline.descriptorSets[1]);
 
         this->_deletionQueue.push([&]() {
             this->_descriptorPool.destroy(this->_device);
-            vkDestroyDescriptorSetLayout(this->_device, this->_drawImageDescriptorLayout, nullptr);
+            vkDestroyDescriptorSetLayout(this->_device, _drawImagePipeline.descriptorLayout, nullptr);
+            vkDestroyDescriptorSetLayout(this->_device, _diffusionPipeline.descriptorLayout, nullptr);
+            vkDestroyDescriptorSetLayout(this->_device, _addSourcePipeline.descriptorLayout, nullptr);
         });
         return true;
     }
 
-    ComputePipeline creatComputePipeline(const std::string& shaderFilename, VkDescriptorSetLayout* descriptorLayout, bool autoCleanup = true)
+    bool createComputePipeline(const std::string& shaderFilename, ComputePipeline& newPipeline, bool autoCleanup = true)
     {
-        ComputePipeline newPipeline;
         const VkPushConstantRange pushConstants = {
             .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT,
             .offset = 0,
@@ -752,7 +770,7 @@ private:
         VkPipelineLayoutCreateInfo pipelineLayout = {
             .sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
             .setLayoutCount = 1,
-            .pSetLayouts = descriptorLayout,
+            .pSetLayouts = &newPipeline.descriptorLayout,
 
             .pushConstantRangeCount = 1,
             .pPushConstantRanges = &pushConstants
@@ -763,7 +781,7 @@ private:
         VkShaderModule computeDrawShader;
         if(!vkutil::load_shader_module(shaderFilename, this->_device, &computeDrawShader)) {
             std::cerr << "[ERROR] Failed to load compute shader " << shaderFilename << std::endl;
-            return newPipeline;
+            return false;
         }
 
         VkPipelineShaderStageCreateInfo stageInfo = {
@@ -783,60 +801,19 @@ private:
 
         if(autoCleanup) {
             vkDestroyShaderModule(this->_device, computeDrawShader, nullptr);
-            this->_deletionQueue.push([&]() {
+            this->_deletionQueue.push([this, newPipeline]() {
                 vkDestroyPipelineLayout(this->_device, newPipeline.layout, nullptr);
                 vkDestroyPipeline(this->_device, newPipeline.pipeline, nullptr);
             });
         }
-        return newPipeline;
+        return true;
     }
 
     bool initComputePipelines()
     {
-        VkPushConstantRange pushConstants = {
-            .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT,
-            .offset = 0,
-            .size = sizeof(ComputePushConstants),
-        };
-
-        VkPipelineLayoutCreateInfo computeLayout = {
-            .sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
-            .setLayoutCount = 1,
-            .pSetLayouts = &this->_drawImageDescriptorLayout,
-
-            .pushConstantRangeCount = 1,
-            .pPushConstantRanges = &pushConstants
-        };
-        VK_ASSERT(vkCreatePipelineLayout(this->_device, &computeLayout, nullptr, &this->_computePipelineLayout));
-
-        VkShaderModule computeDrawShader;
-        const char* shaderFileName = SHADER_DIRECTORY"/diffusion.comp.spv";
-        if(!vkutil::load_shader_module(shaderFileName, this->_device, &computeDrawShader)) {
-            std::cerr << "[ERROR] Failed to load compute shader " << shaderFileName << std::endl;
-            return false;
-        }
-
-        VkPipelineShaderStageCreateInfo stageInfo = {
-            .sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
-            .stage = VK_SHADER_STAGE_COMPUTE_BIT,
-            .module = computeDrawShader,
-            .pName = "main"
-        };
-
-        VkComputePipelineCreateInfo computePipelineCreateInfo = {
-            .sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO,
-            .stage = stageInfo,
-            .layout = this->_computePipelineLayout
-        };
-
-        VK_ASSERT(vkCreateComputePipelines(this->_device, VK_NULL_HANDLE, 1, &computePipelineCreateInfo, nullptr, &this->_computePipeline));
-
-        vkDestroyShaderModule(this->_device, computeDrawShader, nullptr);
-        this->_deletionQueue.push([&]() {
-            vkDestroyPipelineLayout(this->_device, this->_computePipelineLayout, nullptr);
-            vkDestroyPipeline(this->_device, this->_computePipeline, nullptr);
-        });
-        return true;
+        //TODO: these need pipeline.descriptorLayout set previously to work
+        return createComputePipeline(SHADER_DIRECTORY"/diffusion.comp.spv", this->_diffusionPipeline) &&
+               createComputePipeline(SHADER_DIRECTORY"/addSource.comp.spv", this->_addSourcePipeline);
     }
 
     bool initPipelines()
@@ -897,17 +874,21 @@ private:
     uint32_t _frameNumber {};
     AllocatedImage _drawImage;
 
-    ComputePipeline addSourcePipeline;
-    ComputePipeline diffusionPipeline;
-
-    VkPipeline _computePipeline;
-    VkPipelineLayout _computePipelineLayout;
-
     DescriptorPool _descriptorPool;
-    VkDescriptorSet _drawImageDescriptorSet;
-    VkDescriptorSet _diffusionDescriptorSets[2] {};
-    VkDescriptorSetLayout _drawImageDescriptorLayout;
-    DescriptorWriter _descriptorWriter;
+
+
+    // VkDescriptorSet _drawImageDescriptorSet;
+    // VkDescriptorSetLayout _drawImageDescriptorLayout;
+
+    ComputePipeline _drawImagePipeline;
+    ComputePipeline _addSourcePipeline;
+    ComputePipeline _diffusionPipeline;
+
+    // VkPipeline _computePipeline;
+    // VkPipelineLayout _computePipelineLayout;
+
+    // VkDescriptorSet _diffusionDescriptorSets[2] {};
+    DescriptorWriter _descriptorWriter {};
 
     //immediate submit structures
     VkFence _immFence;
@@ -944,6 +925,6 @@ int main(int argc, char* argv[])
         renderer.Render(dt);
         // std::this_thread::sleep_for(std::chrono::duration(std::chrono::milliseconds(16)));
     }
-    std::cout << "Close" << std::endl;
+    std::cout << "Goodbye" << std::endl;
     return EXIT_SUCCESS;
 }

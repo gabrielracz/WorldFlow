@@ -1,5 +1,7 @@
 find_package(Vulkan REQUIRED)
 
+add_compile_options("-Og")
+
 add_library(vkbootstrap STATIC)
 add_library(glm INTERFACE)
 add_library(vma INTERFACE)

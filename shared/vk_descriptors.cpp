@@ -1,8 +1,13 @@
 ﻿#include <vk_descriptors.h>
 #include "vk_initializers.h"
 
+
+DescriptorLayoutBuilder DescriptorLayoutBuilder::newLayout()
+{
+    return DescriptorLayoutBuilder{};
+}
 //> descriptor_bind
-void DescriptorLayoutBuilder::add_binding(uint32_t binding, VkDescriptorType type)
+DescriptorLayoutBuilder& DescriptorLayoutBuilder::add_binding(uint32_t binding, VkDescriptorType type)
 {
     VkDescriptorSetLayoutBinding newbind {};
     newbind.binding = binding;
@@ -10,11 +15,14 @@ void DescriptorLayoutBuilder::add_binding(uint32_t binding, VkDescriptorType typ
     newbind.descriptorType = type;
 
     bindings.push_back(newbind);
+    return *this;
 }
 
-void DescriptorLayoutBuilder::clear()
+DescriptorLayoutBuilder& DescriptorLayoutBuilder::clear()
 {
+    DescriptorLayoutBuilder newBuilder;
     bindings.clear();
+    return *this;
 }
 //< descriptor_bind
 
@@ -85,7 +93,7 @@ VkDescriptorSet DescriptorPool::allocateSet(VkDevice device, VkDescriptorSetLayo
 }
 //< descriptor_alloc
 //> write_image
-void DescriptorWriter::write_image(int binding,VkImageView image, VkSampler sampler,  VkImageLayout layout, VkDescriptorType type)
+DescriptorWriter& DescriptorWriter::write_image(int binding,VkImageView image, VkSampler sampler,  VkImageLayout layout, VkDescriptorType type)
 {
     VkDescriptorImageInfo& info = imageInfos.emplace_back(VkDescriptorImageInfo{
 		.sampler = sampler,
@@ -102,11 +110,12 @@ void DescriptorWriter::write_image(int binding,VkImageView image, VkSampler samp
 	write.pImageInfo = &info;
 
 	writes.push_back(write);
+    return *this;
 }
 //< write_image
 // 
 //> write_buffer
-void DescriptorWriter::write_buffer(int binding, VkBuffer buffer, size_t size, size_t offset, VkDescriptorType type)
+DescriptorWriter& DescriptorWriter::write_buffer(int binding, VkBuffer buffer, size_t size, size_t offset, VkDescriptorType type)
 {
 	VkDescriptorBufferInfo& info = bufferInfos.emplace_back(VkDescriptorBufferInfo{
 		.buffer = buffer,
@@ -123,23 +132,25 @@ void DescriptorWriter::write_buffer(int binding, VkBuffer buffer, size_t size, s
 	write.pBufferInfo = &info;
 
 	writes.push_back(write);
+    return *this;
 }
 //< write_buffer
 //> writer_end
-void DescriptorWriter::clear()
+DescriptorWriter& DescriptorWriter::clear()
 {
     imageInfos.clear();
     writes.clear();
     bufferInfos.clear();
+    return *this;
 }
 
-void DescriptorWriter::update_set(VkDevice device, VkDescriptorSet set)
+DescriptorWriter& DescriptorWriter::update_set(VkDevice device, VkDescriptorSet set)
 {
     for (VkWriteDescriptorSet& write : writes) {
         write.dstSet = set;
     }
-
     vkUpdateDescriptorSets(device, (uint32_t)writes.size(), writes.data(), 0, nullptr);
+    return *this;
 }
 //< writer_end
 //> growpool_2

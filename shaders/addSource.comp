@@ -1,0 +1,26 @@
+#version 460
+
+// size of compute workgroup
+layout (local_size_x = 16, local_size_y = 16) in;
+
+// descriptor bindings for the pipeline
+layout(rgba16f, set = 0, binding = 0) uniform writeonly image2D outputImage;
+
+layout(push_constant) uniform constants {
+    float time;
+    float dt;
+} PushConstants;
+
+void main()
+{
+    vec2 pos = vec2(gl_GlobalInvocationID.xy);
+    vec2 imgSize = vec2(imageSize(outputImage));
+
+    vec2 center = vec2(imgSize.x/2.0, imgSize.y/2.0);
+    float dist = length(pos - center);
+    const float radius = 100.0;
+    const vec4 source = vec4(0.75, 0.75, 0.75, 1.0);
+    if(dist < radius) {
+        imageStore(outputImage, ivec2(pos), source);
+    }
+}
