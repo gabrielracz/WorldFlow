@@ -53,7 +53,7 @@ file(GLOB_RECURSE GLSL_SOURCE_FILES
 message(STATUS "BUILDING SHADERS")
 foreach(GLSL ${GLSL_SOURCE_FILES})
   get_filename_component(FILE_NAME ${GLSL} NAME)
-  set(SPIRV "${PROJECT_SOURCE_DIR}/shaders/${FILE_NAME}.spv")
+  set(SPIRV "${PROJECT_SOURCE_DIR}/shaders/bin/${FILE_NAME}.spv")
   message(STATUS ${GLSL})
   message(STATUS ${GLSL_VALIDATOR} " " -V " " ${GLSL} " " -o " " ${SPIRV} "\n")
   add_custom_command(

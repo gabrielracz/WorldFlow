@@ -4,7 +4,8 @@
 layout (local_size_x = 16, local_size_y = 16) in;
 
 // descriptor bindings for the pipeline
-layout(rgba32f, set = 0, binding = 0) uniform writeonly image2D outputImage;
+layout(rgba32f, set = 0, binding = 0) uniform writeonly image2D outputDensityImage;
+layout(rgba32f, set = 0, binding = 1) uniform writeonly image2D outputVelocityImage;
 
 layout(push_constant) uniform constants {
     float time;
@@ -14,13 +15,15 @@ layout(push_constant) uniform constants {
 void main()
 {
     vec2 pos = vec2(gl_GlobalInvocationID.xy);
-    vec2 imgSize = vec2(imageSize(outputImage));
+    vec2 densitySize = vec2(imageSize(outputDensityImage));
 
-    vec2 center = vec2(imgSize.x/2.0, imgSize.y/2.0);
+    vec2 center = vec2(densitySize.x/2.0, densitySize.y/2.0);
     float dist = length(pos - center);
     const float radius = 100.0;
     const vec4 source = vec4(1.0, 1.0, 1.0, 1.0);
     if(dist < radius && dist > radius/1.5) {
-        imageStore(outputImage, ivec2(pos), source);
+        imageStore(outputDensityImage, ivec2(pos), source);
     }
+
+    imageStore(outputVelocityImage, ivec2(pos), vec4(0.0, 10.0, 0.0, 1.0));
 }

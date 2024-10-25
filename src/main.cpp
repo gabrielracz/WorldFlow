@@ -49,11 +49,11 @@ constexpr uint32_t FPSMeasurePeriod = 60;
 constexpr uint32_t FrameOverlap = 2;
 constexpr uint64_t TimeoutNs = 1000000000;
 constexpr uint32_t MaxDescriptorSets = 10;
-constexpr uint32_t DiffusionIterations = 10;
+constexpr uint32_t DiffusionIterations = 11;
 constexpr uint64_t StagingBufferSize = 1024ul * 1024ul * 8ul;
 }
 
-static_assert(Constants::DiffusionIterations % 2 == 0); //should be odd to ensure consistency of final result index
+static_assert(Constants::DiffusionIterations % 2 == 1); //should be odd to ensure consistency of final result index
 
 // Actually a LIFO stack
 struct DeletionQueue
@@ -230,7 +230,7 @@ private:
         vkCmdDispatch(cmd, wgCount.width, wgCount.height, wgCount.depth);
     }
 
-    bool addDensity(VkCommandBuffer cmd, double dt)
+    bool addSources(VkCommandBuffer cmd, double dt)
     {
         vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, this->_addSourcePipeline.pipeline);
         vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, this->_addSourcePipeline.layout, 0, 1, &this->_addSourcePipeline.descriptorSets[0], 0, nullptr);
@@ -286,6 +286,19 @@ private:
         }
     }
 
+    void advectDensity(VkCommandBuffer cmd, double dt)
+    {
+        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, this->_advectionPipeline.pipeline);
+        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, this->_advectionPipeline.layout, 0, 1, &this->_advectionPipeline.descriptorSets[0], 0, nullptr);
+        ComputePushConstants constants = {
+            .time = static_cast<float>(this->_elapsed),
+            .dt   = static_cast<float>(dt)
+        };
+        vkCmdPushConstants(cmd, this->_advectionPipeline.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(ComputePushConstants), &constants);
+        const VkExtent3D wgCount = getWorkgroupCounts();
+        vkCmdDispatch(cmd, wgCount.width, wgCount.height, wgCount.depth);
+    }
+
     void visualizeFluid(VkCommandBuffer cmd, double dt)
     {
         vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, this->_visualizationPipeline.pipeline);
@@ -294,7 +307,7 @@ private:
             .time = static_cast<float>(this->_elapsed),
             .dt   = static_cast<float>(dt)
         };
-        vkCmdPushConstants(cmd, this->_diffusionPipeline.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(ComputePushConstants), &constants);
+        vkCmdPushConstants(cmd, this->_visualizationPipeline.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(ComputePushConstants), &constants);
         const VkExtent3D wgCount = getWorkgroupCounts();
         vkCmdDispatch(cmd, wgCount.width, wgCount.height, wgCount.depth);
     }
@@ -335,10 +348,11 @@ private:
         // for(AllocatedImage& img : this->_densityImages)
         //     vkutil::transition_image(cmd, img.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL);
 
-        // if(this->_frameNumber < 1)
-            addDensity(cmd, dt);
+        if(this->_frameNumber < 1)
+            addSources(cmd, dt);
+
         diffuseDensity(cmd, dt);
-        // advectDensity(cmd, dt);
+        advectDensity(cmd, dt);
 
         // addVelocity
         // diffuseVelocity
@@ -769,7 +783,7 @@ private:
     bool initDescriptors()
     {
         std::vector<DescriptorPool::DescriptorQuantity> sizes = {
-            {VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 2}
+            {VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 3}
         };
         this->_descriptorPool.init(this->_device, 10, sizes);
 
@@ -807,11 +821,13 @@ private:
         // Add Source
         this->_addSourcePipeline.descriptorLayout = DescriptorLayoutBuilder::newLayout()
             .add_binding(0, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE)
+            .add_binding(1, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE)
             .build(this->_device, VK_SHADER_STAGE_COMPUTE_BIT);
         this->_addSourcePipeline.descriptorSets.push_back(this->_descriptorPool.allocateSet(this->_device, this->_addSourcePipeline.descriptorLayout));
         this->_descriptorWriter
             .clear()
             .write_image(0, this->_densityImages[0].imageView, 0, VK_IMAGE_LAYOUT_GENERAL, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE)
+            .write_image(1, this->_velocityImages[0].imageView, 0, VK_IMAGE_LAYOUT_GENERAL, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE)
             .update_set(this->_device, this->_addSourcePipeline.descriptorSets[0]);
 
         // Diffusion
@@ -831,15 +847,18 @@ private:
             .write_image(1, this->_densityImages[0].imageView, 0, VK_IMAGE_LAYOUT_GENERAL, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE)
             .update_set(this->_device, this->_diffusionPipeline.descriptorSets[1]);
 
-        // Velocity
+        // Advection
         this->_advectionPipeline.descriptorLayout = DescriptorLayoutBuilder::newLayout()
             .add_binding(0, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE)
             .add_binding(1, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE)
+            .add_binding(2, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE)
             .build(this->_device, VK_SHADER_STAGE_COMPUTE_BIT);
         this->_advectionPipeline.descriptorSets.push_back(this->_descriptorPool.allocateSet(this->_device, this->_advectionPipeline.descriptorLayout));
         this->_descriptorWriter
             .clear()
-            .write_image(0, this->_velocityImages[0].imageView, 0, VK_IMAGE_LAYOUT_GENERAL, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE)
+            .write_image(0, this->_densityImages[1].imageView, 0, VK_IMAGE_LAYOUT_GENERAL, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE)
+            .write_image(1, this->_velocityImages[0].imageView, 0, VK_IMAGE_LAYOUT_GENERAL, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE)
+            .write_image(2, this->_densityImages[0].imageView, 0, VK_IMAGE_LAYOUT_GENERAL, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE)
             .update_set(this->_device, this->_advectionPipeline.descriptorSets[0]);
 
 
@@ -908,7 +927,8 @@ private:
     {
         //TODO: these need pipeline.descriptorLayout set previously to work
         return createComputePipeline(SHADER_DIRECTORY"/diffusion.comp.spv", this->_diffusionPipeline) &&
-               createComputePipeline(SHADER_DIRECTORY"/addSource.comp.spv", this->_addSourcePipeline) &&
+               createComputePipeline(SHADER_DIRECTORY"/addSources.comp.spv", this->_addSourcePipeline) &&
+               createComputePipeline(SHADER_DIRECTORY"/advection.comp.spv", this->_advectionPipeline) &&
                createComputePipeline(SHADER_DIRECTORY"/visualization.comp.spv", this->_visualizationPipeline);
     }
 
@@ -1022,9 +1042,9 @@ int main(int argc, char* argv[])
         lastFrameTime = currentFrameTime;
         
         renderer.Render(dt);
-        // std::this_thread::sleep_for(std::chrono::duration(std::chrono::milliseconds(16)));
     }
-    std::cout << "Goodbye" << std::endl;
+
+    std::cout << "Closed" << std::endl;
     return EXIT_SUCCESS;
 
 }
