@@ -44,7 +44,10 @@ constexpr bool IsValidationLayersEnabled = true;
 constexpr uint32_t FrameOverlap = 2;
 constexpr uint64_t TimeoutNs = 1000000000;
 constexpr uint32_t MaxDescriptorSets = 10;
+constexpr uint32_t DiffusionIterations = 5;
 }
+
+static_assert(Constants::DiffusionIterations % 2 == 1); //should be odd to ensure consistency of final result index
 
 // Actually a LIFO stack
 struct DeletionQueue
@@ -70,6 +73,12 @@ struct FrameData
     DeletionQueue deletionQueue;
 };
 
+struct ComputePipeline
+{
+    VkPipeline pipeline;
+    VkPipelineLayout layout;
+};
+
 struct ComputePushConstants
 {
     float time {};
@@ -86,6 +95,8 @@ printDeviceProperties(vkb::PhysicalDevice& dev)
     "Uniform Buffers: " << dev.properties.limits.maxUniformBufferRange << std::endl;
 }
 
+
+//TODO change all return bool members that VK_ASSERT to return Result code
 class Renderer
 {
 public:
@@ -107,23 +118,23 @@ public:
             frame.deletionQueue.flush();
         }
         this->_deletionQueue.flush();
-        this->destroySwapchain();
-        this->destroyVulkan();
+        destroySwapchain();
+        destroyVulkan();
         SDL_DestroyWindow(this->_window);
         SDL_Quit();
     }
 
     bool Init()
     {
-        this->_isInitialized =  this->initWindow() &&
-                                this->initVulkan() &&
-                                this->initSwapchain() &&
-                                this->initCommands() &&
-                                this->initSyncStructures() &&
-                                this->initAssets() &&
-                                this->initDescriptors() &&
-                                this->initBuffers() &&
-                                this->initPipelines()
+        this->_isInitialized =  initWindow() &&
+                                initVulkan() &&
+                                initSwapchain() &&
+                                initCommands() &&
+                                initSyncStructures() &&
+                                initAssets() &&
+                                initDescriptors() &&
+                                initBuffers() &&
+                                initPipelines()
                                 ;
 
         return this->_isInitialized;
@@ -132,8 +143,8 @@ public:
     void Render(double dt)
     {
         this->_elapsed += dt;
-        this->pollEvents();
-        this->draw(dt);
+        pollEvents();
+        draw(dt);
     }
     
     bool ShouldClose() const { return this->_shouldClose; }
@@ -200,8 +211,17 @@ private:
         vkCmdDispatch(cmd, std::ceil(this->_drawImage.imageExtent.width/16.0), std::ceil(this->_drawImage.imageExtent.height/16.0), 1);
     }
 
-    void diffuseBackground(VkCommandBuffer cmd, double dt)
+    bool addDensity(VkCommandBuffer cmd, double dt)
     {
+        
+        return true;
+    }
+
+    void diffuseDensity(VkCommandBuffer cmd, double dt)
+    {
+        for(AllocatedImage& img : this->_densityImages) {
+            vkutil::transition_image(cmd, img.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL);
+        }
         VkImageMemoryBarrier imageBarrier = {
             .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
             .srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT, // Waiting for shader writes to complete
@@ -219,12 +239,9 @@ private:
                 .layerCount = 1
             }
         };
-        for(AllocatedImage& img : this->_diffusionImages) {
-            vkutil::transition_image(cmd, img.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL);
-        }
 
         vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, this->_computePipeline);
-        for(int i = 0; i < 3; i++) {
+        for(int i = 0; i < Constants::DiffusionIterations; i++) {
             int pingPongDescriptorIndex = i % 2;
             vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, this->_computePipelineLayout, 0, 1, &this->_diffusionDescriptorSets[pingPongDescriptorIndex], 0, nullptr);
 
@@ -237,7 +254,7 @@ private:
             vkCmdDispatch(cmd, std::ceil(this->_drawImage.imageExtent.width/16.0), std::ceil(this->_drawImage.imageExtent.height/16.0), 1);
             
             // wait for all image writes to be complete
-            imageBarrier.image = this->_diffusionImages[pingPongDescriptorIndex].image;
+            imageBarrier.image = this->_densityImages[pingPongDescriptorIndex].image;
             vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0,
                                  0, nullptr, 0, nullptr, 1, &imageBarrier);
         }
@@ -246,16 +263,16 @@ private:
     bool draw(double dt)
     {
         // wait for gpu to be done with last frame and clean
-        VK_ASSERT(vkWaitForFences(this->_device, 1, &this->getCurrentFrame().renderFence, true, Constants::TimeoutNs));
-        VK_ASSERT(vkResetFences(this->_device, 1, &this->getCurrentFrame().renderFence));
-        this->getCurrentFrame().deletionQueue.flush(); // delete per-frame objects
+        VK_ASSERT(vkWaitForFences(this->_device, 1, &getCurrentFrame().renderFence, true, Constants::TimeoutNs));
+        VK_ASSERT(vkResetFences(this->_device, 1, &getCurrentFrame().renderFence));
+        getCurrentFrame().deletionQueue.flush(); // delete per-frame objects
 
         // register the semaphore to be signalled once the next frame (result of this call) is ready. does not block
         uint32_t swapchainImageIndex;
-        VK_CHECK(vkAcquireNextImageKHR(this->_device, this->_swapchain, Constants::TimeoutNs, this->getCurrentFrame().swapchainSemaphore, nullptr, &swapchainImageIndex));
+        VK_CHECK(vkAcquireNextImageKHR(this->_device, this->_swapchain, Constants::TimeoutNs, getCurrentFrame().swapchainSemaphore, nullptr, &swapchainImageIndex));
         VkImage frameImage = this->_swapchainImages[swapchainImageIndex];
 
-        VkCommandBuffer cmd = this->getCurrentFrame().commandBuffer;
+        VkCommandBuffer cmd = getCurrentFrame().commandBuffer;
         VK_ASSERT(vkResetCommandBuffer(cmd, 0)); // we can safely reset as we waited on the fence
 
 
@@ -266,35 +283,28 @@ private:
         };
         VK_ASSERT(vkBeginCommandBuffer(cmd, &cmdBeginInfo));
         
-        // handle image transitions
-        // if(this->_frameNumber > 1) {
-        //     vkutil::transition_image(cmd, this->_drawImage.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
-        //     vkutil::transition_image(cmd, this->_feedbackImage.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+        addDensity(cmd, dt);
+        diffuseDensity(cmd, dt);
+        // advectDensity(cmd, dt);
 
-        //     vkutil::copy_image_to_image(cmd, this->_drawImage.image, this->_feedbackImage.image, this->_drawImage.imageExtent, this->_feedbackImage.imageExtent);
+        // addVelocity
+        // diffuseVelocity
+        // projectIncompressible
+        // advectVelocity
+        // projectIncompressible
 
-        //     vkutil::transition_image(cmd, this->_drawImage.image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_GENERAL);
-        //     vkutil::transition_image(cmd, this->_feedbackImage.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_GENERAL);
-        // } else {
-        // vkutil::transition_image(cmd, this->_drawImage.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL);
-        // vkutil::transition_image(cmd, this->_feedbackImage.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL);
-        // }
         
-        // drawBackground(cmd, dt);
-        diffuseBackground(cmd, dt);
-        
-        // TODO: abstract into image class.
         // prepare draw image -> swapchain image copy
-        AllocatedImage& drawImage = this->_diffusionImages[0];
+        AllocatedImage& drawImage = this->_densityImages[0];
         VkImage& swapchainImage = this->_swapchainImages[swapchainImageIndex];
 
         vkutil::transition_image(cmd, drawImage.image, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
         vkutil::transition_image(cmd, swapchainImage, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
-        VkExtent2D drawExtent = {.width = drawImage.imageExtent.width, .height = drawImage.imageExtent.height};
         vkutil::copy_image_to_image(cmd, drawImage.image, swapchainImage, drawImage.imageExtent, VkExtent3D(this->_swapchainExtent.width, this->_swapchainExtent.height, 1));
 
         // transition to present format
         vkutil::transition_image(cmd, swapchainImage, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
+
         VK_ASSERT(vkEndCommandBuffer(cmd)); //commands recorded
 
         // prepare queue submission
@@ -304,13 +314,13 @@ private:
         };
         VkSemaphoreSubmitInfo waitSwapchainInfo { // use pre-registered swapchain here wait semaphore to wait until swapchain is ready
             .sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO,
-            .semaphore = this->getCurrentFrame().swapchainSemaphore,
+            .semaphore = getCurrentFrame().swapchainSemaphore,
             .value = 1,
             .stageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT_KHR
         };
         VkSemaphoreSubmitInfo signalRenderedInfo {
             .sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO,
-            .semaphore = this->getCurrentFrame().renderSemaphore,
+            .semaphore = getCurrentFrame().renderSemaphore,
             .value = 1,
             .stageMask = VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT
         };
@@ -327,13 +337,13 @@ private:
         };
 
         // renderFence would now block until rendering is done (frame.renderSemaphore will also signal at this time)
-        VK_ASSERT(vkQueueSubmit2(this->_graphicsQueue, 1, &queueSubmitInfo, this->getCurrentFrame().renderFence));
+        VK_ASSERT(vkQueueSubmit2(this->_graphicsQueue, 1, &queueSubmitInfo, getCurrentFrame().renderFence));
 
         // present rendered image:
         VkPresentInfoKHR presentInfo {
             .sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR,
             .waitSemaphoreCount = 1,
-            .pWaitSemaphores = &this->getCurrentFrame().renderSemaphore, //wait for render complete signal
+            .pWaitSemaphores = &getCurrentFrame().renderSemaphore, //wait for render complete signal
 
             .swapchainCount = 1,
             .pSwapchains = &this->_swapchain,
@@ -621,7 +631,7 @@ private:
 
     bool copyBufferToImage(AllocatedBuffer buffer, AllocatedImage image, VkImageLayout finalLayout = VK_IMAGE_LAYOUT_GENERAL)
     {
-        this->immediateSubmit([buffer, image, finalLayout](VkCommandBuffer cmd) {
+        immediateSubmit([buffer, image, finalLayout](VkCommandBuffer cmd) {
             vkutil::transition_image(cmd, image.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
             VkBufferImageCopy copyRegion = {};
             copyRegion.bufferOffset = 0;
@@ -647,37 +657,38 @@ private:
     {
         int w, h, nrChannel;
         unsigned char* data = stbi_load(ASSETS_DIRECTORY"/monet-alpha-square.png", &w, &h, &nrChannel, STBI_rgb_alpha);
-        this->_feedbackImage = this->createImage(
-            VkExtent3D(w, h, 1),
-            VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_STORAGE_BIT,
-            VK_IMAGE_ASPECT_COLOR_BIT,
-            VK_FORMAT_R8G8B8A8_UNORM
+        VkExtent3D dataExtent {.width = (unsigned int)w, .height = (unsigned int)h, .depth = 1};
+        this->_stagingBuffer = createBuffer( // allows for CPU -> GPU copies
+            w*h*nrChannel*2,
+            VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+            VMA_MEMORY_USAGE_CPU_TO_GPU
         );
+        std::memcpy(this->_stagingBuffer.info.pMappedData, data, w*h*nrChannel);
 
-        for(AllocatedImage& img : this->_diffusionImages) {
-            img = this->createImage(
-                VkExtent3D(w, h, 1),
+        for(AllocatedImage& img : this->_densityImages) {
+            img = createImage(
+                dataExtent,
                 VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_STORAGE_BIT,
                 VK_IMAGE_ASPECT_COLOR_BIT,
                 VK_FORMAT_R8G8B8A8_UNORM
             );
         }
+        copyBufferToImage(this->_stagingBuffer, this->_densityImages[0]);
 
-        // Create staging buffer to allow for CPU -> GPU image copies
-        this->_stagingBuffer = this->createBuffer(
-            w*h*nrChannel,
-            VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
-            VMA_MEMORY_USAGE_CPU_TO_GPU
-        );
-        std::memcpy(this->_stagingBuffer.info.pMappedData, data, w*h*nrChannel);
-        // this->copyBufferToImage(this->_stagingBuffer, this->_feedbackImage);
-        this->copyBufferToImage(this->_stagingBuffer, this->_diffusionImages[0]);
-        // this->copyBufferToImage(this->_stagingBuffer, this->_diffusionImages[1]);
+        for(AllocatedImage& img : this->_velocityImages) {
+            img = createImage(
+                dataExtent,
+                VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_STORAGE_BIT,
+                VK_IMAGE_ASPECT_COLOR_BIT,
+                VK_FORMAT_R16G16B16A16_SFLOAT
+            );
+        }
 
         immediateSubmit([&](VkCommandBuffer cmd) {
-            for(AllocatedImage& img : this->_diffusionImages)
+            for(AllocatedImage& img : this->_densityImages)
                 vkutil::transition_image(cmd, img.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL);
         });
+
         return true;
     }
 
@@ -710,17 +721,16 @@ private:
         // Fill in the descriptors
         this->_descriptorWriter.clear();
         this->_descriptorWriter.write_image(0, this->_drawImage.imageView, 0, VK_IMAGE_LAYOUT_GENERAL, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE);
-        this->_descriptorWriter.write_image(1, this->_feedbackImage.imageView, 0, VK_IMAGE_LAYOUT_GENERAL, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE);
         this->_descriptorWriter.update_set(this->_device, this->_drawImageDescriptorSet);
 
         // fill the diffusion sets
         this->_descriptorWriter.clear();
-        this->_descriptorWriter.write_image(0, this->_diffusionImages[0].imageView, 0, VK_IMAGE_LAYOUT_GENERAL, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE);
-        this->_descriptorWriter.write_image(1, this->_diffusionImages[1].imageView, 0, VK_IMAGE_LAYOUT_GENERAL, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE);
+        this->_descriptorWriter.write_image(0, this->_densityImages[0].imageView, 0, VK_IMAGE_LAYOUT_GENERAL, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE);
+        this->_descriptorWriter.write_image(1, this->_densityImages[1].imageView, 0, VK_IMAGE_LAYOUT_GENERAL, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE);
         this->_descriptorWriter.update_set(this->_device, this->_diffusionDescriptorSets[0]);
         this->_descriptorWriter.clear();
-        this->_descriptorWriter.write_image(0, this->_diffusionImages[1].imageView, 0, VK_IMAGE_LAYOUT_GENERAL, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE);
-        this->_descriptorWriter.write_image(1, this->_diffusionImages[0].imageView, 0, VK_IMAGE_LAYOUT_GENERAL, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE);
+        this->_descriptorWriter.write_image(0, this->_densityImages[1].imageView, 0, VK_IMAGE_LAYOUT_GENERAL, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE);
+        this->_descriptorWriter.write_image(1, this->_densityImages[0].imageView, 0, VK_IMAGE_LAYOUT_GENERAL, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE);
         this->_descriptorWriter.update_set(this->_device, this->_diffusionDescriptorSets[1]);
 
         this->_deletionQueue.push([&]() {
@@ -730,7 +740,58 @@ private:
         return true;
     }
 
-    bool initBackgroundPipelines()
+    ComputePipeline creatComputePipeline(const std::string& shaderFilename, VkDescriptorSetLayout* descriptorLayout, bool autoCleanup = true)
+    {
+        ComputePipeline newPipeline;
+        const VkPushConstantRange pushConstants = {
+            .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT,
+            .offset = 0,
+            .size = sizeof(ComputePushConstants),
+        };
+
+        VkPipelineLayoutCreateInfo pipelineLayout = {
+            .sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
+            .setLayoutCount = 1,
+            .pSetLayouts = descriptorLayout,
+
+            .pushConstantRangeCount = 1,
+            .pPushConstantRanges = &pushConstants
+        };
+
+        VK_CHECK(vkCreatePipelineLayout(this->_device, &pipelineLayout, nullptr, &newPipeline.layout));
+
+        VkShaderModule computeDrawShader;
+        if(!vkutil::load_shader_module(shaderFilename, this->_device, &computeDrawShader)) {
+            std::cerr << "[ERROR] Failed to load compute shader " << shaderFilename << std::endl;
+            return newPipeline;
+        }
+
+        VkPipelineShaderStageCreateInfo stageInfo = {
+            .sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
+            .stage = VK_SHADER_STAGE_COMPUTE_BIT,
+            .module = computeDrawShader,
+            .pName = "main"
+        };
+
+        VkComputePipelineCreateInfo computePipelineCreateInfo = {
+            .sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO,
+            .stage = stageInfo,
+            .layout = newPipeline.layout
+        };
+
+        VK_CHECK(vkCreateComputePipelines(this->_device, VK_NULL_HANDLE, 1, &computePipelineCreateInfo, nullptr, &newPipeline.pipeline));
+
+        if(autoCleanup) {
+            vkDestroyShaderModule(this->_device, computeDrawShader, nullptr);
+            this->_deletionQueue.push([&]() {
+                vkDestroyPipelineLayout(this->_device, newPipeline.layout, nullptr);
+                vkDestroyPipeline(this->_device, newPipeline.pipeline, nullptr);
+            });
+        }
+        return newPipeline;
+    }
+
+    bool initComputePipelines()
     {
         VkPushConstantRange pushConstants = {
             .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT,
@@ -780,7 +841,7 @@ private:
 
     bool initPipelines()
     {
-        if(!initBackgroundPipelines()) {
+        if(!initComputePipelines()) {
             std::cout << "[ERROR] Failed to init background pipelines" << std::endl;
             return false;
         }
@@ -836,6 +897,9 @@ private:
     uint32_t _frameNumber {};
     AllocatedImage _drawImage;
 
+    ComputePipeline addSourcePipeline;
+    ComputePipeline diffusionPipeline;
+
     VkPipeline _computePipeline;
     VkPipelineLayout _computePipelineLayout;
 
@@ -855,8 +919,8 @@ private:
     double _elapsed {};
 
     //Test Scene
-    AllocatedImage _feedbackImage {};
-    AllocatedImage _diffusionImages[2] {};
+    AllocatedImage _densityImages[2] {};
+    AllocatedImage _velocityImages[2] {};
     AllocatedBuffer _stagingBuffer {};
     VkSampler _simpleSampler {};
 

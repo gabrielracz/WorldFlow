@@ -235,7 +235,7 @@ void PipelineBuilder::enable_depthtest(bool depthWriteEnable, VkCompareOp op)
 //< depth_enable
 
 //> load_shader
-bool vkutil::load_shader_module(const char* filePath,
+bool vkutil::load_shader_module(const std::string& filePath,
     VkDevice device,
     VkShaderModule* outShaderModule)
 {
