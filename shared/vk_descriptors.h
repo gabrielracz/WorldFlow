@@ -23,7 +23,7 @@ struct DescriptorWriter {
     std::deque<VkDescriptorBufferInfo> bufferInfos;
     std::vector<VkWriteDescriptorSet> writes;
 
-    DescriptorWriter& write_image(int binding,VkImageView image,VkSampler sampler , VkImageLayout layout, VkDescriptorType type);
+    DescriptorWriter& write_image(int binding,VkImageView imageView,VkSampler sampler , VkImageLayout layout, VkDescriptorType type);
     DescriptorWriter& write_buffer(int binding,VkBuffer buffer,size_t size, size_t offset,VkDescriptorType type); 
 
     DescriptorWriter& clear();

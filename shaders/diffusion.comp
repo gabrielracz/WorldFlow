@@ -4,8 +4,8 @@
 layout (local_size_x = 16, local_size_y = 16) in;
 
 // descriptor bindings for the pipeline
-layout(rgba8, set = 0, binding = 0) uniform readonly image2D inputImage;
-layout(rgba8, set = 0, binding = 1) uniform writeonly image2D outputImage;
+layout(rgba32f, set = 0, binding = 0) uniform readonly image2D inputImage;
+layout(rgba32f, set = 0, binding = 1) uniform writeonly image2D outputImage;
 
 layout(push_constant) uniform constants {
     float time;
@@ -16,7 +16,7 @@ void main()
 {
     ivec2 texelCoord = ivec2(gl_GlobalInvocationID.xy);
     vec2 imgSize = vec2(imageSize(outputImage));
-    float diffRate =  0.01;
+    float diffRate =  0.0001;
     float a = diffRate*PushConstants.dt*imgSize.x*imgSize.y; 
 
     int i = int(gl_GlobalInvocationID.x);
@@ -26,11 +26,17 @@ void main()
     vec4 u = imageLoad(inputImage, ivec2(i  , j+1));
     vec4 r = imageLoad(inputImage, ivec2(i+1, j  ));
     vec4 d = imageLoad(inputImage, ivec2(i  , j-1));
+    // vec4 l = (i > 0) ? imageLoad(inputImage, ivec2(i-1, j)) : vec4(0);
+    // vec4 r = (i < imgSize.x-1) ? imageLoad(inputImage, ivec2(i+1, j)) : vec4(0);
+    // vec4 u = (j < imgSize.y-1) ? imageLoad(inputImage, ivec2(i, j+1)) : vec4(0);
+    // vec4 d = (j > 0) ? imageLoad(inputImage, ivec2(i, j-1)) : vec4(0);
 
 
     vec4 x = imageLoad(inputImage, ivec2(i, j));
 
-    vec4 result = (x + a*(l + u + r + d)) / (1+4*a);
+    vec4 result = (x + a*(l + u + r + d)) / (1+4*a); // backwards stable
+    // vec4 result = x + a*(l + r + u + d - 4*x); // naive forwards step (very unstable)
+    // vec4 result = x + a*(l + u + r + d - 4*x)/4;
     // vec4 result = x;
-    imageStore(outputImage, texelCoord, result);
+    imageStore(outputImage, texelCoord, vec4(result.rgb, 1.0));
 }

@@ -93,11 +93,11 @@ VkDescriptorSet DescriptorPool::allocateSet(VkDevice device, VkDescriptorSetLayo
 }
 //< descriptor_alloc
 //> write_image
-DescriptorWriter& DescriptorWriter::write_image(int binding,VkImageView image, VkSampler sampler,  VkImageLayout layout, VkDescriptorType type)
+DescriptorWriter& DescriptorWriter::write_image(int binding,VkImageView imageView, VkSampler sampler,  VkImageLayout layout, VkDescriptorType type)
 {
     VkDescriptorImageInfo& info = imageInfos.emplace_back(VkDescriptorImageInfo{
 		.sampler = sampler,
-		.imageView = image,
+		.imageView = imageView,
 		.imageLayout = layout
 	});
 

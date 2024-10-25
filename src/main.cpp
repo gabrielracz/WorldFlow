@@ -2,6 +2,7 @@
 #include "SDL_vulkan.h"
 
 #include <chrono>
+#include <iomanip>
 #include <stdexcept>
 #include <system_error>
 #include <vulkan/vulkan.h>
@@ -42,13 +43,15 @@ constexpr bool IsValidationLayersEnabled = false;
 #else
 constexpr bool IsValidationLayersEnabled = true;
 #endif
+constexpr uint32_t FPSMeasurePeriod = 60;
 constexpr uint32_t FrameOverlap = 2;
 constexpr uint64_t TimeoutNs = 1000000000;
 constexpr uint32_t MaxDescriptorSets = 10;
-constexpr uint32_t DiffusionIterations = 5;
+constexpr uint32_t DiffusionIterations = 20;
+constexpr uint64_t StagingBufferSize = 1024ul * 1024ul * 8ul;
 }
 
-static_assert(Constants::DiffusionIterations % 2 == 1); //should be odd to ensure consistency of final result index
+static_assert(Constants::DiffusionIterations % 2 == 0); //should be odd to ensure consistency of final result index
 
 // Actually a LIFO stack
 struct DeletionQueue
@@ -146,6 +149,7 @@ public:
     void Render(double dt)
     {
         this->_elapsed += dt;
+        updatePerformanceCounters(dt);
         pollEvents();
         draw(dt);
     }
@@ -154,6 +158,18 @@ public:
     void Close() { this->_shouldClose = true; }
 
 private:
+    void updatePerformanceCounters(double dt)
+    {
+        if(this->_frameNumber > 0 && this->_frameNumber % Constants::FPSMeasurePeriod == 0) {
+            const double delta = (this->_elapsed - this->_lastFpsMeasurementTime);
+            const double averageFrameTime =  delta / Constants::FPSMeasurePeriod;
+            const double fps = Constants::FPSMeasurePeriod / delta;
+            std::cout << std::fixed << std::setprecision(3) << "FPS: " << fps  << std::setprecision(5) << "  (" << averageFrameTime << ")" << std::endl;
+            this->_lastFpsMeasurementTime = this->_elapsed;
+        }
+        
+    }
+
     void pollEvents()
     {
         SDL_Event event;
@@ -216,14 +232,20 @@ private:
 
     bool addDensity(VkCommandBuffer cmd, double dt)
     {
+        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, this->_addSourcePipeline.pipeline);
+        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, this->_addSourcePipeline.layout, 0, 1, &this->_addSourcePipeline.descriptorSets[0], 0, nullptr);
+        ComputePushConstants constants = {
+            .time = static_cast<float>(this->_elapsed),
+            .dt   = static_cast<float>(dt)
+        };
+        vkCmdPushConstants(cmd, this->_addSourcePipeline.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(ComputePushConstants), &constants);
+
+        vkCmdDispatch(cmd, std::ceil(this->_drawImage.imageExtent.width/16.0), std::ceil(this->_drawImage.imageExtent.height/16.0), 1);
         return true;
     }
 
     void diffuseDensity(VkCommandBuffer cmd, double dt)
     {
-        for(AllocatedImage& img : this->_densityImages) {
-            vkutil::transition_image(cmd, img.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL);
-        }
         VkImageMemoryBarrier imageBarrier = {
             .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
             .srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT, // Waiting for shader writes to complete
@@ -285,7 +307,12 @@ private:
         };
         VK_ASSERT(vkBeginCommandBuffer(cmd, &cmdBeginInfo));
         
-        addDensity(cmd, dt);
+
+        // for(AllocatedImage& img : this->_densityImages)
+        //     vkutil::transition_image(cmd, img.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL);
+
+        if(this->_frameNumber < 1)
+            addDensity(cmd, dt);
         diffuseDensity(cmd, dt);
         // advectDensity(cmd, dt);
 
@@ -306,6 +333,7 @@ private:
 
         // transition to present format
         vkutil::transition_image(cmd, swapchainImage, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
+        vkutil::transition_image(cmd, drawImage.image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_GENERAL);
 
         VK_ASSERT(vkEndCommandBuffer(cmd)); //commands recorded
 
@@ -444,6 +472,7 @@ private:
         vkb::Swapchain vkbSwapchain = swapchainBuilder
             .set_desired_format(VkSurfaceFormatKHR{.format = this->_swapchainImageFormat, .colorSpace = VK_COLOR_SPACE_SRGB_NONLINEAR_KHR})
             .set_desired_present_mode(VK_PRESENT_MODE_FIFO_RELAXED_KHR)
+            // .set_desired_present_mode(VK_PRESENT_MODE_MAILBOX_KHR)
             .set_desired_extent(width, height)
             .add_image_usage_flags(VK_IMAGE_USAGE_TRANSFER_DST_BIT)
             .build()
@@ -557,7 +586,7 @@ private:
         return true;
     }
 
-    AllocatedBuffer createBuffer(size_t allocSize, VkBufferUsageFlags usage, VmaMemoryUsage memoryUsage, bool autoCleanup = true)
+    AllocatedBuffer createBuffer(uint64_t allocSize, VkBufferUsageFlags usage, VmaMemoryUsage memoryUsage, bool autoCleanup = true)
     {
         // allocate buffer
         VkBufferCreateInfo bufferInfo = {
@@ -661,18 +690,31 @@ private:
         unsigned char* data = stbi_load(ASSETS_DIRECTORY"/monet-alpha-square.png", &w, &h, &nrChannel, STBI_rgb_alpha);
         VkExtent3D dataExtent {.width = (unsigned int)w, .height = (unsigned int)h, .depth = 1};
         this->_stagingBuffer = createBuffer( // allows for CPU -> GPU copies
-            w*h*nrChannel*2,
+            Constants::StagingBufferSize,
             VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
             VMA_MEMORY_USAGE_CPU_TO_GPU
         );
-        std::memcpy(this->_stagingBuffer.info.pMappedData, data, w*h*nrChannel);
+        // std::memcpy(this->_stagingBuffer.info.pMappedData, data, w*h*nrChannel);
+        int imgLen = w*h*nrChannel;
+        for(int i = 0; i < 600*600*4; i += 4) {
+            // ((unsigned char*)this->_stagingBuffer.info.pMappedData)[i] = 0;
+            // ((unsigned char*)this->_stagingBuffer.info.pMappedData)[i+1] = 0;
+            // ((unsigned char*)this->_stagingBuffer.info.pMappedData)[i+2] = 0;
+            // ((unsigned char*)this->_stagingBuffer.info.pMappedData)[i+3] = 255;
+            ((float*)this->_stagingBuffer.info.pMappedData)[i] = 0.0;
+            ((float*)this->_stagingBuffer.info.pMappedData)[i+1] = 0.0;
+            ((float*)this->_stagingBuffer.info.pMappedData)[i+2] = 0.0;
+            ((float*)this->_stagingBuffer.info.pMappedData)[i+3] = 1.0;
+        }
+        // std::memset(this->_stagingBuffer.info.pMappedData, 0, w*h*nrChannel);
 
         for(AllocatedImage& img : this->_densityImages) {
             img = createImage(
                 dataExtent,
                 VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_STORAGE_BIT,
                 VK_IMAGE_ASPECT_COLOR_BIT,
-                VK_FORMAT_R8G8B8A8_UNORM
+                // VK_FORMAT_R8G8B8A8_UNORM
+                VK_FORMAT_R32G32B32A32_SFLOAT
             );
         }
         copyBufferToImage(this->_stagingBuffer, this->_densityImages[0]);
@@ -701,12 +743,32 @@ private:
         };
         this->_descriptorPool.init(this->_device, 10, sizes);
 
+        VkSamplerCreateInfo samplerCreateInfo = {
+            .sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO,
+        };
+        VK_ASSERT(vkCreateSampler(this->_device, &samplerCreateInfo, nullptr, &this->_simpleSampler));
+        this->_deletionQueue.push([&]() { vkDestroySampler(this->_device, this->_simpleSampler, nullptr); });
+
         // Draw Image
         this->_drawImagePipeline.descriptorLayout = DescriptorLayoutBuilder::newLayout()
             .add_binding(0, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE)
             .add_binding(1, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE)
             .build(this->_device, VK_SHADER_STAGE_COMPUTE_BIT);
         this->_drawImagePipeline.descriptorSets.push_back(this->_descriptorPool.allocateSet(this->_device, this->_drawImagePipeline.descriptorLayout));
+        this->_descriptorWriter
+            .clear()
+            .write_image(0, this->_drawImage.imageView, 0, VK_IMAGE_LAYOUT_GENERAL, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE)
+            .update_set(this->_device, this->_drawImagePipeline.descriptorSets[0]);
+
+        // Add Source
+        this->_addSourcePipeline.descriptorLayout = DescriptorLayoutBuilder::newLayout()
+            .add_binding(0, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE)
+            .build(this->_device, VK_SHADER_STAGE_COMPUTE_BIT);
+        this->_addSourcePipeline.descriptorSets.push_back(this->_descriptorPool.allocateSet(this->_device, this->_addSourcePipeline.descriptorLayout));
+        this->_descriptorWriter
+            .clear()
+            .write_image(0, this->_densityImages[0].imageView, 0, VK_IMAGE_LAYOUT_GENERAL, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE)
+            .update_set(this->_device, this->_addSourcePipeline.descriptorSets[0]);
 
         // Diffusion
         this->_diffusionPipeline.descriptorLayout = DescriptorLayoutBuilder::newLayout()
@@ -715,31 +777,6 @@ private:
             .build(this->_device, VK_SHADER_STAGE_COMPUTE_BIT);
         this->_diffusionPipeline.descriptorSets.push_back(this->_descriptorPool.allocateSet(this->_device, this->_diffusionPipeline.descriptorLayout));
         this->_diffusionPipeline.descriptorSets.push_back(this->_descriptorPool.allocateSet(this->_device, this->_diffusionPipeline.descriptorLayout));
-
-        this->_addSourcePipeline.descriptorLayout = DescriptorLayoutBuilder::newLayout()
-            .add_binding(0, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE)
-            .build(this->_device, VK_SHADER_STAGE_COMPUTE_BIT);
-        this->_addSourcePipeline.descriptorSets.push_back(this->_descriptorPool.allocateSet(this->_device, this->_addSourcePipeline.descriptorLayout));
-
-        VkSamplerCreateInfo samplerCreateInfo = {
-            .sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO,
-        };
-        VK_ASSERT(vkCreateSampler(this->_device, &samplerCreateInfo, nullptr, &this->_simpleSampler));
-        this->_deletionQueue.push([&]() { vkDestroySampler(this->_device, this->_simpleSampler, nullptr); });
-
-        // Basic Draw Image
-        this->_descriptorWriter
-            .clear()
-            .write_image(0, this->_drawImage.imageView, 0, VK_IMAGE_LAYOUT_GENERAL, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE)
-            .update_set(this->_device, this->_drawImagePipeline.descriptorSets[0]);
-
-        // Add Source
-        this->_descriptorWriter
-            .clear()
-            .write_image(0, this->_densityImages[0].imageView, 0, VK_IMAGE_LAYOUT_GENERAL, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE)
-            .update_set(this->_device, this->_addSourcePipeline.descriptorSets[0]);
-
-        // Diffusion
         this->_descriptorWriter
             .clear()
             .write_image(0, this->_densityImages[0].imageView, 0, VK_IMAGE_LAYOUT_GENERAL, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE)
@@ -750,11 +787,24 @@ private:
             .write_image(1, this->_densityImages[0].imageView, 0, VK_IMAGE_LAYOUT_GENERAL, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE)
             .update_set(this->_device, this->_diffusionPipeline.descriptorSets[1]);
 
+        // Velocity
+        this->_advectionPipeline.descriptorLayout = DescriptorLayoutBuilder::newLayout()
+            .add_binding(0, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE)
+            .add_binding(1, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE)
+            .build(this->_device, VK_SHADER_STAGE_COMPUTE_BIT);
+        this->_advectionPipeline.descriptorSets.push_back(this->_descriptorPool.allocateSet(this->_device, this->_advectionPipeline.descriptorLayout));
+        this->_descriptorWriter
+            .clear()
+            .write_image(0, this->_velocityImages[0].imageView, 0, VK_IMAGE_LAYOUT_GENERAL, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE)
+            .update_set(this->_device, this->_advectionPipeline.descriptorSets[0]);
+
+
         this->_deletionQueue.push([&]() {
             this->_descriptorPool.destroy(this->_device);
             vkDestroyDescriptorSetLayout(this->_device, _drawImagePipeline.descriptorLayout, nullptr);
             vkDestroyDescriptorSetLayout(this->_device, _diffusionPipeline.descriptorLayout, nullptr);
             vkDestroyDescriptorSetLayout(this->_device, _addSourcePipeline.descriptorLayout, nullptr);
+            vkDestroyDescriptorSetLayout(this->_device, _advectionPipeline.descriptorLayout, nullptr);
         });
         return true;
     }
@@ -883,6 +933,7 @@ private:
     ComputePipeline _drawImagePipeline;
     ComputePipeline _addSourcePipeline;
     ComputePipeline _diffusionPipeline;
+    ComputePipeline _advectionPipeline;
 
     // VkPipeline _computePipeline;
     // VkPipelineLayout _computePipelineLayout;
@@ -898,6 +949,7 @@ private:
     std::string _name {};
     std::atomic<bool> _shouldClose {false};
     double _elapsed {};
+    double _lastFpsMeasurementTime {};
 
     //Test Scene
     AllocatedImage _densityImages[2] {};
