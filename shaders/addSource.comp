@@ -19,7 +19,7 @@ void main()
     vec2 center = vec2(imgSize.x/2.0, imgSize.y/2.0);
     float dist = length(pos - center);
     const float radius = 100.0;
-    const vec4 source = vec4(pos.x/255.0, dist/radius, pos.y/255.0, 1.0);
+    const vec4 source = vec4(1.0, 1.0, 1.0, 1.0);
     if(dist < radius && dist > radius/1.5) {
         imageStore(outputImage, ivec2(pos), source);
     }

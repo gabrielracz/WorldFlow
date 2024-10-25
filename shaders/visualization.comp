@@ -1,0 +1,64 @@
+#version 460
+
+// size of compute workgroup
+layout (local_size_x = 16, local_size_y = 16) in;
+
+// descriptor bindings for the pipeline
+layout(rgba32f, set = 0, binding = 0) uniform readonly image2D densityImage;
+layout(rgba32f, set = 0, binding = 1) uniform readonly image2D velocityImage;
+layout(rgba32f, set = 0, binding = 2) uniform writeonly image2D outputImage;
+
+layout(push_constant) uniform constants {
+    float time;
+    float dt;
+} PushConstants;
+
+vec4 heatMapColor(float value, float minValue, float maxValue) {
+    // Normalize value to 0-1 range
+    float normalized = clamp((value - minValue) / (maxValue - minValue), 0.0, 1.0);
+    
+    // Define color transitions
+    vec4 colors[5] = vec4[5](
+        vec4(0.0, 0.0, 0.0, 1.0),   // Black
+        vec4(0.0, 0.0, 1.0, 1.0),   // Blue
+        // vec4(0.0, 1.0, 1.0, 1.0),   // Cyan
+        vec4(0.0, 1.0, 0.0, 1.0),   // Green
+        vec4(1.0, 1.0, 0.0, 1.0),   // Yellow
+        vec4(1.0, 0.0, 0.0, 1.0)    // Red
+    );
+    
+    float step = 1.0 / 4.0;
+    int index = int(normalized / step);
+    float t = fract(normalized / step);
+    
+    // Handle edge case for max value
+    if(normalized == 1.0) {
+        return colors[4];
+    }
+    
+    // Interpolate between colors
+    return mix(colors[index], colors[index + 1], t);
+}
+
+vec4 heatMap(float val, float minValue, float maxValue)
+{
+    float normalized = clamp((val- minValue) / (maxValue - minValue), 0.0, 1.0);
+    float level = normalized*3.1415926;
+    vec4 col = vec4(
+        sin(level),
+        sin(level*2),
+        cos(level),
+        1.0
+    );
+    return col;
+}
+
+void main()
+{
+    ivec2 texel = ivec2(gl_GlobalInvocationID.xy);
+    vec2 imgSize = vec2(imageSize(outputImage));
+
+    vec4 density = imageLoad(densityImage, texel);
+    vec4 color = heatMapColor(length(vec4(density.rgb, 0.0)), 0.0, 1.75);
+    imageStore(outputImage, texel, color);
+}

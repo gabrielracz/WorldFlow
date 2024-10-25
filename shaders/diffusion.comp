@@ -16,20 +16,20 @@ void main()
 {
     ivec2 texelCoord = ivec2(gl_GlobalInvocationID.xy);
     vec2 imgSize = vec2(imageSize(outputImage));
-    float diffRate =  0.0001;
+    float diffRate =  100.0;
     float a = diffRate*PushConstants.dt*imgSize.x*imgSize.y; 
 
     int i = int(gl_GlobalInvocationID.x);
     int j = int(gl_GlobalInvocationID.y);
 
-    vec4 l = imageLoad(inputImage, ivec2(i-1, j  ));
-    vec4 u = imageLoad(inputImage, ivec2(i  , j+1));
-    vec4 r = imageLoad(inputImage, ivec2(i+1, j  ));
-    vec4 d = imageLoad(inputImage, ivec2(i  , j-1));
-    // vec4 l = (i > 0) ? imageLoad(inputImage, ivec2(i-1, j)) : vec4(0);
-    // vec4 r = (i < imgSize.x-1) ? imageLoad(inputImage, ivec2(i+1, j)) : vec4(0);
-    // vec4 u = (j < imgSize.y-1) ? imageLoad(inputImage, ivec2(i, j+1)) : vec4(0);
-    // vec4 d = (j > 0) ? imageLoad(inputImage, ivec2(i, j-1)) : vec4(0);
+    // vec4 l = imageLoad(inputImage, ivec2(i-1, j  ));
+    // vec4 u = imageLoad(inputImage, ivec2(i  , j+1));
+    // vec4 r = imageLoad(inputImage, ivec2(i+1, j  ));
+    // vec4 d = imageLoad(inputImage, ivec2(i  , j-1));
+    vec4 l = (i > 0) ? imageLoad(inputImage, ivec2(i-1, j)) : vec4(0);
+    vec4 r = (i < imgSize.x-1) ? imageLoad(inputImage, ivec2(i+1, j)) : vec4(0);
+    vec4 u = (j < imgSize.y-1) ? imageLoad(inputImage, ivec2(i, j+1)) : vec4(0);
+    vec4 d = (j > 0) ? imageLoad(inputImage, ivec2(i, j-1)) : vec4(0);
 
 
     vec4 x = imageLoad(inputImage, ivec2(i, j));
@@ -38,5 +38,7 @@ void main()
     // vec4 result = x + a*(l + r + u + d - 4*x); // naive forwards step (very unstable)
     // vec4 result = x + a*(l + u + r + d - 4*x)/4;
     // vec4 result = x;
-    imageStore(outputImage, texelCoord, vec4(result.rgb, 1.0));
+    // vec4 color = heatMap(x.r, 0.0, 1.0);
+    vec4 color = vec4(result);
+    imageStore(outputImage, texelCoord, color);
 }

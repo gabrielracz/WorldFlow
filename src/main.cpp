@@ -1,5 +1,6 @@
 #include <SDL2/SDL.h>
 #include "SDL_vulkan.h"
+#include "vk_types.h"
 
 #include <chrono>
 #include <iomanip>
@@ -43,6 +44,7 @@ constexpr bool IsValidationLayersEnabled = false;
 #else
 constexpr bool IsValidationLayersEnabled = true;
 #endif
+constexpr bool VSYNCEnabled = true;
 constexpr uint32_t FPSMeasurePeriod = 60;
 constexpr uint32_t FrameOverlap = 2;
 constexpr uint64_t TimeoutNs = 1000000000;
@@ -218,16 +220,14 @@ private:
         // vkCmdClearColorImage(cmd, this->_drawImage.image, VK_IMAGE_LAYOUT_GENERAL, &clearValue, 1, &clearRange);
 
         vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, this->_drawImagePipeline.pipeline);
-
         vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, this->_drawImagePipeline.layout, 0, 1, &this->_drawImagePipeline.descriptorSets[0], 0, nullptr);
-
         ComputePushConstants constants = {
             .time = static_cast<float>(this->_elapsed),
             .dt   = static_cast<float>(dt)
         };
         vkCmdPushConstants(cmd, this->_drawImagePipeline.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(ComputePushConstants), &constants);
-
-        vkCmdDispatch(cmd, std::ceil(this->_drawImage.imageExtent.width/16.0), std::ceil(this->_drawImage.imageExtent.height/16.0), 1);
+        const VkExtent3D wgCount = getWorkgroupCounts();
+        vkCmdDispatch(cmd, wgCount.width, wgCount.height, wgCount.depth);
     }
 
     bool addDensity(VkCommandBuffer cmd, double dt)
@@ -240,7 +240,8 @@ private:
         };
         vkCmdPushConstants(cmd, this->_addSourcePipeline.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(ComputePushConstants), &constants);
 
-        vkCmdDispatch(cmd, std::ceil(this->_drawImage.imageExtent.width/16.0), std::ceil(this->_drawImage.imageExtent.height/16.0), 1);
+        const VkExtent3D wgCount = getWorkgroupCounts();
+        vkCmdDispatch(cmd, wgCount.width, wgCount.height, wgCount.depth);
         return true;
     }
 
@@ -275,13 +276,36 @@ private:
             };
             vkCmdPushConstants(cmd, this->_diffusionPipeline.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(ComputePushConstants), &constants);
 
-            vkCmdDispatch(cmd, std::ceil(this->_drawImage.imageExtent.width/16.0), std::ceil(this->_drawImage.imageExtent.height/16.0), 1);
+            const VkExtent3D wgCount = getWorkgroupCounts();
+            vkCmdDispatch(cmd, wgCount.width, wgCount.height, wgCount.depth);
             
             // wait for all image writes to be complete
             imageBarrier.image = this->_densityImages[pingPongDescriptorIndex].image;
             vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0,
                                  0, nullptr, 0, nullptr, 1, &imageBarrier);
         }
+    }
+
+    void visualizeFluid(VkCommandBuffer cmd, double dt)
+    {
+        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, this->_visualizationPipeline.pipeline);
+        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, this->_visualizationPipeline.layout, 0, 1, &this->_visualizationPipeline.descriptorSets[0], 0, nullptr);
+        ComputePushConstants constants = {
+            .time = static_cast<float>(this->_elapsed),
+            .dt   = static_cast<float>(dt)
+        };
+        vkCmdPushConstants(cmd, this->_diffusionPipeline.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(ComputePushConstants), &constants);
+        const VkExtent3D wgCount = getWorkgroupCounts();
+        vkCmdDispatch(cmd, wgCount.width, wgCount.height, wgCount.depth);
+    }
+
+    VkExtent3D getWorkgroupCounts()
+    {
+        return VkExtent3D {
+            .width = static_cast<uint32_t>(std::ceil(this->_drawImage.imageExtent.width/16.0)),
+            .height = static_cast<uint32_t>(std::ceil(this->_drawImage.imageExtent.height/16.0)),
+            .depth = 1
+        };
     }
 
     bool draw(double dt)
@@ -311,7 +335,7 @@ private:
         // for(AllocatedImage& img : this->_densityImages)
         //     vkutil::transition_image(cmd, img.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL);
 
-        if(this->_frameNumber < 1)
+        // if(this->_frameNumber < 1)
             addDensity(cmd, dt);
         diffuseDensity(cmd, dt);
         // advectDensity(cmd, dt);
@@ -321,10 +345,12 @@ private:
         // projectIncompressible
         // advectVelocity
         // projectIncompressible
+        visualizeFluid(cmd, dt);
 
         
         // prepare draw image -> swapchain image copy
-        AllocatedImage& drawImage = this->_densityImages[0];
+        // AllocatedImage& drawImage = this->_densityImages[0];
+        AllocatedImage& drawImage = this->_drawImage;
         VkImage& swapchainImage = this->_swapchainImages[swapchainImageIndex];
 
         vkutil::transition_image(cmd, drawImage.image, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
@@ -471,8 +497,7 @@ private:
         this->_swapchainImageFormat = VK_FORMAT_B8G8R8A8_UNORM;
         vkb::Swapchain vkbSwapchain = swapchainBuilder
             .set_desired_format(VkSurfaceFormatKHR{.format = this->_swapchainImageFormat, .colorSpace = VK_COLOR_SPACE_SRGB_NONLINEAR_KHR})
-            .set_desired_present_mode(VK_PRESENT_MODE_FIFO_RELAXED_KHR)
-            // .set_desired_present_mode(VK_PRESENT_MODE_MAILBOX_KHR)
+            .set_desired_present_mode(Constants::VSYNCEnabled ? VK_PRESENT_MODE_FIFO_RELAXED_KHR : VK_PRESENT_MODE_MAILBOX_KHR)
             .set_desired_extent(width, height)
             .add_image_usage_flags(VK_IMAGE_USAGE_TRANSFER_DST_BIT)
             .build()
@@ -526,10 +551,10 @@ private:
             std::cout << "[ERROR] Failed to create swapchain" << std::endl;
             return false;
         }
-        if(!createDrawImage()) {
-            std::cout << "[ERROR] Failed to create draw image" << std::endl;
-            return false;
-        }
+        // if(!createDrawImage()) {
+        //     std::cout << "[ERROR] Failed to create draw image" << std::endl;
+        //     return false;
+        // }
         return true;
     }
 
@@ -687,26 +712,21 @@ private:
     bool initAssets()
     {
         int w, h, nrChannel;
-        unsigned char* data = stbi_load(ASSETS_DIRECTORY"/monet-alpha-square.png", &w, &h, &nrChannel, STBI_rgb_alpha);
+        float* data = stbi_loadf(ASSETS_DIRECTORY"/monet-alpha-square.png", &w, &h, &nrChannel, STBI_rgb_alpha);
         VkExtent3D dataExtent {.width = (unsigned int)w, .height = (unsigned int)h, .depth = 1};
         this->_stagingBuffer = createBuffer( // allows for CPU -> GPU copies
             Constants::StagingBufferSize,
             VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
             VMA_MEMORY_USAGE_CPU_TO_GPU
         );
-        // std::memcpy(this->_stagingBuffer.info.pMappedData, data, w*h*nrChannel);
+        // std::memcpy(this->_stagingBuffer.info.pMappedData, data, w*h*nrChannel*sizeof(float));
         int imgLen = w*h*nrChannel;
         for(int i = 0; i < 600*600*4; i += 4) {
-            // ((unsigned char*)this->_stagingBuffer.info.pMappedData)[i] = 0;
-            // ((unsigned char*)this->_stagingBuffer.info.pMappedData)[i+1] = 0;
-            // ((unsigned char*)this->_stagingBuffer.info.pMappedData)[i+2] = 0;
-            // ((unsigned char*)this->_stagingBuffer.info.pMappedData)[i+3] = 255;
             ((float*)this->_stagingBuffer.info.pMappedData)[i] = 0.0;
             ((float*)this->_stagingBuffer.info.pMappedData)[i+1] = 0.0;
             ((float*)this->_stagingBuffer.info.pMappedData)[i+2] = 0.0;
             ((float*)this->_stagingBuffer.info.pMappedData)[i+3] = 1.0;
         }
-        // std::memset(this->_stagingBuffer.info.pMappedData, 0, w*h*nrChannel);
 
         for(AllocatedImage& img : this->_densityImages) {
             img = createImage(
@@ -724,13 +744,23 @@ private:
                 dataExtent,
                 VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_STORAGE_BIT,
                 VK_IMAGE_ASPECT_COLOR_BIT,
-                VK_FORMAT_R16G16B16A16_SFLOAT
+                VK_FORMAT_R32G32B32A32_SFLOAT
             );
         }
+
+        this->_drawImage = createImage(
+            dataExtent,
+            VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_STORAGE_BIT,
+            VK_IMAGE_ASPECT_COLOR_BIT,
+            VK_FORMAT_R32G32B32A32_SFLOAT
+        );
 
         immediateSubmit([&](VkCommandBuffer cmd) {
             for(AllocatedImage& img : this->_densityImages)
                 vkutil::transition_image(cmd, img.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL);
+            for(AllocatedImage& img : this->_velocityImages)
+                vkutil::transition_image(cmd, img.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL);
+            vkutil::transition_image(cmd, this->_drawImage.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL);
         });
 
         return true;
@@ -759,6 +789,20 @@ private:
             .clear()
             .write_image(0, this->_drawImage.imageView, 0, VK_IMAGE_LAYOUT_GENERAL, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE)
             .update_set(this->_device, this->_drawImagePipeline.descriptorSets[0]);
+
+        // Visualization
+        this->_visualizationPipeline.descriptorLayout = DescriptorLayoutBuilder::newLayout()
+            .add_binding(0, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE)
+            .add_binding(1, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE)
+            .add_binding(2, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE)
+            .build(this->_device, VK_SHADER_STAGE_COMPUTE_BIT);
+        this->_visualizationPipeline.descriptorSets.push_back(this->_descriptorPool.allocateSet(this->_device, this->_visualizationPipeline.descriptorLayout));
+        this->_descriptorWriter
+            .clear()
+            .write_image(0, this->_densityImages[0].imageView, 0, VK_IMAGE_LAYOUT_GENERAL, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE)
+            .write_image(1, this->_velocityImages[0].imageView, 0, VK_IMAGE_LAYOUT_GENERAL, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE)
+            .write_image(2, this->_drawImage.imageView, 0, VK_IMAGE_LAYOUT_GENERAL, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE)
+            .update_set(this->_device, this->_visualizationPipeline.descriptorSets[0]);
 
         // Add Source
         this->_addSourcePipeline.descriptorLayout = DescriptorLayoutBuilder::newLayout()
@@ -805,6 +849,7 @@ private:
             vkDestroyDescriptorSetLayout(this->_device, _diffusionPipeline.descriptorLayout, nullptr);
             vkDestroyDescriptorSetLayout(this->_device, _addSourcePipeline.descriptorLayout, nullptr);
             vkDestroyDescriptorSetLayout(this->_device, _advectionPipeline.descriptorLayout, nullptr);
+            vkDestroyDescriptorSetLayout(this->_device, _visualizationPipeline.descriptorLayout, nullptr);
         });
         return true;
     }
@@ -863,7 +908,8 @@ private:
     {
         //TODO: these need pipeline.descriptorLayout set previously to work
         return createComputePipeline(SHADER_DIRECTORY"/diffusion.comp.spv", this->_diffusionPipeline) &&
-               createComputePipeline(SHADER_DIRECTORY"/addSource.comp.spv", this->_addSourcePipeline);
+               createComputePipeline(SHADER_DIRECTORY"/addSource.comp.spv", this->_addSourcePipeline) &&
+               createComputePipeline(SHADER_DIRECTORY"/visualization.comp.spv", this->_visualizationPipeline);
     }
 
     bool initPipelines()
@@ -934,6 +980,7 @@ private:
     ComputePipeline _addSourcePipeline;
     ComputePipeline _diffusionPipeline;
     ComputePipeline _advectionPipeline;
+    ComputePipeline _visualizationPipeline;
 
     // VkPipeline _computePipeline;
     // VkPipelineLayout _computePipelineLayout;
@@ -979,4 +1026,5 @@ int main(int argc, char* argv[])
     }
     std::cout << "Goodbye" << std::endl;
     return EXIT_SUCCESS;
+
 }
