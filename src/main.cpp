@@ -49,7 +49,7 @@ constexpr uint32_t FPSMeasurePeriod = 60;
 constexpr uint32_t FrameOverlap = 2;
 constexpr uint64_t TimeoutNs = 1000000000;
 constexpr uint32_t MaxDescriptorSets = 10;
-constexpr uint32_t DiffusionIterations = 20;
+constexpr uint32_t DiffusionIterations = 10;
 constexpr uint64_t StagingBufferSize = 1024ul * 1024ul * 8ul;
 }
 
