@@ -51,6 +51,7 @@ file(GLOB_RECURSE GLSL_SOURCE_FILES
 )
 
 message(STATUS "BUILDING SHADERS")
+file(MAKE_DIRECTORY "${PROJECT_SOURCE_DIR}/shaders/bin")
 foreach(GLSL ${GLSL_SOURCE_FILES})
   get_filename_component(FILE_NAME ${GLSL} NAME)
   set(SPIRV "${PROJECT_SOURCE_DIR}/shaders/bin/${FILE_NAME}.spv")
