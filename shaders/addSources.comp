@@ -7,10 +7,10 @@ layout (local_size_x = 16, local_size_y = 16) in;
 layout(rgba32f, set = 0, binding = 0) uniform writeonly image2D outputDensityImage;
 layout(rgba32f, set = 0, binding = 1) uniform writeonly image2D outputVelocityImage;
 
-layout(push_constant) uniform constants {
+layout(push_constant) uniform PushConstants {
     float time;
     float dt;
-} PushConstants;
+} pc;
 
 vec4 permute(vec4 x){return mod(((x*34.0)+1.0)*x, 289.0);}
 vec2 fade(vec2 t) {return t*t*t*(t*(t*6.0-15.0)+10.0);}

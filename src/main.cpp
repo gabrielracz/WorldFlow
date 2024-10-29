@@ -144,6 +144,7 @@ public:
                                 initDescriptors() &&
                                 initPipelines()
                                 ;
+        this->_elapsed = GetTimestamp();
 
         return this->_isInitialized;
     }
@@ -368,10 +369,6 @@ private:
         };
         VK_ASSERT(vkBeginCommandBuffer(cmd, &cmdBeginInfo));
         
-
-        // for(AllocatedImage& img : this->_densityImages)
-        //     vkutil::transition_image(cmd, img.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL);
-
         if(this->_frameNumber < 1)
             addSources(cmd, dt);
 
