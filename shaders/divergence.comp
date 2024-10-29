@@ -1,0 +1,13 @@
+#version 460
+
+// size of compute workgroup
+layout (local_size_x = 16, local_size_y = 16) in;
+
+// descriptor bindings for the pipeline
+layout(rgba32f, set = 0, binding = 0) uniform readonly image2D velocityImage;
+layout(rgba32f, set = 0, binding = 1) uniform writeonly image2D divergenceImage;
+
+void main()
+{
+  return;
+}

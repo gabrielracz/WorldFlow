@@ -299,6 +299,30 @@ private:
         vkCmdDispatch(cmd, wgCount.width, wgCount.height, wgCount.depth);
     }
 
+    void diffuseVelocity()
+    {
+
+    }
+
+    void projectIncompressibleVelocity(VkCommandBuffer cmd, double dt)
+    {
+        // Divergence
+        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, this->_divergencePipeline.pipeline);
+        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, this->_divergencePipeline.layout, 0, 1, &this->_divergencePipeline.descriptorSets[0], 0, nullptr);
+        ComputePushConstants constants = {
+            .time = static_cast<float>(this->_elapsed),
+            .dt   = static_cast<float>(dt)
+        };
+        vkCmdPushConstants(cmd, this->_divergencePipeline.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(ComputePushConstants), &constants);
+        const VkExtent3D wgCount = getWorkgroupCounts();
+        vkCmdDispatch(cmd, wgCount.width, wgCount.height, wgCount.depth);
+    }
+
+    void advectVelocity()
+    {
+
+    }
+
     void visualizeFluid(VkCommandBuffer cmd, double dt)
     {
         vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, this->_visualizationPipeline.pipeline);
@@ -354,11 +378,11 @@ private:
         diffuseDensity(cmd, dt);
         advectDensity(cmd, dt);
 
-        // addVelocity
         // diffuseVelocity
-        // projectIncompressible
+        projectIncompressibleVelocity(cmd, dt);
         // advectVelocity
-        // projectIncompressible
+        // projectVelocityIncompressible
+
         visualizeFluid(cmd, dt);
 
         
@@ -762,6 +786,13 @@ private:
             );
         }
 
+        this->_divergenceImage = createImage(
+            dataExtent,
+            VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_STORAGE_BIT,
+            VK_IMAGE_ASPECT_COLOR_BIT,
+            VK_FORMAT_R32G32B32A32_SFLOAT
+        );
+
         this->_drawImage = createImage(
             dataExtent,
             VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_STORAGE_BIT,
@@ -774,6 +805,7 @@ private:
                 vkutil::transition_image(cmd, img.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL);
             for(AllocatedImage& img : this->_velocityImages)
                 vkutil::transition_image(cmd, img.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL);
+            vkutil::transition_image(cmd, this->_divergenceImage.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL);
             vkutil::transition_image(cmd, this->_drawImage.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL);
         });
 
@@ -861,6 +893,17 @@ private:
             .write_image(2, this->_densityImages[0].imageView, 0, VK_IMAGE_LAYOUT_GENERAL, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE)
             .update_set(this->_device, this->_advectionPipeline.descriptorSets[0]);
 
+        // Divergence
+        this->_divergencePipeline.descriptorLayout = DescriptorLayoutBuilder::newLayout()
+            .add_binding(0, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE)
+            .add_binding(1, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE)
+            .build(this->_device, VK_SHADER_STAGE_COMPUTE_BIT);
+        this->_divergencePipeline.descriptorSets.push_back(this->_descriptorPool.allocateSet(this->_device, this->_divergencePipeline.descriptorLayout));
+        this->_descriptorWriter
+            .clear()
+            .write_image(0, this->_velocityImages[0].imageView, 0, VK_IMAGE_LAYOUT_GENERAL, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE)
+            .write_image(1, this->_divergenceImage.imageView, 0, VK_IMAGE_LAYOUT_GENERAL, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE)
+            .update_set(this->_device, this->_divergencePipeline.descriptorSets[0]);
 
         this->_deletionQueue.push([&]() {
             this->_descriptorPool.destroy(this->_device);
@@ -868,6 +911,7 @@ private:
             vkDestroyDescriptorSetLayout(this->_device, _diffusionPipeline.descriptorLayout, nullptr);
             vkDestroyDescriptorSetLayout(this->_device, _addSourcePipeline.descriptorLayout, nullptr);
             vkDestroyDescriptorSetLayout(this->_device, _advectionPipeline.descriptorLayout, nullptr);
+            vkDestroyDescriptorSetLayout(this->_device, _divergencePipeline.descriptorLayout, nullptr);
             vkDestroyDescriptorSetLayout(this->_device, _visualizationPipeline.descriptorLayout, nullptr);
         });
         return true;
@@ -929,6 +973,7 @@ private:
         return createComputePipeline(SHADER_DIRECTORY"/diffusion.comp.spv", this->_diffusionPipeline) &&
                createComputePipeline(SHADER_DIRECTORY"/addSources.comp.spv", this->_addSourcePipeline) &&
                createComputePipeline(SHADER_DIRECTORY"/advection.comp.spv", this->_advectionPipeline) &&
+               createComputePipeline(SHADER_DIRECTORY"/divergence.comp.spv", this->_divergencePipeline) &&
                createComputePipeline(SHADER_DIRECTORY"/visualization.comp.spv", this->_visualizationPipeline);
     }
 
@@ -1000,6 +1045,9 @@ private:
     ComputePipeline _addSourcePipeline;
     ComputePipeline _diffusionPipeline;
     ComputePipeline _advectionPipeline;
+    ComputePipeline _divergencePipeline;
+    ComputePipeline _pressurePipeline;
+    ComputePipeline _projectPipeline;
     ComputePipeline _visualizationPipeline;
 
     // VkPipeline _computePipeline;
@@ -1021,6 +1069,7 @@ private:
     //Test Scene
     AllocatedImage _densityImages[2] {};
     AllocatedImage _velocityImages[2] {};
+    AllocatedImage _divergenceImage {};
     AllocatedBuffer _stagingBuffer {};
     VkSampler _simpleSampler {};
 
