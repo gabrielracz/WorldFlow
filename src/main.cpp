@@ -245,7 +245,7 @@ private:
         return true;
     }
 
-    void diffuseDensity(VkCommandBuffer cmd, double dt)
+    void pingPongDispatch(VkCommandBuffer cmd, ComputePipeline& pipeline, AllocatedImage images[2], ComputePushConstants& pc, uint32_t iterations)
     {
         VkImageMemoryBarrier imageBarrier = {
             .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
@@ -265,25 +265,30 @@ private:
             }
         };
 
-        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, this->_diffusionPipeline.pipeline);
-        for(int i = 0; i < Constants::DiffusionIterations; i++) {
+        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, pipeline.pipeline);
+        for(int i = 0; i < iterations; i++) {
             int pingPongDescriptorIndex = i % 2;
-            vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, this->_diffusionPipeline.layout, 0, 1, &this->_diffusionPipeline.descriptorSets[pingPongDescriptorIndex], 0, nullptr);
-
-            ComputePushConstants constants = {
-                .time = static_cast<float>(this->_elapsed),
-                .dt   = static_cast<float>(dt)
-            };
-            vkCmdPushConstants(cmd, this->_diffusionPipeline.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(ComputePushConstants), &constants);
+            vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, pipeline.layout, 0, 1, &pipeline.descriptorSets[pingPongDescriptorIndex], 0, nullptr);
+            vkCmdPushConstants(cmd, this->_diffusionPipeline.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(pc), &pc);
 
             const VkExtent3D wgCount = getWorkgroupCounts();
             vkCmdDispatch(cmd, wgCount.width, wgCount.height, wgCount.depth);
             
             // wait for all image writes to be complete
-            imageBarrier.image = this->_densityImages[pingPongDescriptorIndex].image;
+            imageBarrier.image = images[pingPongDescriptorIndex].image;
             vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0,
                                  0, nullptr, 0, nullptr, 1, &imageBarrier);
         }
+
+    }
+
+    void diffuseDensity(VkCommandBuffer cmd, double dt)
+    {
+        ComputePushConstants constants = {
+            .time = static_cast<float>(this->_elapsed),
+            .dt   = static_cast<float>(dt)
+        };
+        pingPongDispatch(cmd, this->_diffusionPipeline, this->_densityImages, constants, Constants::DiffusionIterations);
     }
 
     void advectDensity(VkCommandBuffer cmd, double dt)
@@ -306,19 +311,20 @@ private:
 
     void projectIncompressible(VkCommandBuffer cmd, double dt)
     {
-        // Divergence
-        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, this->_divergencePipeline.pipeline);
-        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, this->_divergencePipeline.layout, 0, 1, &this->_divergencePipeline.descriptorSets[0], 0, nullptr);
         ComputePushConstants constants = {
             .time = static_cast<float>(this->_elapsed),
             .dt   = static_cast<float>(dt)
         };
+
+        // Divergence
+        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, this->_divergencePipeline.pipeline);
+        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, this->_divergencePipeline.layout, 0, 1, &this->_divergencePipeline.descriptorSets[0], 0, nullptr);
         vkCmdPushConstants(cmd, this->_divergencePipeline.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(ComputePushConstants), &constants);
         const VkExtent3D wgCount = getWorkgroupCounts();
         vkCmdDispatch(cmd, wgCount.width, wgCount.height, wgCount.depth);
 
         //Pressure
-
+        pingPongDispatch(cmd, this->_pressurePipeline, this->_densityImages, constants, Constants::PressureIterations);
     }
 
     void advectVelocity()
@@ -986,6 +992,7 @@ private:
                createComputePipeline(SHADER_DIRECTORY"/addSources.comp.spv", this->_addSourcePipeline) &&
                createComputePipeline(SHADER_DIRECTORY"/advection.comp.spv", this->_advectionPipeline) &&
                createComputePipeline(SHADER_DIRECTORY"/divergence.comp.spv", this->_divergencePipeline) &&
+               createComputePipeline(SHADER_DIRECTORY"/pressure.comp.spv", this->_pressurePipeline) &&
                createComputePipeline(SHADER_DIRECTORY"/visualization.comp.spv", this->_visualizationPipeline);
     }
 
