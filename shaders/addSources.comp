@@ -53,12 +53,15 @@ void main()
     vec2 densitySize = vec2(imageSize(outputDensityImage));
 
     vec2 center = vec2(densitySize.x/2.0, densitySize.y/2.0);
-    float dist = length(pos - center);
+    vec2 diff = (pos - center);
+    float dist = length(diff);
     const float radius = 100.0;
     const vec4 source = vec4(1.0, 1.0, 1.0, 1.0);
     if(dist < radius && dist > radius/1.5) {
         imageStore(outputDensityImage, ivec2(pos), source);
     }
 
-    imageStore(outputVelocityImage, ivec2(pos), vec4(0.0, cnoise(pos/150.0)*20.0, 0.0, 1.0));
+
+    // imageStore(outputVelocityImage, ivec2(pos), vec4(sign(diff.x)*dist*dist, sign(diff.y)*dist*dist, 0.0, 0.0));
+    imageStore(outputVelocityImage, ivec2(pos), vec4(0.0, cnoise(pos/150.0)*20.0, 0.0, 0.0));
 }

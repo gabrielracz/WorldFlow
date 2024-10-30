@@ -50,10 +50,12 @@ constexpr uint32_t FrameOverlap = 2;
 constexpr uint64_t TimeoutNs = 1000000000;
 constexpr uint32_t MaxDescriptorSets = 10;
 constexpr uint32_t DiffusionIterations = 11;
+constexpr uint32_t PressureIterations = 11;
 constexpr uint64_t StagingBufferSize = 1024ul * 1024ul * 8ul;
 }
-
-static_assert(Constants::DiffusionIterations % 2 == 1); //should be odd to ensure consistency of final result index
+//should be odd to ensure consistency of final result buffer index
+static_assert(Constants::DiffusionIterations % 2 == 1); 
+static_assert(Constants::PressureIterations % 2 == 1);
 
 // Actually a LIFO stack
 struct DeletionQueue
@@ -144,8 +146,6 @@ public:
                                 initDescriptors() &&
                                 initPipelines()
                                 ;
-        this->_elapsed = GetTimestamp();
-
         return this->_isInitialized;
     }
 
@@ -155,6 +155,7 @@ public:
         updatePerformanceCounters(dt);
         pollEvents();
         draw(dt);
+        this->_frameNumber++;
     }
     
     bool ShouldClose() const { return this->_shouldClose; }
@@ -209,16 +210,14 @@ private:
         return true;
     }
 
+    void clearImage(VkCommandBuffer cmd, AllocatedImage& img, VkClearColorValue color = {0.0, 0.0, 0.0, 0.0})
+    {
+        VkImageSubresourceRange clearRange = vkinit::image_subresource_range(VK_IMAGE_ASPECT_COLOR_BIT);
+        vkCmdClearColorImage(cmd, this->_drawImage.image, VK_IMAGE_LAYOUT_GENERAL, &color, 1, &clearRange);
+    }
+
     void drawBackground(VkCommandBuffer cmd, double dt)
     {
-        // VkClearColorValue clearValue {
-        //    (1 + std::sin(this->_frameNumber / 120.0f)) / 2.0f,
-        //    (1 + std::cos(this->_frameNumber / 120.0f)) / 2.0f,
-        //    (1 + std::sin(this->_frameNumber * 2.0f / 120.0f)) / 2.0f,
-        //    1.0f
-        // };
-        // VkImageSubresourceRange clearRange = vkinit::image_subresource_range(VK_IMAGE_ASPECT_COLOR_BIT);
-        // vkCmdClearColorImage(cmd, this->_drawImage.image, VK_IMAGE_LAYOUT_GENERAL, &clearValue, 1, &clearRange);
 
         vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, this->_drawImagePipeline.pipeline);
         vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, this->_drawImagePipeline.layout, 0, 1, &this->_drawImagePipeline.descriptorSets[0], 0, nullptr);
@@ -305,7 +304,7 @@ private:
 
     }
 
-    void projectIncompressibleVelocity(VkCommandBuffer cmd, double dt)
+    void projectIncompressible(VkCommandBuffer cmd, double dt)
     {
         // Divergence
         vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, this->_divergencePipeline.pipeline);
@@ -317,6 +316,9 @@ private:
         vkCmdPushConstants(cmd, this->_divergencePipeline.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(ComputePushConstants), &constants);
         const VkExtent3D wgCount = getWorkgroupCounts();
         vkCmdDispatch(cmd, wgCount.width, wgCount.height, wgCount.depth);
+
+        //Pressure
+
     }
 
     void advectVelocity()
@@ -376,7 +378,7 @@ private:
         advectDensity(cmd, dt);
 
         // diffuseVelocity
-        projectIncompressibleVelocity(cmd, dt);
+        projectIncompressible(cmd, dt);
         // advectVelocity
         // projectVelocityIncompressible
 
@@ -390,7 +392,7 @@ private:
 
         vkutil::transition_image(cmd, drawImage.image, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
         vkutil::transition_image(cmd, swapchainImage, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
-        vkutil::copy_image_to_image(cmd, drawImage.image, swapchainImage, drawImage.imageExtent, VkExtent3D(this->_swapchainExtent.width, this->_swapchainExtent.height, 1));
+        vkutil::copy_image_to_image(cmd, drawImage.image, swapchainImage, drawImage.imageExtent, VkExtent3D{.width = this->_swapchainExtent.width, .height = this->_swapchainExtent.height, .depth = 1});
 
         // transition to present format
         vkutil::transition_image(cmd, swapchainImage, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
@@ -441,7 +443,6 @@ private:
             .pImageIndices = &swapchainImageIndex,
         };
         VK_ASSERT(vkQueuePresentKHR(this->_graphicsQueue, &presentInfo));
-        this->_frameNumber++;
         return true;
     }
 
@@ -783,13 +784,6 @@ private:
             );
         }
 
-        this->_divergenceImage = createImage(
-            dataExtent,
-            VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_STORAGE_BIT,
-            VK_IMAGE_ASPECT_COLOR_BIT,
-            VK_FORMAT_R32G32B32A32_SFLOAT
-        );
-
         this->_drawImage = createImage(
             dataExtent,
             VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_STORAGE_BIT,
@@ -802,7 +796,6 @@ private:
                 vkutil::transition_image(cmd, img.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL);
             for(AllocatedImage& img : this->_velocityImages)
                 vkutil::transition_image(cmd, img.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL);
-            vkutil::transition_image(cmd, this->_divergenceImage.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL);
             vkutil::transition_image(cmd, this->_drawImage.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL);
         });
 
@@ -890,7 +883,7 @@ private:
             .write_image(2, this->_densityImages[0].imageView, 0, VK_IMAGE_LAYOUT_GENERAL, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE)
             .update_set(this->_device, this->_advectionPipeline.descriptorSets[0]);
 
-        // Divergence
+        // Divergence (writes into alpha channel of density)
         this->_divergencePipeline.descriptorLayout = DescriptorLayoutBuilder::newLayout()
             .add_binding(0, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE)
             .add_binding(1, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE)
@@ -899,8 +892,29 @@ private:
         this->_descriptorWriter
             .clear()
             .write_image(0, this->_velocityImages[0].imageView, 0, VK_IMAGE_LAYOUT_GENERAL, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE)
-            .write_image(1, this->_divergenceImage.imageView, 0, VK_IMAGE_LAYOUT_GENERAL, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE)
+            .write_image(1, this->_densityImages[0].imageView, 0, VK_IMAGE_LAYOUT_GENERAL, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE)
             .update_set(this->_device, this->_divergencePipeline.descriptorSets[0]);
+        
+        // Pressure (writes into green channel of density)
+        this->_pressurePipeline.descriptorLayout = DescriptorLayoutBuilder::newLayout()
+            .add_binding(0, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE)
+            .add_binding(1, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE)
+            .add_binding(2, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE)
+            .build(this->_device, VK_SHADER_STAGE_COMPUTE_BIT);
+        this->_pressurePipeline.descriptorSets.push_back(this->_descriptorPool.allocateSet(this->_device, this->_pressurePipeline.descriptorLayout));
+        this->_pressurePipeline.descriptorSets.push_back(this->_descriptorPool.allocateSet(this->_device, this->_pressurePipeline.descriptorLayout));
+        this->_descriptorWriter
+            .clear()
+            .write_image(0, this->_velocityImages[0].imageView, 0, VK_IMAGE_LAYOUT_GENERAL, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE)
+            .write_image(1, this->_densityImages[0].imageView, 0, VK_IMAGE_LAYOUT_GENERAL, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE)
+            .write_image(2, this->_densityImages[1].imageView, 0, VK_IMAGE_LAYOUT_GENERAL, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE)
+            .update_set(this->_device, this->_pressurePipeline.descriptorSets[0])
+            .clear()
+            .write_image(0, this->_velocityImages[0].imageView, 0, VK_IMAGE_LAYOUT_GENERAL, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE)
+            .write_image(1, this->_densityImages[1].imageView, 0, VK_IMAGE_LAYOUT_GENERAL, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE)
+            .write_image(2, this->_densityImages[0].imageView, 0, VK_IMAGE_LAYOUT_GENERAL, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE)
+            .update_set(this->_device, this->_pressurePipeline.descriptorSets[1]);
+        
 
         this->_deletionQueue.push([&]() {
             this->_descriptorPool.destroy(this->_device);
@@ -909,6 +923,7 @@ private:
             vkDestroyDescriptorSetLayout(this->_device, _addSourcePipeline.descriptorLayout, nullptr);
             vkDestroyDescriptorSetLayout(this->_device, _advectionPipeline.descriptorLayout, nullptr);
             vkDestroyDescriptorSetLayout(this->_device, _divergencePipeline.descriptorLayout, nullptr);
+            vkDestroyDescriptorSetLayout(this->_device, _pressurePipeline.descriptorLayout, nullptr);
             vkDestroyDescriptorSetLayout(this->_device, _visualizationPipeline.descriptorLayout, nullptr);
         });
         return true;
@@ -1029,29 +1044,27 @@ private:
     VmaAllocator _allocator {};
 
     FrameData _frames[Constants::FrameOverlap] {};
-    uint32_t _frameNumber {};
-    AllocatedImage _drawImage;
+    uint32_t _frameNumber = 0;
 
+    DescriptorWriter _descriptorWriter {};
     DescriptorPool _descriptorPool;
 
-
-    // VkDescriptorSet _drawImageDescriptorSet;
-    // VkDescriptorSetLayout _drawImageDescriptorLayout;
-
+    // Compute Shaders
     ComputePipeline _drawImagePipeline;
     ComputePipeline _addSourcePipeline;
     ComputePipeline _diffusionPipeline;
     ComputePipeline _advectionPipeline;
     ComputePipeline _divergencePipeline;
     ComputePipeline _pressurePipeline;
-    ComputePipeline _projectPipeline;
+    ComputePipeline _projectionPipeline;
     ComputePipeline _visualizationPipeline;
 
-    // VkPipeline _computePipeline;
-    // VkPipelineLayout _computePipelineLayout;
-
-    // VkDescriptorSet _diffusionDescriptorSets[2] {};
-    DescriptorWriter _descriptorWriter {};
+    // Shader Resources
+    AllocatedImage _drawImage;
+    AllocatedImage _densityImages[2] {};
+    AllocatedImage _velocityImages[2] {};
+    AllocatedBuffer _stagingBuffer {};
+    VkSampler _simpleSampler {};
 
     //immediate submit structures
     VkFence _immFence;
@@ -1063,12 +1076,6 @@ private:
     double _elapsed {};
     double _lastFpsMeasurementTime {};
 
-    //Test Scene
-    AllocatedImage _densityImages[2] {};
-    AllocatedImage _velocityImages[2] {};
-    AllocatedImage _divergenceImage {};
-    AllocatedBuffer _stagingBuffer {};
-    VkSampler _simpleSampler {};
 
 };
 

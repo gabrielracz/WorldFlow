@@ -59,6 +59,10 @@ void main()
     vec2 imgSize = vec2(imageSize(outputImage));
 
     vec4 density = imageLoad(densityImage, texel);
-    vec4 color = heatMapColor(length(vec4(density.rgb, 0.0)), 0.0, 1.75);
+    vec4 velocity = imageLoad(velocityImage, texel);
+    vec4 color = heatMapColor(density.r, 0.0, 1.0);
+    // vec4 color = vec4(velocity.x, velocity.y, 0.0 , 1.0);
+    // vec4 color = vec4((velocity.a + 1.0)/2.0, 0.0, 0.0, 1.0);
+    // vec4 color = vec4(velocity.rg, 0.0, 1.0);
     imageStore(outputImage, texel, color);
 }

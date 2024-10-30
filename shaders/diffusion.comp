@@ -22,23 +22,25 @@ void main()
     int i = int(gl_GlobalInvocationID.x);
     int j = int(gl_GlobalInvocationID.y);
 
-    // vec4 l = imageLoad(inputImage, ivec2(i-1, j  ));
-    // vec4 u = imageLoad(inputImage, ivec2(i  , j+1));
-    // vec4 r = imageLoad(inputImage, ivec2(i+1, j  ));
-    // vec4 d = imageLoad(inputImage, ivec2(i  , j-1));
-    vec4 l = (i > 0) ? imageLoad(inputImage, ivec2(i-1, j)) : vec4(0);
-    vec4 r = (i < imgSize.x-1) ? imageLoad(inputImage, ivec2(i+1, j)) : vec4(0);
-    vec4 u = (j < imgSize.y-1) ? imageLoad(inputImage, ivec2(i, j+1)) : vec4(0);
-    vec4 d = (j > 0) ? imageLoad(inputImage, ivec2(i, j-1)) : vec4(0);
+    float l = imageLoad(inputImage, ivec2(i-1, j  )).r;
+    float u = imageLoad(inputImage, ivec2(i  , j+1)).r;
+    float r = imageLoad(inputImage, ivec2(i+1, j  )).r;
+    float d = imageLoad(inputImage, ivec2(i  , j-1)).r;
+    // vec4 l = (i > 0) ? imageLoad(inputImage, ivec2(i-1, j)) : vec4(0);
+    // vec4 r = (i < imgSize.x-1) ? imageLoad(inputImage, ivec2(i+1, j)) : vec4(0);
+    // vec4 u = (j < imgSize.y-1) ? imageLoad(inputImage, ivec2(i, j+1)) : vec4(0);
+    // vec4 d = (j > 0) ? imageLoad(inputImage, ivec2(i, j-1)) : vec4(0);
 
 
-    vec4 x = imageLoad(inputImage, ivec2(i, j));
+    vec4 densInput = imageLoad(inputImage, ivec2(i, j));
+    float x = densInput.r;
 
-    vec4 result = (x + a*(l + u + r + d)) / (1+4*a); // backwards stable
+    float result = (x + a*(l + u + r + d)) / (1+4*a); // backwards stable
     // vec4 result = x + a*(l + r + u + d - 4*x); // naive forwards step (very unstable)
     // vec4 result = x + a*(l + u + r + d - 4*x)/4;
     // vec4 result = x;
     // vec4 color = heatMap(x.r, 0.0, 1.0);
-    vec4 color = vec4(result);
+    densInput.r = result;
+    vec4 color = densInput;
     imageStore(outputImage, texelCoord, color);
 }
