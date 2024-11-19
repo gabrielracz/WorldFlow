@@ -45,9 +45,9 @@ target_link_libraries(${PROJ_NAME} ${GLFW_LIBRARY})
 # shaders
 find_program(GLSL_VALIDATOR glslangValidator HINTS /usr/bin /usr/local/bin $ENV{VULKAN_SDK}/Bin/ $ENV{VULKAN_SDK}/Bin32/)
 file(GLOB_RECURSE GLSL_SOURCE_FILES
-    "${PROJECT_SOURCE_DIR}/shaders/*.frag"
-    "${PROJECT_SOURCE_DIR}/shaders/*.vert"
-    "${PROJECT_SOURCE_DIR}/shaders/*.comp"
+    "${PROJECT_SOURCE_DIR}/shaders/raster/*.frag"
+    "${PROJECT_SOURCE_DIR}/shaders/raster/*.vert"
+    "${PROJECT_SOURCE_DIR}/shaders/comp/*.comp"
 )
 
 message(STATUS "BUILDING SHADERS")

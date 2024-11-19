@@ -61,7 +61,7 @@ void main()
         imageStore(outputDensityImage, ivec2(pos), source);
     }
 
-
     // imageStore(outputVelocityImage, ivec2(pos), vec4(sign(diff.x)*dist*dist, sign(diff.y)*dist*dist, 0.0, 0.0));
     imageStore(outputVelocityImage, ivec2(pos), vec4(0.0, cnoise(pos/150.0)*20.0, 0.0, 0.0));
+    // imageStore(outputVelocityImage, ivec2(pos), vec4(0.0, 0.0, 0.0, 0.0));
 }

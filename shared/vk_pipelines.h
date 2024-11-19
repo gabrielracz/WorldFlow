@@ -18,23 +18,23 @@ public:
 
 	PipelineBuilder(){ clear(); }
 
-    void clear();
+    PipelineBuilder& clear();
 
     VkPipeline build_pipeline(VkDevice device);
 //< pipeline
-    void set_shaders(VkShaderModule vertexShader, VkShaderModule fragmentShader);
-    void set_input_topology(VkPrimitiveTopology topology);
-    void set_polygon_mode(VkPolygonMode mode);
-    void set_cull_mode(VkCullModeFlags cullMode, VkFrontFace frontFace);
-    void set_multisampling_none();
-    void disable_blending();
-    void enable_blending_additive();
-    void enable_blending_alphablend();
+    PipelineBuilder& set_shaders(VkShaderModule vertexShader, VkShaderModule fragmentShader);
+    PipelineBuilder& set_input_topology(VkPrimitiveTopology topology);
+    PipelineBuilder& set_polygon_mode(VkPolygonMode mode);
+    PipelineBuilder& set_cull_mode(VkCullModeFlags cullMode, VkFrontFace frontFace);
+    PipelineBuilder& set_multisampling_none();
+    PipelineBuilder& disable_blending();
+    PipelineBuilder& enable_blending_additive();
+    PipelineBuilder& enable_blending_alphablend();
 
-    void set_color_attachment_format(VkFormat format);
-	void set_depth_format(VkFormat format);
-	void disable_depthtest();
-    void enable_depthtest(bool depthWriteEnable,VkCompareOp op);
+    PipelineBuilder& set_color_attachment_format(VkFormat format);
+    PipelineBuilder& set_depth_format(VkFormat format);
+    PipelineBuilder& disable_depthtest();
+    PipelineBuilder& enable_depthtest(bool depthWriteEnable,VkCompareOp op);
 };
 
 namespace vkutil {

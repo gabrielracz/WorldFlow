@@ -7,7 +7,7 @@
 #include <iostream>
 
 //> pipe_clear
-void PipelineBuilder::clear()
+PipelineBuilder& PipelineBuilder::clear()
 {
     // clear all of the structs we need back to 0 with their correct stype
 
@@ -26,6 +26,7 @@ void PipelineBuilder::clear()
     _renderInfo = { .sType = VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO };
 
     _shaderStages.clear();
+    return *this;
 }
 //< pipe_clear
 
@@ -102,7 +103,7 @@ VkPipeline PipelineBuilder::build_pipeline(VkDevice device)
     //< build_pipeline_4
 }
 //> set_shaders
-void PipelineBuilder::set_shaders(VkShaderModule vertexShader, VkShaderModule fragmentShader)
+PipelineBuilder& PipelineBuilder::set_shaders(VkShaderModule vertexShader, VkShaderModule fragmentShader)
 {
     _shaderStages.clear();
 
@@ -111,36 +112,41 @@ void PipelineBuilder::set_shaders(VkShaderModule vertexShader, VkShaderModule fr
 
     _shaderStages.push_back(
         vkinit::pipeline_shader_stage_create_info(VK_SHADER_STAGE_FRAGMENT_BIT, fragmentShader));
+    
+    return *this;
 }
 //< set_shaders
 //> set_topo
-void PipelineBuilder::set_input_topology(VkPrimitiveTopology topology)
+PipelineBuilder& PipelineBuilder::set_input_topology(VkPrimitiveTopology topology)
 {
     _inputAssembly.topology = topology;
     // we are not going to use primitive restart on the entire tutorial so leave
     // it on false
     _inputAssembly.primitiveRestartEnable = VK_FALSE;
+    return *this;
 }
 //< set_topo
 
 //> set_poly
-void PipelineBuilder::set_polygon_mode(VkPolygonMode mode)
+PipelineBuilder& PipelineBuilder::set_polygon_mode(VkPolygonMode mode)
 {
     _rasterizer.polygonMode = mode;
     _rasterizer.lineWidth = 1.f;
+    return *this;
 }
 //< set_poly
 
 //> set_cull
-void PipelineBuilder::set_cull_mode(VkCullModeFlags cullMode, VkFrontFace frontFace)
+PipelineBuilder& PipelineBuilder::set_cull_mode(VkCullModeFlags cullMode, VkFrontFace frontFace)
 {
     _rasterizer.cullMode = cullMode;
     _rasterizer.frontFace = frontFace;
+    return *this;
 }
 //< set_cull
 
 //> set_multisample
-void PipelineBuilder::set_multisampling_none()
+PipelineBuilder& PipelineBuilder::set_multisampling_none()
 {
     _multisampling.sampleShadingEnable = VK_FALSE;
     // multisampling defaulted to no multisampling (1 sample per pixel)
@@ -150,21 +156,23 @@ void PipelineBuilder::set_multisampling_none()
     // no alpha to coverage either
     _multisampling.alphaToCoverageEnable = VK_FALSE;
     _multisampling.alphaToOneEnable = VK_FALSE;
+    return *this;
 }
 //< set_multisample
 
 //> set_noblend
-void PipelineBuilder::disable_blending()
+PipelineBuilder& PipelineBuilder::disable_blending()
 {
     // default write mask
     _colorBlendAttachment.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
     // no blending
     _colorBlendAttachment.blendEnable = VK_FALSE;
+    return *this;
 }
 //< set_noblend
 
 //> alphablend
-void PipelineBuilder::enable_blending_additive()
+PipelineBuilder& PipelineBuilder::enable_blending_additive()
 {
     _colorBlendAttachment.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
     _colorBlendAttachment.blendEnable = VK_TRUE;
@@ -174,9 +182,10 @@ void PipelineBuilder::enable_blending_additive()
     _colorBlendAttachment.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
     _colorBlendAttachment.dstAlphaBlendFactor = VK_BLEND_FACTOR_ZERO;
     _colorBlendAttachment.alphaBlendOp = VK_BLEND_OP_ADD;
+    return *this;
 }
 
-void PipelineBuilder::enable_blending_alphablend()
+PipelineBuilder& PipelineBuilder::enable_blending_alphablend()
 {
     _colorBlendAttachment.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
     _colorBlendAttachment.blendEnable = VK_TRUE;
@@ -186,26 +195,29 @@ void PipelineBuilder::enable_blending_alphablend()
     _colorBlendAttachment.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
     _colorBlendAttachment.dstAlphaBlendFactor = VK_BLEND_FACTOR_ZERO;
     _colorBlendAttachment.alphaBlendOp = VK_BLEND_OP_ADD;
+    return *this;
 }
 //< alphablend
 
 //> set_formats
-void PipelineBuilder::set_color_attachment_format(VkFormat format)
+PipelineBuilder& PipelineBuilder::set_color_attachment_format(VkFormat format)
 {
     _colorAttachmentformat = format;
     // connect the format to the renderInfo  structure
     _renderInfo.colorAttachmentCount = 1;
     _renderInfo.pColorAttachmentFormats = &_colorAttachmentformat;
+    return *this;
 }
 
-void PipelineBuilder::set_depth_format(VkFormat format)
+PipelineBuilder& PipelineBuilder::set_depth_format(VkFormat format)
 {
     _renderInfo.depthAttachmentFormat = format;
+    return *this;
 }
 //< set_formats
 
 //> depth_disable
-void PipelineBuilder::disable_depthtest()
+PipelineBuilder& PipelineBuilder::disable_depthtest()
 {
     _depthStencil.depthTestEnable = VK_FALSE;
     _depthStencil.depthWriteEnable = VK_FALSE;
@@ -216,11 +228,12 @@ void PipelineBuilder::disable_depthtest()
     _depthStencil.back = {};
     _depthStencil.minDepthBounds = 0.f;
     _depthStencil.maxDepthBounds = 1.f;
+    return *this;
 }
 //< depth_disable
 
 //> depth_enable
-void PipelineBuilder::enable_depthtest(bool depthWriteEnable, VkCompareOp op)
+PipelineBuilder& PipelineBuilder::enable_depthtest(bool depthWriteEnable, VkCompareOp op)
 {
     _depthStencil.depthTestEnable = VK_TRUE;
     _depthStencil.depthWriteEnable = depthWriteEnable;
@@ -231,6 +244,7 @@ void PipelineBuilder::enable_depthtest(bool depthWriteEnable, VkCompareOp op)
     _depthStencil.back = {};
     _depthStencil.minDepthBounds = 0.f;
     _depthStencil.maxDepthBounds = 1.f;
+    return *this;
 }
 //< depth_enable
 

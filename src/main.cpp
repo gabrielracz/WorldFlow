@@ -42,9 +42,9 @@ namespace Constants
 #ifdef NDEBUG
 constexpr bool IsValidationLayersEnabled = false;
 #else
-constexpr bool IsValidationLayersEnabled = true;
+constexpr bool IsValidationLayersEnabled = false;
 #endif
-constexpr bool VSYNCEnabled = true;
+constexpr bool VSYNCEnabled = false;
 constexpr uint32_t FPSMeasurePeriod = 60;
 constexpr uint32_t FrameOverlap = 2;
 constexpr uint64_t TimeoutNs = 1000000000;
@@ -89,6 +89,12 @@ struct ComputePipeline
     VkDescriptorSetLayout descriptorLayout {};
 };
 
+struct TrianglePipeline
+{
+    VkPipeline pipeline {};
+    VkPipelineLayout layout {};
+};
+
 struct ComputePushConstants
 {
     float time {};
@@ -104,7 +110,6 @@ printDeviceProperties(vkb::PhysicalDevice& dev)
     "PushConstants:   " << dev.properties.limits.maxPushConstantsSize << "\n" <<
     "Uniform Buffers: " << dev.properties.limits.maxUniformBufferRange << std::endl;
 }
-
 
 //TODO change all return bool members that VK_ASSERT to return Result code
 class Renderer
@@ -245,7 +250,7 @@ private:
         return true;
     }
 
-    void pingPongDispatch(VkCommandBuffer cmd, ComputePipeline& pipeline, AllocatedImage images[2], ComputePushConstants& pc, uint32_t iterations)
+    void pingPongDispatch(VkCommandBuffer cmd, ComputePipeline& pipeline, AllocatedImage* images, ComputePushConstants& pc, uint32_t iterations)
     {
         VkImageMemoryBarrier imageBarrier = {
             .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
@@ -289,6 +294,12 @@ private:
             .dt   = static_cast<float>(dt)
         };
         pingPongDispatch(cmd, this->_diffusionPipeline, this->_densityImages, constants, Constants::DiffusionIterations);
+        vkutil::transition_image(cmd, this->_densityImages[0].image, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+        vkutil::transition_image(cmd, this->_densityImages[2].image, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+        vkutil::copy_image_to_image(cmd, this->_densityImages[0].image, this->_densityImages[2].image, this->_densityImages[0].imageExtent, this->_densityImages[2].imageExtent);
+        // transition to present format
+        vkutil::transition_image(cmd, this->_densityImages[2].image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
+        vkutil::transition_image(cmd, this->_densityImages[0].image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_GENERAL);
     }
 
     void advectDensity(VkCommandBuffer cmd, double dt)
@@ -354,6 +365,53 @@ private:
         };
     }
 
+    void drawFluid(VkCommandBuffer cmd, double dt)
+    {
+        if(this->_frameNumber < 1)
+            addSources(cmd, dt);
+
+        diffuseDensity(cmd, dt);
+        advectDensity(cmd, dt);
+
+        // diffuseVelocity
+        // projectIncompressible(cmd, dt);
+        // advectVelocity
+        // projectVelocityIncompressible
+
+        visualizeFluid(cmd, dt);
+    }
+
+    void drawGeometry(VkCommandBuffer cmd, double dt)
+    {
+        VkRenderingAttachmentInfo colorAttachmentInfo = vkinit::attachment_info(this->_drawImage.imageView, nullptr, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+        VkRenderingInfo renderInfo = vkinit::rendering_info(this->_windowExtent, &colorAttachmentInfo, nullptr);
+        vkCmdBeginRendering(cmd, &renderInfo);
+
+        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, this->_trianglePipeline.pipeline);
+
+        VkViewport viewport = {
+            .x = 0,
+            .y = 0,
+            .width = (float)this->_windowExtent.width,
+            .height = (float)this->_windowExtent.height,
+            .minDepth = 0.0,
+            .maxDepth = 1.0
+        };
+
+        vkCmdSetViewport(cmd, 0, 1, &viewport);
+
+        VkRect2D scissor = {
+            .offset = { .x = 0, .y = 0 },
+            .extent = { .width = this->_windowExtent.width, .height = this->_windowExtent.height }
+        };
+
+        vkCmdSetScissor(cmd, 0, 1, &scissor);
+
+        vkCmdDraw(cmd, 3, 1, 0, 0);
+        vkCmdEndRendering(cmd);
+
+    }
+
     bool draw(double dt)
     {
         // wait for gpu to be done with last frame and clean
@@ -376,27 +434,18 @@ private:
             .flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT
         };
         VK_ASSERT(vkBeginCommandBuffer(cmd, &cmdBeginInfo));
-        
-        if(this->_frameNumber < 1)
-            addSources(cmd, dt);
 
-        diffuseDensity(cmd, dt);
-        advectDensity(cmd, dt);
+        drawFluid(cmd, dt);
 
-        // diffuseVelocity
-        projectIncompressible(cmd, dt);
-        // advectVelocity
-        // projectVelocityIncompressible
+        vkutil::transition_image(cmd, this->_drawImage.image, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
 
-        visualizeFluid(cmd, dt);
+        drawGeometry(cmd, dt);
 
-        
-        // prepare draw image -> swapchain image copy
-        // AllocatedImage& drawImage = this->_densityImages[0];
+        // prepare drawImage to swapchainImage copy
         AllocatedImage& drawImage = this->_drawImage;
         VkImage& swapchainImage = this->_swapchainImages[swapchainImageIndex];
 
-        vkutil::transition_image(cmd, drawImage.image, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+        vkutil::transition_image(cmd, drawImage.image, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
         vkutil::transition_image(cmd, swapchainImage, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
         vkutil::copy_image_to_image(cmd, drawImage.image, swapchainImage, drawImage.imageExtent, VkExtent3D{.width = this->_swapchainExtent.width, .height = this->_swapchainExtent.height, .depth = 1});
 
@@ -767,7 +816,7 @@ private:
             ((float*)this->_stagingBuffer.info.pMappedData)[i] = 0.0;
             ((float*)this->_stagingBuffer.info.pMappedData)[i+1] = 0.0;
             ((float*)this->_stagingBuffer.info.pMappedData)[i+2] = 0.0;
-            ((float*)this->_stagingBuffer.info.pMappedData)[i+3] = 1.0;
+            ((float*)this->_stagingBuffer.info.pMappedData)[i+3] = 0.0;
         }
 
         for(AllocatedImage& img : this->_densityImages) {
@@ -780,6 +829,7 @@ private:
             );
         }
         copyBufferToImage(this->_stagingBuffer, this->_densityImages[0]);
+        copyBufferToImage(this->_stagingBuffer, this->_densityImages[2]);
 
         for(AllocatedImage& img : this->_velocityImages) {
             img = createImage(
@@ -841,7 +891,7 @@ private:
         this->_visualizationPipeline.descriptorSets.push_back(this->_descriptorPool.allocateSet(this->_device, this->_visualizationPipeline.descriptorLayout));
         this->_descriptorWriter
             .clear()
-            .write_image(0, this->_densityImages[0].imageView, 0, VK_IMAGE_LAYOUT_GENERAL, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE)
+            .write_image(0, this->_densityImages[2].imageView, 0, VK_IMAGE_LAYOUT_GENERAL, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE)
             .write_image(1, this->_velocityImages[0].imageView, 0, VK_IMAGE_LAYOUT_GENERAL, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE)
             .write_image(2, this->_drawImage.imageView, 0, VK_IMAGE_LAYOUT_GENERAL, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE)
             .update_set(this->_device, this->_visualizationPipeline.descriptorSets[0]);
@@ -854,7 +904,7 @@ private:
         this->_addSourcePipeline.descriptorSets.push_back(this->_descriptorPool.allocateSet(this->_device, this->_addSourcePipeline.descriptorLayout));
         this->_descriptorWriter
             .clear()
-            .write_image(0, this->_densityImages[0].imageView, 0, VK_IMAGE_LAYOUT_GENERAL, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE)
+            .write_image(0, this->_densityImages[2].imageView, 0, VK_IMAGE_LAYOUT_GENERAL, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE)
             .write_image(1, this->_velocityImages[0].imageView, 0, VK_IMAGE_LAYOUT_GENERAL, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE)
             .update_set(this->_device, this->_addSourcePipeline.descriptorSets[0]);
 
@@ -862,6 +912,7 @@ private:
         this->_diffusionPipeline.descriptorLayout = DescriptorLayoutBuilder::newLayout()
             .add_binding(0, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE)
             .add_binding(1, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE)
+            .add_binding(2, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE)
             .build(this->_device, VK_SHADER_STAGE_COMPUTE_BIT);
         this->_diffusionPipeline.descriptorSets.push_back(this->_descriptorPool.allocateSet(this->_device, this->_diffusionPipeline.descriptorLayout));
         this->_diffusionPipeline.descriptorSets.push_back(this->_descriptorPool.allocateSet(this->_device, this->_diffusionPipeline.descriptorLayout));
@@ -869,10 +920,12 @@ private:
             .clear()
             .write_image(0, this->_densityImages[0].imageView, 0, VK_IMAGE_LAYOUT_GENERAL, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE)
             .write_image(1, this->_densityImages[1].imageView, 0, VK_IMAGE_LAYOUT_GENERAL, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE)
+            .write_image(2, this->_densityImages[2].imageView, 0, VK_IMAGE_LAYOUT_GENERAL, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE)
             .update_set(this->_device, this->_diffusionPipeline.descriptorSets[0])
             .clear()
             .write_image(0, this->_densityImages[1].imageView, 0, VK_IMAGE_LAYOUT_GENERAL, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE)
             .write_image(1, this->_densityImages[0].imageView, 0, VK_IMAGE_LAYOUT_GENERAL, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE)
+            .write_image(2, this->_densityImages[2].imageView, 0, VK_IMAGE_LAYOUT_GENERAL, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE)
             .update_set(this->_device, this->_diffusionPipeline.descriptorSets[1]);
 
         // Advection
@@ -996,12 +1049,60 @@ private:
                createComputePipeline(SHADER_DIRECTORY"/visualization.comp.spv", this->_visualizationPipeline);
     }
 
+    bool initTrianglePipelines()
+    {
+        VkShaderModule fragShader;
+        if(!vkutil::load_shader_module(SHADER_DIRECTORY"/colored_triangle.frag.spv", this->_device, &fragShader)) {
+            std::cout << "[ERROR] Failed to load fragment shader" << std::endl;
+            return false;
+        }
+
+        VkShaderModule vertShader;
+        if(!vkutil::load_shader_module(SHADER_DIRECTORY"/colored_triangle.vert.spv", this->_device, &vertShader)) {
+            std::cout << "[ERROR] Failed to load vertex shader" << std::endl;
+            return false;
+        }
+
+        VkPipelineLayoutCreateInfo pipelineLayoutInfo = vkinit::pipeline_layout_create_info();
+        VK_CHECK(vkCreatePipelineLayout(this->_device, &pipelineLayoutInfo, nullptr, &this->_trianglePipeline.layout));
+
+        PipelineBuilder builder;
+        builder._pipelineLayout = this->_trianglePipeline.layout;
+        this->_trianglePipeline.pipeline = builder
+            .set_shaders(vertShader, fragShader)
+            .set_input_topology(VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST)
+            .set_polygon_mode(VK_POLYGON_MODE_FILL)
+            .set_cull_mode(VK_CULL_MODE_NONE, VK_FRONT_FACE_CLOCKWISE)
+            .set_multisampling_none()
+            .disable_blending()
+            .disable_depthtest()
+            .set_color_attachment_format(this->_drawImage.imageFormat)
+            .set_depth_format(VK_FORMAT_UNDEFINED)
+            .build_pipeline(this->_device);
+
+        vkDestroyShaderModule(this->_device, fragShader, nullptr);
+        vkDestroyShaderModule(this->_device, vertShader, nullptr);
+
+        this->_deletionQueue.push([this]() {
+            vkDestroyPipelineLayout(this->_device, this->_trianglePipeline.layout, nullptr);
+            vkDestroyPipeline(this->_device, this->_trianglePipeline.pipeline, nullptr);
+        });
+
+        return true;
+    }
+
     bool initPipelines()
     {
         if(!initComputePipelines()) {
-            std::cout << "[ERROR] Failed to init background pipelines" << std::endl;
+            std::cout << "[ERROR] Failed to init compute pipelines" << std::endl;
             return false;
         }
+
+        if(!initTrianglePipelines()) {
+            std::cout << "[ERROR] Failed to init triangle pipelines" << std::endl;
+            return false;
+        }
+
         return true;
     }
 
@@ -1066,9 +1167,12 @@ private:
     ComputePipeline _projectionPipeline;
     ComputePipeline _visualizationPipeline;
 
+    // Triangle Rasterization 
+    TrianglePipeline _trianglePipeline;
+
     // Shader Resources
     AllocatedImage _drawImage;
-    AllocatedImage _densityImages[2] {};
+    AllocatedImage _densityImages[3] {};
     AllocatedImage _velocityImages[2] {};
     AllocatedBuffer _stagingBuffer {};
     VkSampler _simpleSampler {};

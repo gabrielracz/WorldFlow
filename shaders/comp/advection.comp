@@ -13,7 +13,7 @@ layout(push_constant) uniform PushConstants {
     float dt;
 } pc;
 
-vec2 traceVelocityField(vec2 pos)
+vec2 traceVelocityField(vec2 pos, float N)
 {
     // TODO: more sophisticated path trace?
     return pos + (imageLoad(velocityImage, ivec2(pos)).xy * -pc.dt);
@@ -22,11 +22,11 @@ vec2 traceVelocityField(vec2 pos)
 void main()
 {
     //TODO: update to work in general world-space
-    vec2 imgSize = imageSize(densityImage);
+    vec2 size = imageSize(densityImage);
     vec2 pos = vec2(gl_GlobalInvocationID.xy);
-    vec2 prev_pos = traceVelocityField(pos);
-    prev_pos.x = clamp(prev_pos.x, 0.0, imgSize.x);
-    prev_pos.y = clamp(prev_pos.y, 0.0, imgSize.y);
+    vec2 prev_pos = traceVelocityField(pos, size.x);
+    prev_pos.x = clamp(prev_pos.x, 0.0, size.x);
+    prev_pos.y = clamp(prev_pos.y, 0.0, size.y);
 
     // fractional distances away from 4 neighbouring cell centers
     float sxl = fract(prev_pos.x);
