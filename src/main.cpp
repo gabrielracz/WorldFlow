@@ -1,6 +1,5 @@
 #include <SDL2/SDL.h>
-#include "SDL_vulkan.h"
-#include "vk_types.h"
+#include <SDL_vulkan.h>
 
 #include <chrono>
 #include <iomanip>
@@ -10,18 +9,22 @@
 #include <VkBootstrap.h>
 
 #define VMA_IMPLEMENTATION
-#include "vk_mem_alloc.h"
-
+#include <vk_mem_alloc.h>
 
 #include <stb_image.h>
 #include <glm/glm.hpp>
+#include <glm/gtc/matrix_transform.hpp>
+#include <glm/gtx/transform.hpp>
 
 #include "path_config.hpp"
 #include "utils.hpp"
+
+#include "shared/vk_types.h"
 #include "shared/vk_images.h"
 #include "shared/vk_initializers.h"
 #include "shared/vk_descriptors.h"
 #include "shared/vk_pipelines.h"
+#include "shared/vk_loader.h"
 
 #include <iostream>
 #include <fstream>
@@ -42,9 +45,9 @@ namespace Constants
 #ifdef NDEBUG
 constexpr bool IsValidationLayersEnabled = false;
 #else
-constexpr bool IsValidationLayersEnabled = false;
+constexpr bool IsValidationLayersEnabled = true;
 #endif
-constexpr bool VSYNCEnabled = false;
+constexpr bool VSYNCEnabled = true;
 constexpr uint32_t FPSMeasurePeriod = 60;
 constexpr uint32_t FrameOverlap = 2;
 constexpr uint64_t TimeoutNs = 1000000000;
@@ -57,7 +60,12 @@ constexpr uint64_t StagingBufferSize = 1024ul * 1024ul * 8ul;
 static_assert(Constants::DiffusionIterations % 2 == 1); 
 static_assert(Constants::PressureIterations % 2 == 1);
 
-// Actually a LIFO stack
+/* TODO:
+- Make image class to handle transitions statefully
+
+*/
+
+// LIFO stack
 struct DeletionQueue
 {
     void push(std::function<void()>&& function) { deletors.push_front(function); }
@@ -101,6 +109,13 @@ struct ComputePushConstants
     float dt {};
 };
 
+// push constants for our mesh object draws
+struct GraphicsPushConstants
+{
+    glm::mat4 worldMatrix;
+    VkDeviceAddress vertexBuffer;
+};
+
 static inline void
 printDeviceProperties(vkb::PhysicalDevice& dev)
 {
@@ -132,6 +147,12 @@ public:
             vkDestroySemaphore(this->_device, frame.renderSemaphore, nullptr);
             frame.deletionQueue.flush();
         }
+
+        for(GPUMeshBuffers& mesh : this->_testMeshes) {
+            destroyBuffer(mesh.vertexBuffer);
+            destroyBuffer(mesh.indexBuffer);
+        }
+
         this->_deletionQueue.flush();
         destroySwapchain();
         destroyVulkan();
@@ -298,7 +319,7 @@ private:
         vkutil::transition_image(cmd, this->_densityImages[2].image, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
         vkutil::copy_image_to_image(cmd, this->_densityImages[0].image, this->_densityImages[2].image, this->_densityImages[0].imageExtent, this->_densityImages[2].imageExtent);
         // transition to present format
-        vkutil::transition_image(cmd, this->_densityImages[2].image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
+        vkutil::transition_image(cmd, this->_densityImages[2].image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_GENERAL);
         vkutil::transition_image(cmd, this->_densityImages[0].image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_GENERAL);
     }
 
@@ -387,7 +408,7 @@ private:
         VkRenderingInfo renderInfo = vkinit::rendering_info(this->_windowExtent, &colorAttachmentInfo, nullptr);
         vkCmdBeginRendering(cmd, &renderInfo);
 
-        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, this->_trianglePipeline.pipeline);
+        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, this->_meshPipeline.pipeline);
 
         VkViewport viewport = {
             .x = 0,
@@ -407,9 +428,24 @@ private:
 
         vkCmdSetScissor(cmd, 0, 1, &scissor);
 
-        vkCmdDraw(cmd, 3, 1, 0, 0);
-        vkCmdEndRendering(cmd);
+        glm::mat4 view = glm::translate(glm::vec3{ 0,0,-5 });
+        // camera projection
+        glm::mat4 projection = glm::perspective(glm::radians(70.f), (float)this->_windowExtent.width / (float)_windowExtent.height, 10000.f, 0.1f);
 
+        // invert the Y direction on projection matrix so that we are more similar
+        // to opengl and gltf axis
+        projection[1][1] *= -1;
+        GraphicsPushConstants pc = {
+            .worldMatrix = projection * view,
+            .vertexBuffer = this->_testMeshes[2].vertexBufferAddress
+        };
+        vkCmdPushConstants(cmd, this->_meshPipeline.layout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(GraphicsPushConstants), &pc);
+        vkCmdBindIndexBuffer(cmd, this->_rectangleMesh.indexBuffer.buffer, 0, VK_INDEX_TYPE_UINT32);
+        vkCmdDrawIndexed(cmd, 6, 1, 0, 0, 0);
+
+        vkCmdBindIndexBuffer(cmd, this->_testMeshes[2].indexBuffer.buffer, 0, VK_INDEX_TYPE_UINT32);
+        vkCmdDrawIndexed(cmd, this->_testMeshes[2].numIndices, 1, 0, 0, 0);
+        vkCmdEndRendering(cmd);
     }
 
     bool draw(double dt)
@@ -702,6 +738,11 @@ private:
         return true;
     }
 
+    void destroyBuffer(AllocatedBuffer buf)
+    {
+        vmaDestroyBuffer(this->_allocator, buf.buffer, buf.allocation);
+    }
+
     AllocatedBuffer createBuffer(uint64_t allocSize, VkBufferUsageFlags usage, VmaMemoryUsage memoryUsage, bool autoCleanup = true)
     {
         // allocate buffer
@@ -711,7 +752,7 @@ private:
             .usage = usage
         };
         VmaAllocationCreateInfo vmaallocInfo = {
-            .flags = VMA_ALLOCATION_CREATE_MAPPED_BIT,
+            .flags = VMA_ALLOCATION_CREATE_MAPPED_BIT, // ignored if not host-visible
             .usage = memoryUsage,
         };
 
@@ -719,6 +760,7 @@ private:
         VK_CHECK(vmaCreateBuffer(this->_allocator, &bufferInfo, &vmaallocInfo, &newBuffer.buffer, &newBuffer.allocation, &newBuffer.info));
         if(autoCleanup) {
             this->_deletionQueue.push([this, newBuffer]() {
+                // destroyBuffer(newBuffer);
                 vmaDestroyBuffer(this->_allocator, newBuffer.buffer, newBuffer.allocation);
             });
         }
@@ -800,6 +842,65 @@ private:
         return true;
     }
 
+    GPUMeshBuffers uploadMesh(std::span<Vertex> vertices, std::span<uint32_t> indices)
+    {
+        // Initialize GPU buffers to store mesh data (vertex attributes + triangle indices)
+        const size_t vertexBufferSize = vertices.size() * sizeof(Vertex);
+        const size_t indexBufferSize = indices.size() * sizeof(uint32_t);
+        GPUMeshBuffers mesh;
+        mesh.vertexBuffer = createBuffer(
+            vertexBufferSize, 
+            VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
+            VMA_MEMORY_USAGE_GPU_ONLY,
+            false
+        );
+        VkBufferDeviceAddressInfo deviceAddressInfo = {
+            .sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO,
+            .buffer = mesh.vertexBuffer.buffer
+        };
+        mesh.vertexBufferAddress = vkGetBufferDeviceAddress(this->_device, &deviceAddressInfo);
+
+        mesh.indexBuffer = createBuffer(
+            indexBufferSize, 
+            VK_BUFFER_USAGE_INDEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+            VMA_MEMORY_USAGE_GPU_ONLY,
+            false
+        );
+        
+        // Copy mesh data to cpu staging buffer (host visible and memory coherent)
+        AllocatedBuffer stagingBuffer = createBuffer(
+            vertexBufferSize + indexBufferSize,
+            VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+            VMA_MEMORY_USAGE_CPU_ONLY,
+            false
+        );
+        void* stagingData = stagingBuffer.allocation->GetMappedData();
+        
+        std::memcpy(stagingData, vertices.data(), vertexBufferSize);
+        std::memcpy((char *)stagingData + vertexBufferSize, indices.data(), indexBufferSize);
+
+        // Copy mesh data from CPU to GPU
+        immediateSubmit([&](VkCommandBuffer cmd) {
+                VkBufferCopy vertexCopy = {
+                    .srcOffset = 0,
+                    .dstOffset = 0,
+                    .size = vertexBufferSize
+                };
+                vkCmdCopyBuffer(cmd, stagingBuffer.buffer, mesh.vertexBuffer.buffer, 1, &vertexCopy);
+
+                VkBufferCopy indexCopy = {
+                    .srcOffset = vertexBufferSize,
+                    .dstOffset = 0,
+                    .size = indexBufferSize
+                };
+                vkCmdCopyBuffer(cmd, stagingBuffer.buffer, mesh.indexBuffer.buffer, 1, &indexCopy);
+        });
+        destroyBuffer(stagingBuffer);
+        mesh.numIndices = indices.size();
+        mesh.numVertices = vertices.size();
+        return mesh;
+    }
+
     bool initAssets()
     {
         int w, h, nrChannel;
@@ -842,7 +943,7 @@ private:
 
         this->_drawImage = createImage(
             dataExtent,
-            VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_STORAGE_BIT,
+            VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT,
             VK_IMAGE_ASPECT_COLOR_BIT,
             VK_FORMAT_R32G32B32A32_SFLOAT
         );
@@ -854,6 +955,45 @@ private:
                 vkutil::transition_image(cmd, img.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL);
             vkutil::transition_image(cmd, this->_drawImage.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL);
         });
+
+        std::array<Vertex,4> rect_vertices;
+
+        rect_vertices[0].position = {0.5,-0.5, 0};
+        rect_vertices[1].position = {0.5,0.5, 0};
+        rect_vertices[2].position = {-0.5,-0.5, 0};
+        rect_vertices[3].position = {-0.5,0.5, 0};
+
+        rect_vertices[0].color = {0,0, 0,1};
+        rect_vertices[1].color = { 0.5,0.5,0.5 ,1};
+        rect_vertices[2].color = { 1,0, 0,1 };
+        rect_vertices[3].color = { 0,1, 0,1 };
+
+        std::array<uint32_t,6> rect_indices;
+
+        rect_indices[0] = 0;
+        rect_indices[1] = 1;
+        rect_indices[2] = 2;
+
+        rect_indices[3] = 2;
+        rect_indices[4] = 1;
+        rect_indices[5] = 3;
+
+        this->_rectangleMesh = uploadMesh(rect_vertices, rect_indices);
+        this->_deletionQueue.push([&]() {
+            destroyBuffer(this->_rectangleMesh.indexBuffer);
+            destroyBuffer(this->_rectangleMesh.vertexBuffer);
+        });
+
+        std::vector<std::vector<Vertex>> vertexBuffers;
+        std::vector<std::vector<uint32_t>> indexBuffers;
+        if(!loadGltfMeshes({ASSETS_DIRECTORY"/basicmesh.glb"}, vertexBuffers, indexBuffers)) {
+            std::cout << "[ERROR] Failed to load meshes" << std::endl;
+        }
+        
+        // upload the meshes
+        for(int m = 0; m < vertexBuffers.size(); m++) {
+            this->_testMeshes.emplace_back(uploadMesh(vertexBuffers[m], indexBuffers[m]));
+        }
 
         return true;
     }
@@ -1049,26 +1189,38 @@ private:
                createComputePipeline(SHADER_DIRECTORY"/visualization.comp.spv", this->_visualizationPipeline);
     }
 
-    bool initTrianglePipelines()
+    bool initGraphicsPipelines()
     {
+
+        const VkPushConstantRange pushConstantsRange = {
+            .stageFlags = VK_SHADER_STAGE_VERTEX_BIT,
+            .offset = 0,
+            .size = sizeof(GraphicsPushConstants),
+        };
+
+        // No descriptors
+        VkPipelineLayoutCreateInfo pipelineLayoutInfo = {
+            .sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
+            .pushConstantRangeCount = 1,
+            .pPushConstantRanges = &pushConstantsRange
+        };
+        VK_CHECK(vkCreatePipelineLayout(this->_device, &pipelineLayoutInfo, nullptr, &this->_meshPipeline.layout));
+
         VkShaderModule fragShader;
-        if(!vkutil::load_shader_module(SHADER_DIRECTORY"/colored_triangle.frag.spv", this->_device, &fragShader)) {
+        if(!vkutil::load_shader_module(SHADER_DIRECTORY"/mesh.frag.spv", this->_device, &fragShader)) {
             std::cout << "[ERROR] Failed to load fragment shader" << std::endl;
             return false;
         }
 
         VkShaderModule vertShader;
-        if(!vkutil::load_shader_module(SHADER_DIRECTORY"/colored_triangle.vert.spv", this->_device, &vertShader)) {
+        if(!vkutil::load_shader_module(SHADER_DIRECTORY"/mesh.vert.spv", this->_device, &vertShader)) {
             std::cout << "[ERROR] Failed to load vertex shader" << std::endl;
             return false;
         }
 
-        VkPipelineLayoutCreateInfo pipelineLayoutInfo = vkinit::pipeline_layout_create_info();
-        VK_CHECK(vkCreatePipelineLayout(this->_device, &pipelineLayoutInfo, nullptr, &this->_trianglePipeline.layout));
-
         PipelineBuilder builder;
-        builder._pipelineLayout = this->_trianglePipeline.layout;
-        this->_trianglePipeline.pipeline = builder
+        builder._pipelineLayout = this->_meshPipeline.layout;
+        this->_meshPipeline.pipeline = builder
             .set_shaders(vertShader, fragShader)
             .set_input_topology(VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST)
             .set_polygon_mode(VK_POLYGON_MODE_FILL)
@@ -1084,8 +1236,8 @@ private:
         vkDestroyShaderModule(this->_device, vertShader, nullptr);
 
         this->_deletionQueue.push([this]() {
-            vkDestroyPipelineLayout(this->_device, this->_trianglePipeline.layout, nullptr);
-            vkDestroyPipeline(this->_device, this->_trianglePipeline.pipeline, nullptr);
+            vkDestroyPipelineLayout(this->_device, this->_meshPipeline.layout, nullptr);
+            vkDestroyPipeline(this->_device, this->_meshPipeline.pipeline, nullptr);
         });
 
         return true;
@@ -1098,7 +1250,7 @@ private:
             return false;
         }
 
-        if(!initTrianglePipelines()) {
+        if(!initGraphicsPipelines()) {
             std::cout << "[ERROR] Failed to init triangle pipelines" << std::endl;
             return false;
         }
@@ -1168,7 +1320,7 @@ private:
     ComputePipeline _visualizationPipeline;
 
     // Triangle Rasterization 
-    TrianglePipeline _trianglePipeline;
+    TrianglePipeline _meshPipeline;
 
     // Shader Resources
     AllocatedImage _drawImage;
@@ -1176,6 +1328,10 @@ private:
     AllocatedImage _velocityImages[2] {};
     AllocatedBuffer _stagingBuffer {};
     VkSampler _simpleSampler {};
+
+    // Meshes
+    GPUMeshBuffers _rectangleMesh;
+    std::vector<GPUMeshBuffers> _testMeshes;
 
     //immediate submit structures
     VkFence _immFence;
