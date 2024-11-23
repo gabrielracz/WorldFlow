@@ -55,6 +55,7 @@ constexpr uint32_t MaxDescriptorSets = 10;
 constexpr uint32_t DiffusionIterations = 11;
 constexpr uint32_t PressureIterations = 11;
 constexpr uint64_t StagingBufferSize = 1024ul * 1024ul * 8ul;
+constexpr VkExtent3D DrawImageResolution {2560, 1440, 1};
 }
 //should be odd to ensure consistency of final result buffer index
 static_assert(Constants::DiffusionIterations % 2 == 1); 
@@ -180,6 +181,9 @@ public:
         this->_elapsed += dt;
         updatePerformanceCounters(dt);
         pollEvents();
+        if(this->_resizeRequested) {
+            resizeSwapchain();
+        }
         draw(dt);
         this->_frameNumber++;
     }
@@ -405,7 +409,7 @@ private:
     void drawGeometry(VkCommandBuffer cmd, double dt)
     {
         VkRenderingAttachmentInfo colorAttachmentInfo = vkinit::attachment_info(this->_drawImage.imageView, nullptr, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
-        VkRenderingInfo renderInfo = vkinit::rendering_info(this->_windowExtent, &colorAttachmentInfo, nullptr);
+        VkRenderingInfo renderInfo = vkinit::rendering_info(VkExtent2D{this->_windowExtent.width, this->_windowExtent.height}, &colorAttachmentInfo, nullptr);
         vkCmdBeginRendering(cmd, &renderInfo);
 
         vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, this->_meshPipeline.pipeline);
@@ -456,13 +460,17 @@ private:
         getCurrentFrame().deletionQueue.flush(); // delete per-frame objects
 
         // register the semaphore to be signalled once the next frame (result of this call) is ready. does not block
+        VkResult res;
         uint32_t swapchainImageIndex;
-        VK_CHECK(vkAcquireNextImageKHR(this->_device, this->_swapchain, Constants::TimeoutNs, getCurrentFrame().swapchainSemaphore, nullptr, &swapchainImageIndex));
+        res = vkAcquireNextImageKHR(this->_device, this->_swapchain, Constants::TimeoutNs, getCurrentFrame().swapchainSemaphore, nullptr, &swapchainImageIndex);
+        if(res == VK_ERROR_OUT_OF_DATE_KHR) {
+            this->_resizeRequested = true;
+            return false;
+        }
         VkImage frameImage = this->_swapchainImages[swapchainImageIndex];
 
         VkCommandBuffer cmd = getCurrentFrame().commandBuffer;
         VK_ASSERT(vkResetCommandBuffer(cmd, 0)); // we can safely reset as we waited on the fence
-
 
         // begin recording commands
         VkCommandBufferBeginInfo cmdBeginInfo {
@@ -483,7 +491,7 @@ private:
 
         vkutil::transition_image(cmd, drawImage.image, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
         vkutil::transition_image(cmd, swapchainImage, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
-        vkutil::copy_image_to_image(cmd, drawImage.image, swapchainImage, drawImage.imageExtent, VkExtent3D{.width = this->_swapchainExtent.width, .height = this->_swapchainExtent.height, .depth = 1});
+        vkutil::copy_image_to_image(cmd, drawImage.image, swapchainImage, this->_windowExtent, VkExtent3D{.width = this->_swapchainExtent.width, .height = this->_swapchainExtent.height, .depth = 1});
 
         // transition to present format
         vkutil::transition_image(cmd, swapchainImage, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
@@ -533,7 +541,10 @@ private:
             .pSwapchains = &this->_swapchain,
             .pImageIndices = &swapchainImageIndex,
         };
-        VK_ASSERT(vkQueuePresentKHR(this->_graphicsQueue, &presentInfo));
+        res = vkQueuePresentKHR(this->_graphicsQueue, &presentInfo);
+        if(res == VK_ERROR_OUT_OF_DATE_KHR) {
+            this->_resizeRequested = true;
+        }
         return true;
     }
 
@@ -541,7 +552,7 @@ private:
     {
         SDL_SetHint(SDL_HINT_NO_SIGNAL_HANDLERS, "1");
         SDL_Init(SDL_INIT_VIDEO);
-        SDL_WindowFlags windowFlags = (SDL_WindowFlags)(SDL_WINDOW_VULKAN);
+        SDL_WindowFlags windowFlags = (SDL_WindowFlags)(SDL_WINDOW_VULKAN | SDL_WINDOW_RESIZABLE);
         this->_window = SDL_CreateWindow(
             this->_name.c_str(),
             SDL_WINDOWPOS_UNDEFINED,
@@ -616,6 +627,20 @@ private:
         this->_deletionQueue.push([&](){vmaDestroyAllocator(this->_allocator);});
 
         return true;
+    }
+
+    void resizeSwapchain()
+    {
+        vkDeviceWaitIdle(this->_device);
+        destroySwapchain();
+
+        int w, h;
+        SDL_GetWindowSize(this->_window, &w, &h);
+        this->_windowExtent.width = w;
+        this->_windowExtent.height = h;
+
+        createSwapchain(this->_windowExtent.width, this->_windowExtent.height);
+        this->_resizeRequested = false;
     }
 
     bool createSwapchain(uint32_t width, uint32_t height)
@@ -940,9 +965,9 @@ private:
                 VK_FORMAT_R32G32B32A32_SFLOAT
             );
         }
-
+        
         this->_drawImage = createImage(
-            dataExtent,
+            Constants::DrawImageResolution,
             VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT,
             VK_IMAGE_ASPECT_COLOR_BIT,
             VK_FORMAT_R32G32B32A32_SFLOAT
@@ -1226,7 +1251,7 @@ private:
             .set_polygon_mode(VK_POLYGON_MODE_FILL)
             .set_cull_mode(VK_CULL_MODE_NONE, VK_FRONT_FACE_CLOCKWISE)
             .set_multisampling_none()
-            .disable_blending()
+            .enable_blending_additive()
             .disable_depthtest()
             .set_color_attachment_format(this->_drawImage.imageFormat)
             .set_depth_format(VK_FORMAT_UNDEFINED)
@@ -1283,8 +1308,10 @@ private:
 
 private:
     SDL_Window* _window {};
-    VkExtent2D _windowExtent {}; 
-    bool _isInitialized {false};
+    VkExtent3D _windowExtent {}; 
+    VkExtent2D _drawExtent;
+    bool _isInitialized {};
+    bool _resizeRequested {};
     DeletionQueue _deletionQueue;
 
     VkInstance _instance {};
@@ -1366,5 +1393,4 @@ int main(int argc, char* argv[])
 
     std::cout << "Closed" << std::endl;
     return EXIT_SUCCESS;
-
 }
