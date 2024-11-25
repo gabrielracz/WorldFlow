@@ -49,9 +49,9 @@ static std::unordered_map<VkResult, std::string> ErrorDescriptions = {
 
 
 // #define VK_CHECK(x)  VK_CHECK_CALL(x)
-#define VK_ASSERT(x) if(!VK_CHECK_CALL(x)) return false;
+#define VK_ASSERT(x) if(!VK_CHECK(x)) return false;
 
-#define VK_CHECK_CALL(x) VulkanCheckErrorStatus(x, __FILE__, __LINE__)
+#define VK_CHECK(x) VulkanCheckErrorStatus(x, __FILE__, __LINE__)
 
 static bool VulkanCheckErrorStatus(VkResult x, const char* file, int line)
 {

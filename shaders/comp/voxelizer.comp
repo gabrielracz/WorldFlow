@@ -1,0 +1,35 @@
+#version 460
+
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 8) in;
+
+layout(std430, binding = 0) buffer GridBuffer {
+    float grid[]; // 1D array to store the 3D grid data
+};
+
+layout(push_constant) uniform constants {
+    uvec3 gridSize;
+    float gridScale;
+} pc;
+
+void main() {
+    // Calculate the global index of the thread in the 3D grid
+    uvec3 globalID = gl_GlobalInvocationID;
+    uvec3 gridCenter = uvec3(pc.gridSize.x / 2, pc.gridSize.y / 2, pc.gridSize.z / 2);
+
+    // Ensure the thread is within bounds
+    if (globalID.x >= uint(pc.gridSize.x) || 
+        globalID.y >= uint(pc.gridSize.y) || 
+        globalID.z >= uint(pc.gridSize.z)) {
+        return;
+    }
+
+    // Flatten the 3D index into a 1D array index
+    uint index = globalID.z * uint(pc.gridSize.x) * uint(pc.gridSize.y) +
+                 globalID.y * uint(pc.gridSize.x) +
+                 globalID.x;
+
+    float radius = pc.gridSize.x / 2;
+    if(distance(globalID, gridCenter) < radius) {
+        grid[index] = 1.0;
+    }
+}

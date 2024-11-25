@@ -56,6 +56,8 @@ constexpr uint32_t DiffusionIterations = 11;
 constexpr uint32_t PressureIterations = 11;
 constexpr uint64_t StagingBufferSize = 1024ul * 1024ul * 8ul;
 constexpr VkExtent3D DrawImageResolution {2560, 1440, 1};
+constexpr size_t VoxelGridResolution = 256;
+constexpr size_t VoxelGridSize = VoxelGridResolution * VoxelGridResolution * VoxelGridResolution * sizeof(float);
 }
 //should be odd to ensure consistency of final result buffer index
 static_assert(Constants::DiffusionIterations % 2 == 1); 
@@ -98,16 +100,16 @@ struct ComputePipeline
     VkDescriptorSetLayout descriptorLayout {};
 };
 
-struct TrianglePipeline
+struct GraphicsPipeline
 {
     VkPipeline pipeline {};
     VkPipelineLayout layout {};
 };
 
-struct ComputePushConstants
+struct VoxelizerPushConstants
 {
-    float time {};
-    float dt {};
+    uint32_t gridSize[3];
+    float gridResolution;
 };
 
 // push constants for our mesh object draws
@@ -246,141 +248,6 @@ private:
         vkCmdClearColorImage(cmd, this->_drawImage.image, VK_IMAGE_LAYOUT_GENERAL, &color, 1, &clearRange);
     }
 
-    void drawBackground(VkCommandBuffer cmd, double dt)
-    {
-
-        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, this->_drawImagePipeline.pipeline);
-        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, this->_drawImagePipeline.layout, 0, 1, &this->_drawImagePipeline.descriptorSets[0], 0, nullptr);
-        ComputePushConstants constants = {
-            .time = static_cast<float>(this->_elapsed),
-            .dt   = static_cast<float>(dt)
-        };
-        vkCmdPushConstants(cmd, this->_drawImagePipeline.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(ComputePushConstants), &constants);
-        const VkExtent3D wgCount = getWorkgroupCounts();
-        vkCmdDispatch(cmd, wgCount.width, wgCount.height, wgCount.depth);
-    }
-
-    bool addSources(VkCommandBuffer cmd, double dt)
-    {
-        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, this->_addSourcePipeline.pipeline);
-        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, this->_addSourcePipeline.layout, 0, 1, &this->_addSourcePipeline.descriptorSets[0], 0, nullptr);
-        ComputePushConstants constants = {
-            .time = static_cast<float>(this->_elapsed),
-            .dt   = static_cast<float>(dt)
-        };
-        vkCmdPushConstants(cmd, this->_addSourcePipeline.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(ComputePushConstants), &constants);
-
-        const VkExtent3D wgCount = getWorkgroupCounts();
-        vkCmdDispatch(cmd, wgCount.width, wgCount.height, wgCount.depth);
-        return true;
-    }
-
-    void pingPongDispatch(VkCommandBuffer cmd, ComputePipeline& pipeline, AllocatedImage* images, ComputePushConstants& pc, uint32_t iterations)
-    {
-        VkImageMemoryBarrier imageBarrier = {
-            .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
-            .srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT, // Waiting for shader writes to complete
-            .dstAccessMask = VK_ACCESS_SHADER_READ_BIT, // Next dispatch can only read
-            .oldLayout = VK_IMAGE_LAYOUT_GENERAL, // Expected layout before the barrier
-            .newLayout = VK_IMAGE_LAYOUT_GENERAL, // Expected layout after the barrier
-            .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-            .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-            .image = VK_NULL_HANDLE, // UPDATE
-            .subresourceRange = {
-                .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT, // Assuming a color image
-                .baseMipLevel = 0,
-                .levelCount = 1,
-                .baseArrayLayer = 0,
-                .layerCount = 1
-            }
-        };
-
-        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, pipeline.pipeline);
-        for(int i = 0; i < iterations; i++) {
-            int pingPongDescriptorIndex = i % 2;
-            vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, pipeline.layout, 0, 1, &pipeline.descriptorSets[pingPongDescriptorIndex], 0, nullptr);
-            vkCmdPushConstants(cmd, this->_diffusionPipeline.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(pc), &pc);
-
-            const VkExtent3D wgCount = getWorkgroupCounts();
-            vkCmdDispatch(cmd, wgCount.width, wgCount.height, wgCount.depth);
-            
-            // wait for all image writes to be complete
-            imageBarrier.image = images[pingPongDescriptorIndex].image;
-            vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0,
-                                 0, nullptr, 0, nullptr, 1, &imageBarrier);
-        }
-
-    }
-
-    void diffuseDensity(VkCommandBuffer cmd, double dt)
-    {
-        ComputePushConstants constants = {
-            .time = static_cast<float>(this->_elapsed),
-            .dt   = static_cast<float>(dt)
-        };
-        pingPongDispatch(cmd, this->_diffusionPipeline, this->_densityImages, constants, Constants::DiffusionIterations);
-        vkutil::transition_image(cmd, this->_densityImages[0].image, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
-        vkutil::transition_image(cmd, this->_densityImages[2].image, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
-        vkutil::copy_image_to_image(cmd, this->_densityImages[0].image, this->_densityImages[2].image, this->_densityImages[0].imageExtent, this->_densityImages[2].imageExtent);
-        // transition to present format
-        vkutil::transition_image(cmd, this->_densityImages[2].image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_GENERAL);
-        vkutil::transition_image(cmd, this->_densityImages[0].image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_GENERAL);
-    }
-
-    void advectDensity(VkCommandBuffer cmd, double dt)
-    {
-        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, this->_advectionPipeline.pipeline);
-        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, this->_advectionPipeline.layout, 0, 1, &this->_advectionPipeline.descriptorSets[0], 0, nullptr);
-        ComputePushConstants constants = {
-            .time = static_cast<float>(this->_elapsed),
-            .dt   = static_cast<float>(dt)
-        };
-        vkCmdPushConstants(cmd, this->_advectionPipeline.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(ComputePushConstants), &constants);
-        const VkExtent3D wgCount = getWorkgroupCounts();
-        vkCmdDispatch(cmd, wgCount.width, wgCount.height, wgCount.depth);
-    }
-
-    void diffuseVelocity()
-    {
-
-    }
-
-    void projectIncompressible(VkCommandBuffer cmd, double dt)
-    {
-        ComputePushConstants constants = {
-            .time = static_cast<float>(this->_elapsed),
-            .dt   = static_cast<float>(dt)
-        };
-
-        // Divergence
-        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, this->_divergencePipeline.pipeline);
-        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, this->_divergencePipeline.layout, 0, 1, &this->_divergencePipeline.descriptorSets[0], 0, nullptr);
-        vkCmdPushConstants(cmd, this->_divergencePipeline.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(ComputePushConstants), &constants);
-        const VkExtent3D wgCount = getWorkgroupCounts();
-        vkCmdDispatch(cmd, wgCount.width, wgCount.height, wgCount.depth);
-
-        //Pressure
-        pingPongDispatch(cmd, this->_pressurePipeline, this->_densityImages, constants, Constants::PressureIterations);
-    }
-
-    void advectVelocity()
-    {
-
-    }
-
-    void visualizeFluid(VkCommandBuffer cmd, double dt)
-    {
-        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, this->_visualizationPipeline.pipeline);
-        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, this->_visualizationPipeline.layout, 0, 1, &this->_visualizationPipeline.descriptorSets[0], 0, nullptr);
-        ComputePushConstants constants = {
-            .time = static_cast<float>(this->_elapsed),
-            .dt   = static_cast<float>(dt)
-        };
-        vkCmdPushConstants(cmd, this->_visualizationPipeline.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(ComputePushConstants), &constants);
-        const VkExtent3D wgCount = getWorkgroupCounts();
-        vkCmdDispatch(cmd, wgCount.width, wgCount.height, wgCount.depth);
-    }
-
     VkExtent3D getWorkgroupCounts()
     {
         return VkExtent3D {
@@ -388,22 +255,6 @@ private:
             .height = static_cast<uint32_t>(std::ceil(this->_drawImage.imageExtent.height/16.0)),
             .depth = 1
         };
-    }
-
-    void drawFluid(VkCommandBuffer cmd, double dt)
-    {
-        if(this->_frameNumber < 1)
-            addSources(cmd, dt);
-
-        diffuseDensity(cmd, dt);
-        advectDensity(cmd, dt);
-
-        // diffuseVelocity
-        // projectIncompressible(cmd, dt);
-        // advectVelocity
-        // projectVelocityIncompressible
-
-        visualizeFluid(cmd, dt);
     }
 
     void drawGeometry(VkCommandBuffer cmd, double dt)
@@ -443,13 +294,26 @@ private:
             .worldMatrix = projection * view,
             .vertexBuffer = this->_testMeshes[2].vertexBufferAddress
         };
-        vkCmdPushConstants(cmd, this->_meshPipeline.layout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(GraphicsPushConstants), &pc);
-        vkCmdBindIndexBuffer(cmd, this->_rectangleMesh.indexBuffer.buffer, 0, VK_INDEX_TYPE_UINT32);
-        vkCmdDrawIndexed(cmd, 6, 1, 0, 0, 0);
 
+        vkCmdPushConstants(cmd, this->_meshPipeline.layout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(GraphicsPushConstants), &pc);
         vkCmdBindIndexBuffer(cmd, this->_testMeshes[2].indexBuffer.buffer, 0, VK_INDEX_TYPE_UINT32);
         vkCmdDrawIndexed(cmd, this->_testMeshes[2].numIndices, 1, 0, 0, 0);
         vkCmdEndRendering(cmd);
+    }
+
+    void updateVoxelVolume(VkCommandBuffer cmd)
+    {
+        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, this->_voxelizerPipeline.pipeline);
+        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, this->_voxelizerPipeline.layout, 0, 1, this->_voxelizerPipeline.descriptorSets.data(), 0, nullptr);
+        VoxelizerPushConstants pc = {
+            .gridSize = {256, 256, 256},
+            .gridResolution = 0.1f
+        };
+        vkCmdPushConstants(cmd, this->_voxelizerPipeline.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(VoxelizerPushConstants), &pc);
+
+        constexpr uint32_t localWorkgroupSize = 8;
+        constexpr uint32_t groupCount = Constants::VoxelGridResolution / localWorkgroupSize;
+        vkCmdDispatch(cmd, groupCount, groupCount, groupCount);
     }
 
     bool draw(double dt)
@@ -479,7 +343,7 @@ private:
         };
         VK_ASSERT(vkBeginCommandBuffer(cmd, &cmdBeginInfo));
 
-        drawFluid(cmd, dt);
+        updateVoxelVolume(cmd);
 
         vkutil::transition_image(cmd, this->_drawImage.image, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
 
@@ -804,7 +668,7 @@ private:
         newImg.imageFormat = format;
         VkImageCreateInfo imgCreateInfo = {
             .sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
-            .imageType = VK_IMAGE_TYPE_2D,
+            .imageType = (extent.depth > 1) ? VK_IMAGE_TYPE_3D : VK_IMAGE_TYPE_2D,
             .format = newImg.imageFormat,
             .extent = newImg.imageExtent,
             .mipLevels = 1,
@@ -928,94 +792,27 @@ private:
 
     bool initAssets()
     {
-        int w, h, nrChannel;
-        float* data = stbi_loadf(ASSETS_DIRECTORY"/monet-alpha-square.png", &w, &h, &nrChannel, STBI_rgb_alpha);
-        VkExtent3D dataExtent {.width = (unsigned int)w, .height = (unsigned int)h, .depth = 1};
-        this->_stagingBuffer = createBuffer( // allows for CPU -> GPU copies
-            Constants::StagingBufferSize,
-            VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
-            VMA_MEMORY_USAGE_CPU_TO_GPU
-        );
-        // std::memcpy(this->_stagingBuffer.info.pMappedData, data, w*h*nrChannel*sizeof(float));
-        int imgLen = w*h*nrChannel;
-        for(int i = 0; i < 600*600*4; i += 4) {
-            ((float*)this->_stagingBuffer.info.pMappedData)[i] = 0.0;
-            ((float*)this->_stagingBuffer.info.pMappedData)[i+1] = 0.0;
-            ((float*)this->_stagingBuffer.info.pMappedData)[i+2] = 0.0;
-            ((float*)this->_stagingBuffer.info.pMappedData)[i+3] = 0.0;
-        }
-
-        for(AllocatedImage& img : this->_densityImages) {
-            img = createImage(
-                dataExtent,
-                VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_STORAGE_BIT,
-                VK_IMAGE_ASPECT_COLOR_BIT,
-                // VK_FORMAT_R8G8B8A8_UNORM
-                VK_FORMAT_R32G32B32A32_SFLOAT
-            );
-        }
-        copyBufferToImage(this->_stagingBuffer, this->_densityImages[0]);
-        copyBufferToImage(this->_stagingBuffer, this->_densityImages[2]);
-
-        for(AllocatedImage& img : this->_velocityImages) {
-            img = createImage(
-                dataExtent,
-                VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_STORAGE_BIT,
-                VK_IMAGE_ASPECT_COLOR_BIT,
-                VK_FORMAT_R32G32B32A32_SFLOAT
-            );
-        }
-        
+        // IMAGES
         this->_drawImage = createImage(
             Constants::DrawImageResolution,
             VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT,
             VK_IMAGE_ASPECT_COLOR_BIT,
             VK_FORMAT_R32G32B32A32_SFLOAT
         );
-
         immediateSubmit([&](VkCommandBuffer cmd) {
-            for(AllocatedImage& img : this->_densityImages)
-                vkutil::transition_image(cmd, img.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL);
-            for(AllocatedImage& img : this->_velocityImages)
-                vkutil::transition_image(cmd, img.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL);
             vkutil::transition_image(cmd, this->_drawImage.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL);
         });
 
-        std::array<Vertex,4> rect_vertices;
+        // BUFFERS
+        const size_t voxelGridSize = 256 * 256 * 256 * sizeof(float);
+        this->_voxelVolume = createBuffer(voxelGridSize, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
 
-        rect_vertices[0].position = {0.5,-0.5, 0};
-        rect_vertices[1].position = {0.5,0.5, 0};
-        rect_vertices[2].position = {-0.5,-0.5, 0};
-        rect_vertices[3].position = {-0.5,0.5, 0};
-
-        rect_vertices[0].color = {0,0, 0,1};
-        rect_vertices[1].color = { 0.5,0.5,0.5 ,1};
-        rect_vertices[2].color = { 1,0, 0,1 };
-        rect_vertices[3].color = { 0,1, 0,1 };
-
-        std::array<uint32_t,6> rect_indices;
-
-        rect_indices[0] = 0;
-        rect_indices[1] = 1;
-        rect_indices[2] = 2;
-
-        rect_indices[3] = 2;
-        rect_indices[4] = 1;
-        rect_indices[5] = 3;
-
-        this->_rectangleMesh = uploadMesh(rect_vertices, rect_indices);
-        this->_deletionQueue.push([&]() {
-            destroyBuffer(this->_rectangleMesh.indexBuffer);
-            destroyBuffer(this->_rectangleMesh.vertexBuffer);
-        });
-
+        // MESHES
         std::vector<std::vector<Vertex>> vertexBuffers;
         std::vector<std::vector<uint32_t>> indexBuffers;
         if(!loadGltfMeshes({ASSETS_DIRECTORY"/basicmesh.glb"}, vertexBuffers, indexBuffers)) {
             std::cout << "[ERROR] Failed to load meshes" << std::endl;
         }
-        
-        // upload the meshes
         for(int m = 0; m < vertexBuffers.size(); m++) {
             this->_testMeshes.emplace_back(uploadMesh(vertexBuffers[m], indexBuffers[m]));
         }
@@ -1026,7 +823,8 @@ private:
     bool initDescriptors()
     {
         std::vector<DescriptorPool::DescriptorQuantity> sizes = {
-            {VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 3}
+            {VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 3},
+            {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 3}
         };
         this->_descriptorPool.init(this->_device, 10, sizes);
 
@@ -1047,118 +845,31 @@ private:
             .write_image(0, this->_drawImage.imageView, 0, VK_IMAGE_LAYOUT_GENERAL, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE)
             .update_set(this->_device, this->_drawImagePipeline.descriptorSets[0]);
 
-        // Visualization
-        this->_visualizationPipeline.descriptorLayout = DescriptorLayoutBuilder::newLayout()
-            .add_binding(0, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE)
-            .add_binding(1, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE)
-            .add_binding(2, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE)
-            .build(this->_device, VK_SHADER_STAGE_COMPUTE_BIT);
-        this->_visualizationPipeline.descriptorSets.push_back(this->_descriptorPool.allocateSet(this->_device, this->_visualizationPipeline.descriptorLayout));
-        this->_descriptorWriter
-            .clear()
-            .write_image(0, this->_densityImages[2].imageView, 0, VK_IMAGE_LAYOUT_GENERAL, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE)
-            .write_image(1, this->_velocityImages[0].imageView, 0, VK_IMAGE_LAYOUT_GENERAL, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE)
-            .write_image(2, this->_drawImage.imageView, 0, VK_IMAGE_LAYOUT_GENERAL, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE)
-            .update_set(this->_device, this->_visualizationPipeline.descriptorSets[0]);
 
-        // Add Source
-        this->_addSourcePipeline.descriptorLayout = DescriptorLayoutBuilder::newLayout()
-            .add_binding(0, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE)
-            .add_binding(1, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE)
+        this->_voxelizerPipeline.descriptorLayout = DescriptorLayoutBuilder::newLayout()
+            .add_binding(0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER)
             .build(this->_device, VK_SHADER_STAGE_COMPUTE_BIT);
-        this->_addSourcePipeline.descriptorSets.push_back(this->_descriptorPool.allocateSet(this->_device, this->_addSourcePipeline.descriptorLayout));
+        this->_voxelizerPipeline.descriptorSets.push_back(this->_descriptorPool.allocateSet(this->_device, this->_voxelizerPipeline.descriptorLayout));
         this->_descriptorWriter
             .clear()
-            .write_image(0, this->_densityImages[2].imageView, 0, VK_IMAGE_LAYOUT_GENERAL, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE)
-            .write_image(1, this->_velocityImages[0].imageView, 0, VK_IMAGE_LAYOUT_GENERAL, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE)
-            .update_set(this->_device, this->_addSourcePipeline.descriptorSets[0]);
-
-        // Diffusion
-        this->_diffusionPipeline.descriptorLayout = DescriptorLayoutBuilder::newLayout()
-            .add_binding(0, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE)
-            .add_binding(1, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE)
-            .add_binding(2, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE)
-            .build(this->_device, VK_SHADER_STAGE_COMPUTE_BIT);
-        this->_diffusionPipeline.descriptorSets.push_back(this->_descriptorPool.allocateSet(this->_device, this->_diffusionPipeline.descriptorLayout));
-        this->_diffusionPipeline.descriptorSets.push_back(this->_descriptorPool.allocateSet(this->_device, this->_diffusionPipeline.descriptorLayout));
-        this->_descriptorWriter
-            .clear()
-            .write_image(0, this->_densityImages[0].imageView, 0, VK_IMAGE_LAYOUT_GENERAL, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE)
-            .write_image(1, this->_densityImages[1].imageView, 0, VK_IMAGE_LAYOUT_GENERAL, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE)
-            .write_image(2, this->_densityImages[2].imageView, 0, VK_IMAGE_LAYOUT_GENERAL, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE)
-            .update_set(this->_device, this->_diffusionPipeline.descriptorSets[0])
-            .clear()
-            .write_image(0, this->_densityImages[1].imageView, 0, VK_IMAGE_LAYOUT_GENERAL, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE)
-            .write_image(1, this->_densityImages[0].imageView, 0, VK_IMAGE_LAYOUT_GENERAL, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE)
-            .write_image(2, this->_densityImages[2].imageView, 0, VK_IMAGE_LAYOUT_GENERAL, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE)
-            .update_set(this->_device, this->_diffusionPipeline.descriptorSets[1]);
-
-        // Advection
-        this->_advectionPipeline.descriptorLayout = DescriptorLayoutBuilder::newLayout()
-            .add_binding(0, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE)
-            .add_binding(1, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE)
-            .add_binding(2, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE)
-            .build(this->_device, VK_SHADER_STAGE_COMPUTE_BIT);
-        this->_advectionPipeline.descriptorSets.push_back(this->_descriptorPool.allocateSet(this->_device, this->_advectionPipeline.descriptorLayout));
-        this->_descriptorWriter
-            .clear()
-            .write_image(0, this->_densityImages[1].imageView, 0, VK_IMAGE_LAYOUT_GENERAL, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE)
-            .write_image(1, this->_velocityImages[0].imageView, 0, VK_IMAGE_LAYOUT_GENERAL, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE)
-            .write_image(2, this->_densityImages[0].imageView, 0, VK_IMAGE_LAYOUT_GENERAL, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE)
-            .update_set(this->_device, this->_advectionPipeline.descriptorSets[0]);
-
-        // Divergence (writes into alpha channel of density)
-        this->_divergencePipeline.descriptorLayout = DescriptorLayoutBuilder::newLayout()
-            .add_binding(0, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE)
-            .add_binding(1, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE)
-            .build(this->_device, VK_SHADER_STAGE_COMPUTE_BIT);
-        this->_divergencePipeline.descriptorSets.push_back(this->_descriptorPool.allocateSet(this->_device, this->_divergencePipeline.descriptorLayout));
-        this->_descriptorWriter
-            .clear()
-            .write_image(0, this->_velocityImages[0].imageView, 0, VK_IMAGE_LAYOUT_GENERAL, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE)
-            .write_image(1, this->_densityImages[0].imageView, 0, VK_IMAGE_LAYOUT_GENERAL, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE)
-            .update_set(this->_device, this->_divergencePipeline.descriptorSets[0]);
-        
-        // Pressure (writes into green channel of density)
-        this->_pressurePipeline.descriptorLayout = DescriptorLayoutBuilder::newLayout()
-            .add_binding(0, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE)
-            .add_binding(1, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE)
-            .add_binding(2, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE)
-            .build(this->_device, VK_SHADER_STAGE_COMPUTE_BIT);
-        this->_pressurePipeline.descriptorSets.push_back(this->_descriptorPool.allocateSet(this->_device, this->_pressurePipeline.descriptorLayout));
-        this->_pressurePipeline.descriptorSets.push_back(this->_descriptorPool.allocateSet(this->_device, this->_pressurePipeline.descriptorLayout));
-        this->_descriptorWriter
-            .clear()
-            .write_image(0, this->_velocityImages[0].imageView, 0, VK_IMAGE_LAYOUT_GENERAL, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE)
-            .write_image(1, this->_densityImages[0].imageView, 0, VK_IMAGE_LAYOUT_GENERAL, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE)
-            .write_image(2, this->_densityImages[1].imageView, 0, VK_IMAGE_LAYOUT_GENERAL, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE)
-            .update_set(this->_device, this->_pressurePipeline.descriptorSets[0])
-            .clear()
-            .write_image(0, this->_velocityImages[0].imageView, 0, VK_IMAGE_LAYOUT_GENERAL, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE)
-            .write_image(1, this->_densityImages[1].imageView, 0, VK_IMAGE_LAYOUT_GENERAL, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE)
-            .write_image(2, this->_densityImages[0].imageView, 0, VK_IMAGE_LAYOUT_GENERAL, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE)
-            .update_set(this->_device, this->_pressurePipeline.descriptorSets[1]);
-        
+            .write_buffer(0, this->_voxelVolume.buffer, Constants::VoxelGridSize, 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER)
+            .update_set(this->_device, this->_voxelizerPipeline.descriptorSets[0]);
 
         this->_deletionQueue.push([&]() {
             this->_descriptorPool.destroy(this->_device);
             vkDestroyDescriptorSetLayout(this->_device, _drawImagePipeline.descriptorLayout, nullptr);
-            vkDestroyDescriptorSetLayout(this->_device, _diffusionPipeline.descriptorLayout, nullptr);
-            vkDestroyDescriptorSetLayout(this->_device, _addSourcePipeline.descriptorLayout, nullptr);
-            vkDestroyDescriptorSetLayout(this->_device, _advectionPipeline.descriptorLayout, nullptr);
-            vkDestroyDescriptorSetLayout(this->_device, _divergencePipeline.descriptorLayout, nullptr);
-            vkDestroyDescriptorSetLayout(this->_device, _pressurePipeline.descriptorLayout, nullptr);
-            vkDestroyDescriptorSetLayout(this->_device, _visualizationPipeline.descriptorLayout, nullptr);
+            vkDestroyDescriptorSetLayout(this->_device, this->_voxelizerPipeline.descriptorLayout, nullptr);
         });
         return true;
     }
 
+    template <typename PushConstants>
     bool createComputePipeline(const std::string& shaderFilename, ComputePipeline& newPipeline, bool autoCleanup = true)
     {
         const VkPushConstantRange pushConstants = {
             .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT,
             .offset = 0,
-            .size = sizeof(ComputePushConstants),
+            .size = sizeof(PushConstants),
         };
 
         VkPipelineLayoutCreateInfo pipelineLayout = {
@@ -1206,12 +917,7 @@ private:
     bool initComputePipelines()
     {
         //TODO: these need pipeline.descriptorLayout set previously to work
-        return createComputePipeline(SHADER_DIRECTORY"/diffusion.comp.spv", this->_diffusionPipeline) &&
-               createComputePipeline(SHADER_DIRECTORY"/addSources.comp.spv", this->_addSourcePipeline) &&
-               createComputePipeline(SHADER_DIRECTORY"/advection.comp.spv", this->_advectionPipeline) &&
-               createComputePipeline(SHADER_DIRECTORY"/divergence.comp.spv", this->_divergencePipeline) &&
-               createComputePipeline(SHADER_DIRECTORY"/pressure.comp.spv", this->_pressurePipeline) &&
-               createComputePipeline(SHADER_DIRECTORY"/visualization.comp.spv", this->_visualizationPipeline);
+        return createComputePipeline<VoxelizerPushConstants>(SHADER_DIRECTORY"/voxelizer.comp.spv", this->_voxelizerPipeline);
     }
 
     bool initGraphicsPipelines()
@@ -1338,26 +1044,18 @@ private:
 
     // Compute Shaders
     ComputePipeline _drawImagePipeline;
-    ComputePipeline _addSourcePipeline;
-    ComputePipeline _diffusionPipeline;
-    ComputePipeline _advectionPipeline;
-    ComputePipeline _divergencePipeline;
-    ComputePipeline _pressurePipeline;
-    ComputePipeline _projectionPipeline;
-    ComputePipeline _visualizationPipeline;
+    ComputePipeline _voxelizerPipeline;
+    ComputePipeline _raytracingPipeline;
 
     // Triangle Rasterization 
-    TrianglePipeline _meshPipeline;
+    GraphicsPipeline _meshPipeline;
 
     // Shader Resources
     AllocatedImage _drawImage;
-    AllocatedImage _densityImages[3] {};
-    AllocatedImage _velocityImages[2] {};
-    AllocatedBuffer _stagingBuffer {};
+    AllocatedBuffer _voxelVolume;
     VkSampler _simpleSampler {};
 
     // Meshes
-    GPUMeshBuffers _rectangleMesh;
     std::vector<GPUMeshBuffers> _testMeshes;
 
     //immediate submit structures
