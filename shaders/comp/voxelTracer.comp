@@ -1,0 +1,152 @@
+#version 450
+
+layout(local_size_x = 8, local_size_y = 8) in;
+
+// Input data structures
+layout(set = 0, binding = 0) readonly buffer GridBuffer {
+    float voxelData[];
+};
+
+layout(rgba32f, set = 0, binding = 1) uniform image2D outputImage;
+
+layout(push_constant) uniform constants {
+    mat4 inverseProjection;  // Inverse projection matrix
+    mat4 inverseView;        // Inverse view matrix
+    vec3 cameraPos;         // Camera position in world space
+    float nearPlane;        // Near plane distance
+    vec2 screenSize;        // Width and height of output image
+    float maxDistance;      // Maximum ray travel distance
+    float stepSize;         // Base color accumulation per step
+    vec3 gridSize;          // Size of the voxel grid in each dimension
+} pc;
+
+// Helper function to convert 3D position to linear buffer index
+uint getVoxelIndex(vec3 pos) {
+    // Convert from world space (-1 to 1) to grid space (0 to gridSize-1)
+    vec3 gridPos = (pos + 1.0) * 0.5 * pc.gridSize;
+    ivec3 index = ivec3(floor(gridPos));
+    
+    // Clamp to grid bounds
+    index = clamp(index, ivec3(0), ivec3(pc.gridSize) - 1);
+    
+    // Convert to linear index using the same formula as construction
+    return index.z * uint(pc.gridSize.x) * uint(pc.gridSize.y) +
+           index.y * uint(pc.gridSize.x) +
+           index.x;
+}
+
+// Helper function to get ray direction from pixel coordinates
+vec3 getRayDirection(vec2 pixelPos) {
+    // Convert pixel position to NDC space (-1 to 1)
+    vec2 ndc = (pixelPos / pc.screenSize) * 2.0 - 1.0;
+    
+    // Transform to view space
+    vec4 viewSpace = pc.inverseProjection * vec4(ndc, 1.0, 1.0);
+    viewSpace /= viewSpace.w;
+    
+    // Transform to world space
+    vec4 worldSpace = pc.inverseView * vec4(viewSpace.xyz, 0.0);
+    
+    return normalize(worldSpace.xyz);
+}
+
+vec4 traceVoxels(vec3 rayOrigin, vec3 rayDir) {
+    vec4 accumColor = vec4(0.0);
+    
+    // Calculate voxel size in world space
+    // vec3 voxelSize = vec3(2.0) / pc.gridSize;  // 2.0 because world space is -1 to 1
+    vec3 voxelSize = vec3(1.0) / pc.gridSize;  // 2.0 because world space is -1 to 1
+    
+    // Calculate initial intersection with grid bounds
+    vec3 tMin = (-1.0 - rayOrigin) / rayDir;
+    vec3 tMax = (1.0 - rayOrigin) / rayDir;
+    vec3 t1 = min(tMin, tMax);
+    vec3 t2 = max(tMin, tMax);
+    
+    float tNear = max(max(t1.x, t1.y), t1.z);
+    float tFar = min(min(t2.x, t2.y), t2.z);
+    
+    // Check if ray hits grid at all
+    if (tNear > tFar || tFar < 0.0) {
+        return vec4(0.0);
+    }
+    
+    // Start at first intersection
+    float t = max(0.0, tNear);
+    
+    // Calculate initial position and step direction
+    vec3 pos = rayOrigin + t * rayDir;
+    vec3 step = sign(rayDir);
+    
+    // Calculate delta t for moving one voxel in each direction
+    vec3 tDelta = abs(voxelSize / rayDir);
+    
+    // Calculate initial tMax for each axis
+    vec3 voxelPos = (pos + 1.0) * 0.5;  // Convert to grid space (0 to 1)
+    vec3 tMaxAxis = (step * voxelSize * 0.5 - mod(voxelPos, voxelSize)) / rayDir;
+    
+    // Main ray traversal loop
+    for (int i = 0; i < 256 && t < pc.maxDistance; i++) {
+        // Get current voxel value using linear index
+        uint index = getVoxelIndex(pos);
+        float voxelValue = voxelData[index];
+        
+        // If voxel is occupied, accumulate color
+        if (voxelValue > 0.0) {
+            // Simple white accumulation with distance falloff
+            // vec4 voxelColor = vec4(1.0) * pc.stepSize * exp(-t * 0.1);
+            // vec4 voxelColor = vec4(voxelValue) * pc.stepSize * exp(-t * 0.1);
+            vec4 voxelColor = vec4(voxelValue) * pc.stepSize;// * exp(-t * 0.1);
+            
+            // Front-to-back blending
+            // voxelColor.rgb *= voxelColor.a;
+            // accumColor += voxelColor * (1.0 - accumColor.a);
+            accumColor += voxelColor;
+            
+            // Early exit if nearly opaque
+            // if (accumColor.a > 0.99) {
+            //     break;
+            // }
+        }
+        
+        // Find next voxel boundary
+        vec3 minComp = (tMaxAxis - t) / tDelta;
+        float minDist = min(min(minComp.x, minComp.y), minComp.z);
+        
+        // Advance to next voxel
+        if (minDist == minComp.x) {
+            pos.x += step.x * voxelSize.x;
+            t = tMaxAxis.x;
+            tMaxAxis.x += tDelta.x;
+        } else if (minDist == minComp.y) {
+            pos.y += step.y * voxelSize.y;
+            t = tMaxAxis.y;
+            tMaxAxis.y += tDelta.y;
+        } else {
+            pos.z += step.z * voxelSize.z;
+            t = tMaxAxis.z;
+            tMaxAxis.z += tDelta.z;
+        }
+    }
+    
+    return accumColor;
+}
+
+void main() {
+    // Get current pixel coordinates
+    ivec2 pixelPos = ivec2(gl_GlobalInvocationID.xy);
+    
+    // Check if within image bounds
+    if (any(greaterThanEqual(pixelPos, ivec2(pc.screenSize)))) {
+        return;
+    }
+    
+    // Calculate ray direction for this pixel
+    vec3 rayDir = getRayDirection(vec2(pixelPos) + 0.5);  // Add 0.5 for pixel center
+    
+    // Trace ray and accumulate color
+    vec4 finalColor = traceVoxels(pc.cameraPos, rayDir);
+    
+    // Write result to output image
+    imageStore(outputImage, pixelPos, finalColor);
+}

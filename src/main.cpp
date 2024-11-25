@@ -56,7 +56,7 @@ constexpr uint32_t DiffusionIterations = 11;
 constexpr uint32_t PressureIterations = 11;
 constexpr uint64_t StagingBufferSize = 1024ul * 1024ul * 8ul;
 constexpr VkExtent3D DrawImageResolution {2560, 1440, 1};
-constexpr size_t VoxelGridResolution = 256;
+constexpr size_t VoxelGridResolution = 64;
 constexpr size_t VoxelGridSize = VoxelGridResolution * VoxelGridResolution * VoxelGridResolution * sizeof(float);
 }
 //should be odd to ensure consistency of final result buffer index
@@ -108,8 +108,20 @@ struct GraphicsPipeline
 
 struct VoxelizerPushConstants
 {
-    uint32_t gridSize[3];
+    glm::uvec3 gridSize;
     float gridResolution;
+};
+
+struct RayTracerPushConstants
+{
+    glm::mat4 inverseProjection;  // Inverse projection matrix
+    glm::mat4 inverseView;        // Inverse view matrix
+    glm::vec3 cameraPos;         // Camera position in world space
+    float nearPlane;        // Near plane distance
+    glm::vec2 screenSize;        // Width and height of output image
+    float maxDistance;      // Maximum ray travel distance
+    float stepSize;         // Base color accumulation per step
+    glm::vec3 gridSize;          // Size of the voxel grid in each dimension
 };
 
 // push constants for our mesh object draws
@@ -248,11 +260,11 @@ private:
         vkCmdClearColorImage(cmd, this->_drawImage.image, VK_IMAGE_LAYOUT_GENERAL, &color, 1, &clearRange);
     }
 
-    VkExtent3D getWorkgroupCounts()
+    VkExtent3D getWorkgroupCounts(uint32_t localGroupSize = 16)
     {
         return VkExtent3D {
-            .width = static_cast<uint32_t>(std::ceil(this->_drawImage.imageExtent.width/16.0)),
-            .height = static_cast<uint32_t>(std::ceil(this->_drawImage.imageExtent.height/16.0)),
+            .width = static_cast<uint32_t>(std::ceil(this->_drawImage.imageExtent.width/(float)localGroupSize)),
+            .height = static_cast<uint32_t>(std::ceil(this->_drawImage.imageExtent.height/(float)localGroupSize)),
             .depth = 1
         };
     }
@@ -306,14 +318,44 @@ private:
         vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, this->_voxelizerPipeline.pipeline);
         vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, this->_voxelizerPipeline.layout, 0, 1, this->_voxelizerPipeline.descriptorSets.data(), 0, nullptr);
         VoxelizerPushConstants pc = {
-            .gridSize = {256, 256, 256},
-            .gridResolution = 0.1f
+            .gridSize = glm::vec3(Constants::VoxelGridResolution),
+            .gridResolution = 1.0f/Constants::VoxelGridResolution
         };
         vkCmdPushConstants(cmd, this->_voxelizerPipeline.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(VoxelizerPushConstants), &pc);
 
         constexpr uint32_t localWorkgroupSize = 8;
         constexpr uint32_t groupCount = Constants::VoxelGridResolution / localWorkgroupSize;
         vkCmdDispatch(cmd, groupCount, groupCount, groupCount);
+
+        VkBufferMemoryBarrier bufferBarrier = {
+            .sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER,
+            .srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT,
+            .dstAccessMask = VK_ACCESS_SHADER_READ_BIT,
+            .buffer = this->_voxelVolume.buffer,
+            .offset = 0,
+            .size = Constants::VoxelGridSize,
+        };
+        vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, nullptr, 1, &bufferBarrier, 0, nullptr);
+
+        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, this->_raytracerPipeline.pipeline);
+        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, this->_raytracerPipeline.layout, 0, 1, this->_raytracerPipeline.descriptorSets.data(), 0, nullptr);
+
+        glm::mat4 view = glm::translate(glm::vec3{ 0,0,-2 });
+        glm::mat4 projection = glm::perspective(glm::radians(70.f), (float)this->_windowExtent.width / (float)_windowExtent.height, 10000.f, 0.1f);
+
+        RayTracerPushConstants rtpc = {
+            .inverseProjection = glm::inverse(projection),
+            .inverseView = glm::inverse(view),
+            .cameraPos = glm::vec3(0, 0, 2),
+            .nearPlane = 0.1f,
+            .screenSize = glm::vec2(this->_windowExtent.width, this->_windowExtent.height),
+            .maxDistance = 1000.0f,
+            .stepSize = 0.1,
+            .gridSize = glm::vec3(Constants::VoxelGridResolution)
+        };
+        vkCmdPushConstants(cmd, this->_raytracerPipeline.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(RayTracerPushConstants), &rtpc);
+        VkExtent3D groupCounts = getWorkgroupCounts(8);
+        vkCmdDispatch(cmd, groupCounts.width, groupCounts.height, groupCounts.depth);
     }
 
     bool draw(double dt)
@@ -347,7 +389,7 @@ private:
 
         vkutil::transition_image(cmd, this->_drawImage.image, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
 
-        drawGeometry(cmd, dt);
+        // drawGeometry(cmd, dt);
 
         // prepare drawImage to swapchainImage copy
         AllocatedImage& drawImage = this->_drawImage;
@@ -804,8 +846,7 @@ private:
         });
 
         // BUFFERS
-        const size_t voxelGridSize = 256 * 256 * 256 * sizeof(float);
-        this->_voxelVolume = createBuffer(voxelGridSize, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
+        this->_voxelVolume = createBuffer(Constants::VoxelGridSize, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
 
         // MESHES
         std::vector<std::vector<Vertex>> vertexBuffers;
@@ -845,7 +886,7 @@ private:
             .write_image(0, this->_drawImage.imageView, 0, VK_IMAGE_LAYOUT_GENERAL, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE)
             .update_set(this->_device, this->_drawImagePipeline.descriptorSets[0]);
 
-
+        // VOXELIZER
         this->_voxelizerPipeline.descriptorLayout = DescriptorLayoutBuilder::newLayout()
             .add_binding(0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER)
             .build(this->_device, VK_SHADER_STAGE_COMPUTE_BIT);
@@ -854,11 +895,24 @@ private:
             .clear()
             .write_buffer(0, this->_voxelVolume.buffer, Constants::VoxelGridSize, 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER)
             .update_set(this->_device, this->_voxelizerPipeline.descriptorSets[0]);
+        
+        // VOXEL RENDERER
+        this->_raytracerPipeline.descriptorLayout = DescriptorLayoutBuilder::newLayout()
+            .add_binding(0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER)
+            .add_binding(1, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE)
+            .build(this->_device, VK_SHADER_STAGE_COMPUTE_BIT);
+        this->_raytracerPipeline.descriptorSets.push_back(this->_descriptorPool.allocateSet(this->_device, this->_raytracerPipeline.descriptorLayout));
+        this->_descriptorWriter
+            .clear()
+            .write_buffer(0, this->_voxelVolume.buffer, Constants::VoxelGridSize, 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER)
+            .write_image(1, this->_drawImage.imageView, 0, VK_IMAGE_LAYOUT_GENERAL, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE)
+            .update_set(this->_device, this->_raytracerPipeline.descriptorSets[0]);
 
         this->_deletionQueue.push([&]() {
             this->_descriptorPool.destroy(this->_device);
-            vkDestroyDescriptorSetLayout(this->_device, _drawImagePipeline.descriptorLayout, nullptr);
+            vkDestroyDescriptorSetLayout(this->_device, this->_drawImagePipeline.descriptorLayout, nullptr);
             vkDestroyDescriptorSetLayout(this->_device, this->_voxelizerPipeline.descriptorLayout, nullptr);
+            vkDestroyDescriptorSetLayout(this->_device, this->_raytracerPipeline.descriptorLayout, nullptr);
         });
         return true;
     }
@@ -917,12 +971,12 @@ private:
     bool initComputePipelines()
     {
         //TODO: these need pipeline.descriptorLayout set previously to work
-        return createComputePipeline<VoxelizerPushConstants>(SHADER_DIRECTORY"/voxelizer.comp.spv", this->_voxelizerPipeline);
+        return createComputePipeline<VoxelizerPushConstants>(SHADER_DIRECTORY"/voxelizer.comp.spv", this->_voxelizerPipeline) &&
+               createComputePipeline<RayTracerPushConstants>(SHADER_DIRECTORY"/voxelTracer.comp.spv", this->_raytracerPipeline);
     }
 
     bool initGraphicsPipelines()
     {
-
         const VkPushConstantRange pushConstantsRange = {
             .stageFlags = VK_SHADER_STAGE_VERTEX_BIT,
             .offset = 0,
@@ -1045,7 +1099,7 @@ private:
     // Compute Shaders
     ComputePipeline _drawImagePipeline;
     ComputePipeline _voxelizerPipeline;
-    ComputePipeline _raytracingPipeline;
+    ComputePipeline _raytracerPipeline;
 
     // Triangle Rasterization 
     GraphicsPipeline _meshPipeline;

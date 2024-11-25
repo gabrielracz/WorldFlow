@@ -30,6 +30,6 @@ void main() {
 
     float radius = pc.gridSize.x / 2;
     if(distance(globalID, gridCenter) < radius) {
-        grid[index] = 1.0;
+        grid[index] = 0.01;
     }
 }
