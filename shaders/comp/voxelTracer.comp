@@ -19,12 +19,14 @@ layout(push_constant) uniform constants {
     float maxDistance;      // Maximum ray travel distance
     float stepSize;         // Base color accumulation per step
     vec3 gridSize;          // Size of the voxel grid in each dimension
+    float gridScale;        // Scale factor for the grid (new parameter)
 } pc;
 
 // Helper function to convert 3D position to linear buffer index
 uint getVoxelIndex(vec3 pos) {
-    // Convert from world space (-1 to 1) to grid space (0 to gridSize-1)
-    vec3 gridPos = (pos + 1.0) * 0.5 * pc.gridSize;
+    // Convert from scaled world space to grid space (0 to gridSize-1)
+    vec3 normalizedPos = pos / pc.gridScale;  // First normalize by scale
+    vec3 gridPos = (normalizedPos + 0.5) * pc.gridSize;
     ivec3 index = ivec3(floor(gridPos));
     
     // Clamp to grid bounds
@@ -54,13 +56,15 @@ vec3 getRayDirection(vec2 pixelPos) {
 vec4 traceVoxels(vec3 rayOrigin, vec3 rayDir) {
     vec4 accumColor = vec4(0.0);
     
-    // Calculate voxel size in world space
-    // vec3 voxelSize = vec3(2.0) / pc.gridSize;
-    vec3 voxelSize = vec3(2.0) / pc.gridSize;
+    // Calculate voxel size in world space (now scaled)
+    vec3 voxelSize = (vec3(1.0) / pc.gridSize) * pc.gridScale;
     
-    // Calculate initial intersection with grid bounds
-    vec3 tMin = (-1.0 - rayOrigin) / rayDir;
-    vec3 tMax = (1.0 - rayOrigin) / rayDir;
+    // Calculate initial intersection with scaled grid bounds
+    vec3 gridMin = vec3(-0.5) * pc.gridScale;
+    vec3 gridMax = vec3(0.5) * pc.gridScale;
+    
+    vec3 tMin = (gridMin - rayOrigin) / rayDir;
+    vec3 tMax = (gridMax - rayOrigin) / rayDir;
     vec3 t1 = min(tMin, tMax);
     vec3 t2 = max(tMin, tMax);
     
@@ -79,7 +83,8 @@ vec4 traceVoxels(vec3 rayOrigin, vec3 rayDir) {
     vec3 step = sign(rayDir);
     
     // Calculate current voxel indices
-    vec3 voxelPos = (pos + 1.0) * 0.5 * pc.gridSize;
+    vec3 normalizedPos = pos / pc.gridScale;  // Normalize position by scale
+    vec3 voxelPos = (normalizedPos + 0.5) * pc.gridSize;
     ivec3 mapPos = ivec3(floor(voxelPos));
     
     // Calculate delta t for moving one voxel in each direction
@@ -92,9 +97,11 @@ vec4 traceVoxels(vec3 rayOrigin, vec3 rayDir) {
     // Calculate accurate tMax values for each axis
     for (int i = 0; i < 3; i++) {
         if (rayDir[i] > 0.0) {
-            tMaxAxis[i] = tNear + (nextCrossing[i] / pc.gridSize[i] * 2.0 - 1.0 - rayOrigin[i]) / rayDir[i];
+            float worldCrossing = (nextCrossing[i] / pc.gridSize[i] - 0.5) * pc.gridScale;
+            tMaxAxis[i] = tNear + (worldCrossing - rayOrigin[i]) / rayDir[i];
         } else if (rayDir[i] < 0.0) {
-            tMaxAxis[i] = tNear + ((nextCrossing[i] - 1.0) / pc.gridSize[i] * 2.0 - 1.0 - rayOrigin[i]) / rayDir[i];
+            float worldCrossing = ((nextCrossing[i] - 1.0) / pc.gridSize[i] - 0.5) * pc.gridScale;
+            tMaxAxis[i] = tNear + (worldCrossing - rayOrigin[i]) / rayDir[i];
         } else {
             tMaxAxis[i] = FLT_MAX;
         }

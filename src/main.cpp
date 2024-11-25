@@ -56,7 +56,7 @@ constexpr uint32_t DiffusionIterations = 11;
 constexpr uint32_t PressureIterations = 11;
 constexpr uint64_t StagingBufferSize = 1024ul * 1024ul * 8ul;
 constexpr VkExtent3D DrawImageResolution {2560, 1440, 1};
-constexpr size_t VoxelGridResolution = 16;
+constexpr size_t VoxelGridResolution = 64;
 constexpr size_t VoxelGridSize = VoxelGridResolution * VoxelGridResolution * VoxelGridResolution * sizeof(float);
 }
 //should be odd to ensure consistency of final result buffer index
@@ -110,6 +110,7 @@ struct VoxelizerPushConstants
 {
     glm::uvec3 gridSize;
     float gridResolution;
+    float time;
 };
 
 struct RayTracerPushConstants
@@ -122,6 +123,7 @@ struct RayTracerPushConstants
     float maxDistance;      // Maximum ray travel distance
     float stepSize;         // Base color accumulation per step
     glm::vec3 gridSize;          // Size of the voxel grid in each dimension
+    float gridScale;          // Size of the voxel grid in each dimension
 };
 
 // push constants for our mesh object draws
@@ -319,7 +321,8 @@ private:
         vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, this->_voxelizerPipeline.layout, 0, 1, this->_voxelizerPipeline.descriptorSets.data(), 0, nullptr);
         VoxelizerPushConstants pc = {
             .gridSize = glm::vec3(Constants::VoxelGridResolution),
-            .gridResolution = 1.0f/Constants::VoxelGridResolution
+            .gridResolution = 1.0f/Constants::VoxelGridResolution,
+            .time = static_cast<float>(this->_elapsed)
         };
         vkCmdPushConstants(cmd, this->_voxelizerPipeline.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(VoxelizerPushConstants), &pc);
 
@@ -340,18 +343,20 @@ private:
         vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, this->_raytracerPipeline.pipeline);
         vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, this->_raytracerPipeline.layout, 0, 1, this->_raytracerPipeline.descriptorSets.data(), 0, nullptr);
 
-        glm::mat4 view = glm::translate(glm::vec3{ 0,0,-2 });
+        glm::vec3 cameraPos(0, 0, 2);
+        glm::mat4 view = glm::translate(-cameraPos);
         glm::mat4 projection = glm::perspective(glm::radians(70.f), (float)this->_windowExtent.width / (float)_windowExtent.height, 10000.f, 0.1f);
 
         RayTracerPushConstants rtpc = {
             .inverseProjection = glm::inverse(projection),
             .inverseView = glm::inverse(view),
-            .cameraPos = glm::vec3(0, 0, 2),
+            .cameraPos = cameraPos,
             .nearPlane = 0.1f,
             .screenSize = glm::vec2(this->_windowExtent.width, this->_windowExtent.height),
             .maxDistance = 1000.0f,
             .stepSize = 0.1,
-            .gridSize = glm::vec3(Constants::VoxelGridResolution)
+            .gridSize = glm::vec3(Constants::VoxelGridResolution),
+            .gridScale = 1.5f
         };
         vkCmdPushConstants(cmd, this->_raytracerPipeline.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(RayTracerPushConstants), &rtpc);
         VkExtent3D groupCounts = getWorkgroupCounts(8);
