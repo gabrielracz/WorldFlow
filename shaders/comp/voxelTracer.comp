@@ -1,4 +1,5 @@
 #version 450
+#define FLT_MAX 3.402823466e+38
 
 layout(local_size_x = 8, local_size_y = 8) in;
 
@@ -54,8 +55,8 @@ vec4 traceVoxels(vec3 rayOrigin, vec3 rayDir) {
     vec4 accumColor = vec4(0.0);
     
     // Calculate voxel size in world space
-    // vec3 voxelSize = vec3(2.0) / pc.gridSize;  // 2.0 because world space is -1 to 1
-    vec3 voxelSize = vec3(1.0) / pc.gridSize;  // 2.0 because world space is -1 to 1
+    // vec3 voxelSize = vec3(2.0) / pc.gridSize;
+    vec3 voxelSize = vec3(2.0) / pc.gridSize;
     
     // Calculate initial intersection with grid bounds
     vec3 tMin = (-1.0 - rayOrigin) / rayDir;
@@ -66,7 +67,6 @@ vec4 traceVoxels(vec3 rayOrigin, vec3 rayDir) {
     float tNear = max(max(t1.x, t1.y), t1.z);
     float tFar = min(min(t2.x, t2.y), t2.z);
     
-    // Check if ray hits grid at all
     if (tNear > tFar || tFar < 0.0) {
         return vec4(0.0);
     }
@@ -78,52 +78,64 @@ vec4 traceVoxels(vec3 rayOrigin, vec3 rayDir) {
     vec3 pos = rayOrigin + t * rayDir;
     vec3 step = sign(rayDir);
     
+    // Calculate current voxel indices
+    vec3 voxelPos = (pos + 1.0) * 0.5 * pc.gridSize;
+    ivec3 mapPos = ivec3(floor(voxelPos));
+    
     // Calculate delta t for moving one voxel in each direction
     vec3 tDelta = abs(voxelSize / rayDir);
     
-    // Calculate initial tMax for each axis
-    vec3 voxelPos = (pos + 1.0) * 0.5;  // Convert to grid space (0 to 1)
-    vec3 tMaxAxis = (step * voxelSize * 0.5 - mod(voxelPos, voxelSize)) / rayDir;
+    // Calculate next crossing points
+    vec3 nextCrossing = vec3(mapPos) + max(step, 0.0);  // Next voxel boundaries
+    vec3 tMaxAxis;
+    
+    // Calculate accurate tMax values for each axis
+    for (int i = 0; i < 3; i++) {
+        if (rayDir[i] > 0.0) {
+            tMaxAxis[i] = tNear + (nextCrossing[i] / pc.gridSize[i] * 2.0 - 1.0 - rayOrigin[i]) / rayDir[i];
+        } else if (rayDir[i] < 0.0) {
+            tMaxAxis[i] = tNear + ((nextCrossing[i] - 1.0) / pc.gridSize[i] * 2.0 - 1.0 - rayOrigin[i]) / rayDir[i];
+        } else {
+            tMaxAxis[i] = FLT_MAX;
+        }
+    }
     
     // Main ray traversal loop
     for (int i = 0; i < 256 && t < pc.maxDistance; i++) {
-        // Get current voxel value using linear index
-        uint index = getVoxelIndex(pos);
-        float voxelValue = voxelData[index];
+        // Convert current position to grid index
+        uint index = mapPos.z * uint(pc.gridSize.x) * uint(pc.gridSize.y) +
+                    mapPos.y * uint(pc.gridSize.x) +
+                    mapPos.x;
         
-        // If voxel is occupied, accumulate color
-        if (voxelValue > 0.0) {
-            // Simple white accumulation with distance falloff
-            // vec4 voxelColor = vec4(1.0) * pc.stepSize * exp(-t * 0.1);
-            // vec4 voxelColor = vec4(voxelValue) * pc.stepSize * exp(-t * 0.1);
-            vec4 voxelColor = vec4(voxelValue) * pc.stepSize;// * exp(-t * 0.1);
+        // Bounds check
+        if (all(greaterThanEqual(mapPos, ivec3(0))) && all(lessThan(mapPos, ivec3(pc.gridSize)))) {
+            float density = voxelData[index];
             
-            // Front-to-back blending
-            // voxelColor.rgb *= voxelColor.a;
-            // accumColor += voxelColor * (1.0 - accumColor.a);
-            accumColor += voxelColor;
-            
-            // Early exit if nearly opaque
-            // if (accumColor.a > 0.99) {
-            //     break;
-            // }
+            if (density > 0.0) {
+                float contribution = density * pc.stepSize;
+                float attenuation = exp(-t * 0.1);
+                vec4 voxelColor = vec4(vec3(1.0 * attenuation), contribution);
+                
+                voxelColor.rgb *= voxelColor.a;
+                accumColor += voxelColor * (1.0 - accumColor.a);
+                
+                if (accumColor.a > 0.99) break;
+            }
         }
         
-        // Find next voxel boundary
-        vec3 minComp = (tMaxAxis - t) / tDelta;
-        float minDist = min(min(minComp.x, minComp.y), minComp.z);
+        // Find axis of next crossing
+        vec3 compare = tMaxAxis - t;
         
-        // Advance to next voxel
-        if (minDist == minComp.x) {
-            pos.x += step.x * voxelSize.x;
+        if (compare.x < compare.y && compare.x < compare.z) {
+            mapPos.x += int(step.x);
             t = tMaxAxis.x;
             tMaxAxis.x += tDelta.x;
-        } else if (minDist == minComp.y) {
-            pos.y += step.y * voxelSize.y;
+        } else if (compare.y < compare.z) {
+            mapPos.y += int(step.y);
             t = tMaxAxis.y;
             tMaxAxis.y += tDelta.y;
         } else {
-            pos.z += step.z * voxelSize.z;
+            mapPos.z += int(step.z);
             t = tMaxAxis.z;
             tMaxAxis.z += tDelta.z;
         }

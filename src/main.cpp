@@ -56,7 +56,7 @@ constexpr uint32_t DiffusionIterations = 11;
 constexpr uint32_t PressureIterations = 11;
 constexpr uint64_t StagingBufferSize = 1024ul * 1024ul * 8ul;
 constexpr VkExtent3D DrawImageResolution {2560, 1440, 1};
-constexpr size_t VoxelGridResolution = 64;
+constexpr size_t VoxelGridResolution = 16;
 constexpr size_t VoxelGridSize = VoxelGridResolution * VoxelGridResolution * VoxelGridResolution * sizeof(float);
 }
 //should be odd to ensure consistency of final result buffer index
