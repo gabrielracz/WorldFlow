@@ -7,7 +7,7 @@ project (PROJ_NAME)
 set(CMAKE_CXX_STANDARD 20)
 set(LIBRARY_PATH ${CMAKE_CURRENT_SOURCE_DIR}/libs)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
-set(CMAKE_BUILD_TYPE DEBUG)
+set(CMAKE_BUILD_TYPE RELEASE)
 #add_compile_options("/DEBUG")
 
 #sources
@@ -57,7 +57,7 @@ foreach(GLSL ${GLSL_SOURCE_FILES})
   get_filename_component(FILE_NAME ${GLSL} NAME)
   set(SPIRV "${PROJECT_SOURCE_DIR}/shaders/bin/${FILE_NAME}.spv")
   message(STATUS ${GLSL})
-  message(STATUS ${GLSL_VALIDATOR} " " -V " " ${GLSL} " " -o " " ${SPIRV} "\n")
+  message(STATUS ${GLSL_VALIDATOR} " " -V " " ${GLSL} " " -o " " ${SPIRV} " " -g "\n")
   add_custom_command(
     OUTPUT ${SPIRV}
     COMMAND ${GLSL_VALIDATOR} -V ${GLSL} -o ${SPIRV}

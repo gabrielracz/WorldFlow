@@ -123,8 +123,11 @@ vec4 traceVoxels(vec3 rayOrigin, vec3 rayDir) {
                 float attenuation = exp(-t * 0.1);
                 vec4 voxelColor = vec4(vec3(1.0 * attenuation), contribution);
                 
-                voxelColor.rgb *= voxelColor.a;
-                accumColor += voxelColor * (1.0 - accumColor.a);
+                // voxelColor.rgb *= voxelColor.a;
+                // accumColor += voxelColor * (1.0 - accumColor.a);
+                accumColor = vec4(voxelColor.rgb, 0.8);
+                break;
+
                 
                 if (accumColor.a > 0.99) break;
             }
@@ -164,8 +167,10 @@ void main() {
     vec3 rayDir = getRayDirection(vec2(pixelPos) + 0.5);  // Add 0.5 for pixel center
     
     // Trace ray and accumulate color
-    vec4 finalColor = traceVoxels(pc.cameraPos, rayDir);
+    vec4 voxelColor = traceVoxels(pc.cameraPos, rayDir);
+    vec4 storedColor = imageLoad(outputImage, pixelPos);
+
     
     // Write result to output image
-    imageStore(outputImage, pixelPos, finalColor);
+    imageStore(outputImage, pixelPos, vec4(mix(voxelColor.rgb, storedColor.rgb, (1-voxelColor.a)), 1.0));
 }

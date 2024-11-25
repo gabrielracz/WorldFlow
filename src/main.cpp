@@ -38,16 +38,16 @@
 #include <deque>
 #include <csignal>
 
-
-
 namespace Constants
 {
-#ifdef NDEBUG
-constexpr bool IsValidationLayersEnabled = false;
-#else
+// #ifdef NDEBUG
+// constexpr bool IsValidationLayersEnabled = false;
+// #else
+// constexpr bool IsValidationLayersEnabled = true;
+// #endif
 constexpr bool IsValidationLayersEnabled = true;
-#endif
 constexpr bool VSYNCEnabled = true;
+
 constexpr uint32_t FPSMeasurePeriod = 60;
 constexpr uint32_t FrameOverlap = 2;
 constexpr uint64_t TimeoutNs = 1000000000;
@@ -104,6 +104,8 @@ struct GraphicsPipeline
 {
     VkPipeline pipeline {};
     VkPipelineLayout layout {};
+    std::vector<VkDescriptorSet> descriptorSets {};
+    VkDescriptorSetLayout descriptorLayout {};
 };
 
 struct VoxelizerPushConstants
@@ -131,6 +133,13 @@ struct GraphicsPushConstants
 {
     glm::mat4 worldMatrix;
     VkDeviceAddress vertexBuffer;
+};
+
+struct Camera
+{
+    glm::vec3 pos;
+    glm::mat4 view;
+    glm::mat4 projection;
 };
 
 static inline void
@@ -187,7 +196,8 @@ public:
                                 initBuffers() &&
                                 initAssets() &&
                                 initDescriptors() &&
-                                initPipelines()
+                                initPipelines() &&
+                                initCamera()
                                 ;
         return this->_isInitialized;
     }
@@ -199,6 +209,7 @@ public:
         pollEvents();
         if(this->_resizeRequested) {
             resizeSwapchain();
+            initCamera();
         }
         draw(dt);
         this->_frameNumber++;
@@ -297,15 +308,10 @@ private:
 
         vkCmdSetScissor(cmd, 0, 1, &scissor);
 
-        glm::mat4 view = glm::translate(glm::vec3{ 0,0,-5 });
-        // camera projection
-        glm::mat4 projection = glm::perspective(glm::radians(70.f), (float)this->_windowExtent.width / (float)_windowExtent.height, 10000.f, 0.1f);
-
         // invert the Y direction on projection matrix so that we are more similar
         // to opengl and gltf axis
-        projection[1][1] *= -1;
         GraphicsPushConstants pc = {
-            .worldMatrix = projection * view,
+            .worldMatrix = this->_camera.projection * this->_camera.view,
             .vertexBuffer = this->_testMeshes[2].vertexBufferAddress
         };
 
@@ -343,20 +349,16 @@ private:
         vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, this->_raytracerPipeline.pipeline);
         vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, this->_raytracerPipeline.layout, 0, 1, this->_raytracerPipeline.descriptorSets.data(), 0, nullptr);
 
-        glm::vec3 cameraPos(0, 0, 2);
-        glm::mat4 view = glm::translate(-cameraPos);
-        glm::mat4 projection = glm::perspective(glm::radians(70.f), (float)this->_windowExtent.width / (float)_windowExtent.height, 10000.f, 0.1f);
-
         RayTracerPushConstants rtpc = {
-            .inverseProjection = glm::inverse(projection),
-            .inverseView = glm::inverse(view),
-            .cameraPos = cameraPos,
+            .inverseProjection = glm::inverse(this->_camera.projection),
+            .inverseView = glm::inverse(this->_camera.view),
+            .cameraPos = glm::inverse(this->_camera.view) * glm::vec4(0.0, 0.0, 0.0, 1.0),
             .nearPlane = 0.1f,
             .screenSize = glm::vec2(this->_windowExtent.width, this->_windowExtent.height),
             .maxDistance = 1000.0f,
             .stepSize = 0.1,
             .gridSize = glm::vec3(Constants::VoxelGridResolution),
-            .gridScale = 1.5f
+            .gridScale = 3.0f
         };
         vkCmdPushConstants(cmd, this->_raytracerPipeline.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(RayTracerPushConstants), &rtpc);
         VkExtent3D groupCounts = getWorkgroupCounts(8);
@@ -390,17 +392,17 @@ private:
         };
         VK_ASSERT(vkBeginCommandBuffer(cmd, &cmdBeginInfo));
 
-        updateVoxelVolume(cmd);
-
+        clearImage(cmd, this->_drawImage);
         vkutil::transition_image(cmd, this->_drawImage.image, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
-
-        // drawGeometry(cmd, dt);
+        drawGeometry(cmd, dt);
+        vkutil::transition_image(cmd, this->_drawImage.image, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_GENERAL);
+        updateVoxelVolume(cmd);
 
         // prepare drawImage to swapchainImage copy
         AllocatedImage& drawImage = this->_drawImage;
         VkImage& swapchainImage = this->_swapchainImages[swapchainImageIndex];
 
-        vkutil::transition_image(cmd, drawImage.image, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+        vkutil::transition_image(cmd, drawImage.image, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
         vkutil::transition_image(cmd, swapchainImage, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
         vkutil::copy_image_to_image(cmd, drawImage.image, swapchainImage, this->_windowExtent, VkExtent3D{.width = this->_swapchainExtent.width, .height = this->_swapchainExtent.height, .depth = 1});
 
@@ -980,7 +982,7 @@ private:
                createComputePipeline<RayTracerPushConstants>(SHADER_DIRECTORY"/voxelTracer.comp.spv", this->_raytracerPipeline);
     }
 
-    bool initGraphicsPipelines()
+    bool initGraphicsPipeline()
     {
         const VkPushConstantRange pushConstantsRange = {
             .stageFlags = VK_SHADER_STAGE_VERTEX_BIT,
@@ -1033,6 +1035,11 @@ private:
         return true;
     }
 
+    bool initVoxelRasterPipeline()
+    {
+
+    }
+
     bool initPipelines()
     {
         if(!initComputePipelines()) {
@@ -1040,11 +1047,22 @@ private:
             return false;
         }
 
-        if(!initGraphicsPipelines()) {
-            std::cout << "[ERROR] Failed to init triangle pipelines" << std::endl;
+        if(!initGraphicsPipeline()) {
+            std::cout << "[ERROR] Failed to init geometry graphics pipeline" << std::endl;
             return false;
         }
 
+        return true;
+    }
+
+    bool initCamera()
+    {
+        this->_camera.pos = glm::vec3(0, 0, 5);
+        this->_camera.view = glm::translate(-this->_camera.pos) * glm::rotate(glm::radians(45.0f), glm::vec3(0.0, -1.0, 0.0));
+        // this->_camera.view = glm::translate(-this->_camera.pos);
+        this->_camera.projection = glm::perspective(glm::radians(70.f), (float)this->_windowExtent.width / (float)_windowExtent.height, 10000.f, 0.1f);
+        // invert the Y axis from OpenGL coordinate system
+        this->_camera.projection[1][1] *= -1;
         return true;
     }
 
@@ -1072,13 +1090,19 @@ private:
 
 
 private:
+    /* ENGINE */
     SDL_Window* _window {};
     VkExtent3D _windowExtent {}; 
     VkExtent2D _drawExtent;
     bool _isInitialized {};
     bool _resizeRequested {};
     DeletionQueue _deletionQueue;
+    std::string _name {};
+    std::atomic<bool> _shouldClose {false};
+    double _elapsed {};
+    double _lastFpsMeasurementTime {};
 
+    /* VULKAN */
     VkInstance _instance {};
     VkDebugUtilsMessengerEXT _debugMessenger {};
     VkPhysicalDevice _gpu {};
@@ -1087,19 +1111,29 @@ private:
     VkQueue _graphicsQueue {};
     uint32_t _graphicsQueueFamily {};
 
+    VmaAllocator _allocator {};
+
+    // swapchain
     VkSwapchainKHR _swapchain;
     VkFormat _swapchainImageFormat;
     std::vector<VkImage> _swapchainImages;
     std::vector<VkImageView> _swapchainImageViews;
     VkExtent2D _swapchainExtent;
 
-    VmaAllocator _allocator {};
-
-    FrameData _frames[Constants::FrameOverlap] {};
-    uint32_t _frameNumber = 0;
+    //immediate submit structures
+    VkFence _immFence;
+    VkCommandBuffer _immCommandBuffer;
+    VkCommandPool _immCommandPool;
 
     DescriptorWriter _descriptorWriter {};
     DescriptorPool _descriptorPool;
+    
+    // frame storage
+    FrameData _frames[Constants::FrameOverlap] {};
+    uint32_t _frameNumber = 0;
+
+    /* RENDER DATA */
+    Camera _camera;
 
     // Compute Shaders
     ComputePipeline _drawImagePipeline;
@@ -1108,6 +1142,7 @@ private:
 
     // Triangle Rasterization 
     GraphicsPipeline _meshPipeline;
+    GraphicsPipeline _voxelRasterPipeline;
 
     // Shader Resources
     AllocatedImage _drawImage;
@@ -1116,17 +1151,6 @@ private:
 
     // Meshes
     std::vector<GPUMeshBuffers> _testMeshes;
-
-    //immediate submit structures
-    VkFence _immFence;
-    VkCommandBuffer _immCommandBuffer;
-    VkCommandPool _immCommandPool;
-
-    std::string _name {};
-    std::atomic<bool> _shouldClose {false};
-    double _elapsed {};
-    double _lastFpsMeasurementTime {};
-
 
 };
 

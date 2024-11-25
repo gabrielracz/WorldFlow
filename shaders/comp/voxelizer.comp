@@ -103,5 +103,6 @@ void main() {
     float radius = pc.gridSize.x / 2;
     if(distance(globalID, gridCenter) < radius) {
         grid[index] = cnoise(vec3(globalID * pc.gridScale * 3.2) + vec3(pc.time * 0.5));
+        // grid[index] = 0.1;
     }
 }

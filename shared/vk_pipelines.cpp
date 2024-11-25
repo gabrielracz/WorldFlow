@@ -103,12 +103,17 @@ VkPipeline PipelineBuilder::build_pipeline(VkDevice device)
     //< build_pipeline_4
 }
 //> set_shaders
-PipelineBuilder& PipelineBuilder::set_shaders(VkShaderModule vertexShader, VkShaderModule fragmentShader)
+PipelineBuilder& PipelineBuilder::set_shaders(VkShaderModule vertexShader, VkShaderModule fragmentShader, VkShaderModule geometryShader)
 {
     _shaderStages.clear();
 
     _shaderStages.push_back(
         vkinit::pipeline_shader_stage_create_info(VK_SHADER_STAGE_VERTEX_BIT, vertexShader));
+
+    if(geometryShader) {
+        _shaderStages.push_back(
+            vkinit::pipeline_shader_stage_create_info(VK_SHADER_STAGE_GEOMETRY_BIT, vertexShader));
+    }
 
     _shaderStages.push_back(
         vkinit::pipeline_shader_stage_create_info(VK_SHADER_STAGE_FRAGMENT_BIT, fragmentShader));
