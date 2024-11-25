@@ -56,8 +56,10 @@ constexpr uint32_t DiffusionIterations = 11;
 constexpr uint32_t PressureIterations = 11;
 constexpr uint64_t StagingBufferSize = 1024ul * 1024ul * 8ul;
 constexpr VkExtent3D DrawImageResolution {2560, 1440, 1};
-constexpr size_t VoxelGridResolution = 64;
+
+constexpr size_t VoxelGridResolution = 256;
 constexpr size_t VoxelGridSize = VoxelGridResolution * VoxelGridResolution * VoxelGridResolution * sizeof(float);
+constexpr float VoxelGridScale = 3.0f;
 }
 //should be odd to ensure consistency of final result buffer index
 static_assert(Constants::DiffusionIterations % 2 == 1); 
@@ -111,7 +113,7 @@ struct GraphicsPipeline
 struct VoxelizerPushConstants
 {
     glm::uvec3 gridSize;
-    float gridResolution;
+    float gridScale;
     float time;
 };
 
@@ -133,6 +135,7 @@ struct GraphicsPushConstants
 {
     glm::mat4 worldMatrix;
     VkDeviceAddress vertexBuffer;
+    uint32_t padding[2];
 };
 
 struct Camera
@@ -321,13 +324,59 @@ private:
         vkCmdEndRendering(cmd);
     }
 
+    void voxelRasterizeGeometry(VkCommandBuffer cmd)
+    {
+        VkRenderingAttachmentInfo colorAttachmentInfo = {
+            .sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO
+        };
+        VkRenderingInfo renderInfo = vkinit::rendering_info(VkExtent2D{this->_windowExtent.width, this->_windowExtent.height}, &colorAttachmentInfo, nullptr);
+        vkCmdBeginRendering(cmd, &renderInfo);
+        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, this->_voxelRasterPipeline.pipeline);
+        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, this->_voxelRasterPipeline.layout, 0, 1, this->_voxelRasterPipeline.descriptorSets.data(), 0, nullptr);
+
+        VkViewport viewport = {
+            .x = 0,
+            .y = 0,
+            .width = (float)Constants::VoxelGridResolution,
+            .height = (float)Constants::VoxelGridResolution,
+            .minDepth = 0.0,
+            .maxDepth = 1.0
+        };
+        vkCmdSetViewport(cmd, 0, 1, &viewport);
+
+        VkRect2D scissor = {
+            .offset = { .x = 0, .y = 0 },
+            .extent = { .width = Constants::VoxelGridResolution, .height = Constants::VoxelGridResolution}
+        };
+        vkCmdSetScissor(cmd, 0, 1, &scissor);
+
+        // invert the Y direction on projection matrix so that we are more similar
+        // to opengl and gltf axis
+        GraphicsPushConstants pc = {
+            .worldMatrix = glm::mat4(1.0),
+            .vertexBuffer = this->_testMeshes[2].vertexBufferAddress
+        };
+
+        VoxelizerPushConstants voxpc = {
+            .gridSize = glm::vec3(Constants::VoxelGridResolution),
+            .gridScale = Constants::VoxelGridScale,
+            .time = static_cast<float>(this->_elapsed)
+        };
+
+        vkCmdPushConstants(cmd, this->_voxelRasterPipeline.layout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(GraphicsPushConstants), &pc);
+        vkCmdPushConstants(cmd, this->_voxelRasterPipeline.layout, VK_SHADER_STAGE_FRAGMENT_BIT, sizeof(GraphicsPushConstants), sizeof(VoxelizerPushConstants), &voxpc);
+        vkCmdBindIndexBuffer(cmd, this->_testMeshes[2].indexBuffer.buffer, 0, VK_INDEX_TYPE_UINT32);
+        vkCmdDrawIndexed(cmd, this->_testMeshes[2].numIndices, 1, 0, 0, 0);
+        vkCmdEndRendering(cmd);
+    }
+
     void updateVoxelVolume(VkCommandBuffer cmd)
     {
         vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, this->_voxelizerPipeline.pipeline);
         vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, this->_voxelizerPipeline.layout, 0, 1, this->_voxelizerPipeline.descriptorSets.data(), 0, nullptr);
         VoxelizerPushConstants pc = {
             .gridSize = glm::vec3(Constants::VoxelGridResolution),
-            .gridResolution = 1.0f/Constants::VoxelGridResolution,
+            .gridScale = 1.0f/Constants::VoxelGridResolution,
             .time = static_cast<float>(this->_elapsed)
         };
         vkCmdPushConstants(cmd, this->_voxelizerPipeline.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(VoxelizerPushConstants), &pc);
@@ -335,7 +384,10 @@ private:
         constexpr uint32_t localWorkgroupSize = 8;
         constexpr uint32_t groupCount = Constants::VoxelGridResolution / localWorkgroupSize;
         vkCmdDispatch(cmd, groupCount, groupCount, groupCount);
+    }
 
+    void rayCastVoxelVolume(VkCommandBuffer cmd)
+    {
         VkBufferMemoryBarrier bufferBarrier = {
             .sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER,
             .srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT,
@@ -394,9 +446,11 @@ private:
 
         clearImage(cmd, this->_drawImage);
         vkutil::transition_image(cmd, this->_drawImage.image, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
-        drawGeometry(cmd, dt);
+        // drawGeometry(cmd, dt);
         vkutil::transition_image(cmd, this->_drawImage.image, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_GENERAL);
         updateVoxelVolume(cmd);
+        voxelRasterizeGeometry(cmd);
+        rayCastVoxelVolume(cmd);
 
         // prepare drawImage to swapchainImage copy
         AllocatedImage& drawImage = this->_drawImage;
@@ -510,11 +564,17 @@ private:
             .bufferDeviceAddress = true
         };
 
+        VkPhysicalDeviceFeatures featuresBase {
+            .geometryShader = true,
+            .fragmentStoresAndAtomics = true
+        };
+
         vkb::PhysicalDeviceSelector selector {vkbInstance};
         vkb::PhysicalDevice physDevice = selector
             .set_minimum_version(1, 3)
             .set_required_features_13(features)
             .set_required_features_12(features12)
+            .set_required_features(featuresBase)
             .set_surface(this->_surface)
             .select()
             .value();
@@ -871,8 +931,8 @@ private:
     bool initDescriptors()
     {
         std::vector<DescriptorPool::DescriptorQuantity> sizes = {
-            {VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 3},
-            {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 3}
+            {VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 5},
+            {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 5}
         };
         this->_descriptorPool.init(this->_device, 10, sizes);
 
@@ -893,7 +953,7 @@ private:
             .write_image(0, this->_drawImage.imageView, 0, VK_IMAGE_LAYOUT_GENERAL, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE)
             .update_set(this->_device, this->_drawImagePipeline.descriptorSets[0]);
 
-        // VOXELIZER
+        // MANUAL VOXELIZER
         this->_voxelizerPipeline.descriptorLayout = DescriptorLayoutBuilder::newLayout()
             .add_binding(0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER)
             .build(this->_device, VK_SHADER_STAGE_COMPUTE_BIT);
@@ -902,6 +962,16 @@ private:
             .clear()
             .write_buffer(0, this->_voxelVolume.buffer, Constants::VoxelGridSize, 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER)
             .update_set(this->_device, this->_voxelizerPipeline.descriptorSets[0]);
+
+        // VOXEL RASTERIZER
+        this->_voxelRasterPipeline.descriptorLayout = DescriptorLayoutBuilder::newLayout()
+            .add_binding(0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER)
+            .build(this->_device, VK_SHADER_STAGE_FRAGMENT_BIT);
+        this->_voxelRasterPipeline.descriptorSets.push_back(this->_descriptorPool.allocateSet(this->_device, this->_voxelRasterPipeline.descriptorLayout));
+        this->_descriptorWriter
+            .clear()
+            .write_buffer(0, this->_voxelVolume.buffer, Constants::VoxelGridSize, 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER)
+            .update_set(this->_device, this->_voxelRasterPipeline.descriptorSets[0]);
         
         // VOXEL RENDERER
         this->_raytracerPipeline.descriptorLayout = DescriptorLayoutBuilder::newLayout()
@@ -919,6 +989,7 @@ private:
             this->_descriptorPool.destroy(this->_device);
             vkDestroyDescriptorSetLayout(this->_device, this->_drawImagePipeline.descriptorLayout, nullptr);
             vkDestroyDescriptorSetLayout(this->_device, this->_voxelizerPipeline.descriptorLayout, nullptr);
+            vkDestroyDescriptorSetLayout(this->_device, this->_voxelRasterPipeline.descriptorLayout, nullptr);
             vkDestroyDescriptorSetLayout(this->_device, this->_raytracerPipeline.descriptorLayout, nullptr);
         });
         return true;
@@ -982,7 +1053,7 @@ private:
                createComputePipeline<RayTracerPushConstants>(SHADER_DIRECTORY"/voxelTracer.comp.spv", this->_raytracerPipeline);
     }
 
-    bool initGraphicsPipeline()
+    bool initMeshPipeline()
     {
         const VkPushConstantRange pushConstantsRange = {
             .stageFlags = VK_SHADER_STAGE_VERTEX_BIT,
@@ -1037,7 +1108,71 @@ private:
 
     bool initVoxelRasterPipeline()
     {
+        const VkPushConstantRange pushConstantsRanges[] = {
+            {
+                .stageFlags = VK_SHADER_STAGE_VERTEX_BIT,
+                .offset = 0,
+                .size = sizeof(GraphicsPushConstants),
+            },
+            {
+                .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT,
+                .offset = sizeof(GraphicsPushConstants),
+                .size = sizeof(VoxelizerPushConstants),
+            },
+        };
 
+        // No descriptors
+        VkPipelineLayoutCreateInfo pipelineLayoutInfo = {
+            .sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
+            .setLayoutCount = 1,
+            .pSetLayouts = &this->_voxelRasterPipeline.descriptorLayout,
+            .pushConstantRangeCount = 2,
+            .pPushConstantRanges = pushConstantsRanges
+        };
+        VK_CHECK(vkCreatePipelineLayout(this->_device, &pipelineLayoutInfo, nullptr, &this->_voxelRasterPipeline.layout));
+
+        VkShaderModule fragShader;
+        if(!vkutil::load_shader_module(SHADER_DIRECTORY"/voxelRaster.frag.spv", this->_device, &fragShader)) {
+            std::cout << "[ERROR] Failed to load fragment shader" << std::endl;
+            return false;
+        }
+
+        VkShaderModule vertShader;
+        if(!vkutil::load_shader_module(SHADER_DIRECTORY"/voxelRaster.vert.spv", this->_device, &vertShader)) {
+            std::cout << "[ERROR] Failed to load vertex shader" << std::endl;
+            return false;
+        }
+
+        VkShaderModule geomShader;
+        if(!vkutil::load_shader_module(SHADER_DIRECTORY"/voxelRaster.geom.spv", this->_device, &geomShader)) {
+            std::cout << "[ERROR] Failed to load geometry shader" << std::endl;
+            return false;
+        }
+
+        PipelineBuilder builder;
+        builder._pipelineLayout = this->_voxelRasterPipeline.layout;
+        this->_voxelRasterPipeline.pipeline = builder
+            .set_shaders(vertShader, fragShader, geomShader)
+            .set_input_topology(VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST)
+            .set_polygon_mode(VK_POLYGON_MODE_FILL)
+            .set_cull_mode(VK_CULL_MODE_NONE, VK_FRONT_FACE_CLOCKWISE)
+            .set_multisampling_none()
+            .disable_blending()
+            .disable_color_output()
+            .set_color_attachment_format(VK_FORMAT_UNDEFINED)
+            .set_depth_format(VK_FORMAT_UNDEFINED)
+            .build_pipeline(this->_device);
+
+        vkDestroyShaderModule(this->_device, fragShader, nullptr);
+        vkDestroyShaderModule(this->_device, vertShader, nullptr);
+        vkDestroyShaderModule(this->_device, geomShader, nullptr);
+
+        this->_deletionQueue.push([this]() {
+            vkDestroyPipelineLayout(this->_device, this->_voxelRasterPipeline.layout, nullptr);
+            vkDestroyPipeline(this->_device, this->_voxelRasterPipeline.pipeline, nullptr);
+        });
+
+        return true;        
     }
 
     bool initPipelines()
@@ -1047,8 +1182,13 @@ private:
             return false;
         }
 
-        if(!initGraphicsPipeline()) {
-            std::cout << "[ERROR] Failed to init geometry graphics pipeline" << std::endl;
+        if(!initMeshPipeline()) {
+            std::cout << "[ERROR] Failed to init mesh graphics pipeline" << std::endl;
+            return false;
+        }
+
+        if(!initVoxelRasterPipeline()) {
+            std::cout << "[ERROR] Failed to init voxel raster graphics pipeline" << std::endl;
             return false;
         }
 

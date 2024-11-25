@@ -48,6 +48,7 @@ find_program(GLSL_VALIDATOR glslangValidator HINTS /usr/bin /usr/local/bin $ENV{
 file(GLOB_RECURSE GLSL_SOURCE_FILES
     "${PROJECT_SOURCE_DIR}/shaders/raster/*.frag"
     "${PROJECT_SOURCE_DIR}/shaders/raster/*.vert"
+    "${PROJECT_SOURCE_DIR}/shaders/raster/*.geom"
     "${PROJECT_SOURCE_DIR}/shaders/comp/*.comp"
 )
 
@@ -55,12 +56,21 @@ message(STATUS "BUILDING SHADERS")
 file(MAKE_DIRECTORY "${PROJECT_SOURCE_DIR}/shaders/bin")
 foreach(GLSL ${GLSL_SOURCE_FILES})
   get_filename_component(FILE_NAME ${GLSL} NAME)
+  get_filename_component(FILE_EXT ${GLSL} EXT)
   set(SPIRV "${PROJECT_SOURCE_DIR}/shaders/bin/${FILE_NAME}.spv")
+
+  # Add the -G flag for .geom files
+  if(FILE_EXT STREQUAL ".geom")
+    set(GLSL_FLAGS "-V")
+  else()
+    set(GLSL_FLAGS "-V")
+  endif()
+
   message(STATUS ${GLSL})
-  message(STATUS ${GLSL_VALIDATOR} " " -V " " ${GLSL} " " -o " " ${SPIRV} " " -g "\n")
+  message(STATUS ${GLSL_VALIDATOR} " " ${GLSL_FLAGS} " " ${GLSL} " " -o " " ${SPIRV} " " -g "\n")
   add_custom_command(
     OUTPUT ${SPIRV}
-    COMMAND ${GLSL_VALIDATOR} -V ${GLSL} -o ${SPIRV}
+    COMMAND ${GLSL_VALIDATOR} ${GLSL_FLAGS} ${GLSL} -o ${SPIRV}
     DEPENDS ${GLSL})
   list(APPEND SPIRV_BINARY_FILES ${SPIRV})
 endforeach(GLSL)

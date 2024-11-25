@@ -34,6 +34,7 @@ public:
     PipelineBuilder& set_color_attachment_format(VkFormat format);
     PipelineBuilder& set_depth_format(VkFormat format);
     PipelineBuilder& disable_depthtest();
+    PipelineBuilder& disable_color_output();
     PipelineBuilder& enable_depthtest(bool depthWriteEnable,VkCompareOp op);
 };
 

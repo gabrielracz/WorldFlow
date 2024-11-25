@@ -112,7 +112,7 @@ PipelineBuilder& PipelineBuilder::set_shaders(VkShaderModule vertexShader, VkSha
 
     if(geometryShader) {
         _shaderStages.push_back(
-            vkinit::pipeline_shader_stage_create_info(VK_SHADER_STAGE_GEOMETRY_BIT, vertexShader));
+            vkinit::pipeline_shader_stage_create_info(VK_SHADER_STAGE_GEOMETRY_BIT, geometryShader));
     }
 
     _shaderStages.push_back(
@@ -164,6 +164,12 @@ PipelineBuilder& PipelineBuilder::set_multisampling_none()
     return *this;
 }
 //< set_multisample
+PipelineBuilder& PipelineBuilder::disable_color_output()
+{
+    _colorBlendAttachment.colorWriteMask = 0;
+    _colorBlendAttachment.blendEnable = VK_FALSE;
+    return *this;
+}
 
 //> set_noblend
 PipelineBuilder& PipelineBuilder::disable_blending()
