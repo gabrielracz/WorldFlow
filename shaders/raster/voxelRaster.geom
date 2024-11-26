@@ -102,21 +102,21 @@ int getDominantAxisIndex(vec3 normal)
 vec4 orthographicProjection(vec3 position, int axisIndex)
 {
     mat4 mvpx = mat4(
-        0.000000, 0.000000, 2.000000, 0.000000,
-        0.000000, 2.000000, 0.000000, 0.000000,
-        -2.000000, 0.000000, 0.000000, 0.000000,
+        0.000000, 0.000000, 1.000000, 0.000000,
+        0.000000, 1.000000, 0.000000, 0.000000,
+        -1.000000, 0.000000, 0.000000, 0.000000,
         0.000000, 0.000000, 0.000000, 1.000000);
 
     mat4 mvpy = mat4(
-        2.000000, 0.000000, 0.000000, 0.000000,
-        0.000000, 0.000000, -2.000000, 0.000000,
-        0.000000, -2.000000, 0.000000, 0.000000,
+        1.000000, 0.000000, 0.000000, 0.000000,
+        0.000000, 0.000000, -1.000000, 0.000000,
+        0.000000, -1.000000, 0.000000, 0.000000,
         0.000000, 0.000000, 0.000000, 1.000000);
 
     mat4 mvpz = mat4(
-        2.000000, 0.000000, 0.000000, 0.000000,
-        0.000000, 2.000000, 0.000000, 0.000000,
-        0.000000, 0.000000, 2.000000, 0.000000,
+        1.000000, 0.000000, 0.000000, 0.000000,
+        0.000000, 1.000000, 0.000000, 0.000000,
+        0.000000, 0.000000, 1.000000, 0.000000,
         0.000000, 0.000000, 0.000000, 1.000000);
 
     mat4 proj;
@@ -154,6 +154,8 @@ void main() {
 
         // dominantAxisIndex = 0;
         vec4 outPosition = orthographicProjection(pos, dominantAxisIndex);
+        outPosition.z = ((outPosition.z + 1.0) / 2.0);
+
         // vec4 outPosition = vec4(2.0*pos.xy, 0.0, 1.0);
         // vec4 outPosition = orthographicProjection(pos, 2);
         // vec4 outPosition = mvpz * vec4(pos, 1.0);
@@ -165,7 +167,8 @@ void main() {
         // } else {
         //     outDepth = pos.z;
         // }
-        outDepth = (outPosition.z + 1.0) / 2.0;
+        // outDepth = (outPosition.z + 1.0) / 2.0;
+        outDepth = outPosition.z;
         outAxis = dominantAxisIndex;
         // Emit the vertex
         EmitVertex();
