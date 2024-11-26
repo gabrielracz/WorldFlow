@@ -1,6 +1,6 @@
 #include "glm/ext/matrix_transform.hpp"
 #include "glm/trigonometric.hpp"
-#include "transform.h"
+#include "transform.hpp"
 #include <glm/ext/quaternion_trigonometric.hpp>
 #include <stdexcept>
 #define GLM_FORCE_RADIANS
@@ -11,10 +11,7 @@
 #include <iostream>
 
 #include "camera.hpp"
-
-#define PI glm::pi<float>()
-#define PI_2 glm::pi<float>()/2.0f
-#define PRINT_FIXED_FLOAT(x, prec) std::fixed <<std::setprecision(prec)<<(x)
+#include "utils.hpp"
 
 Camera::Camera(void){
 }
@@ -60,25 +57,25 @@ void Camera::SetView(glm::vec3 position, glm::vec3 look_at, glm::vec3 up){
 }
 
 
-void Camera::SetPerspective(GLfloat fov, GLfloat near, GLfloat far, GLfloat w, GLfloat h){
+void Camera::SetPerspective(float fov, float near, float far, float w, float h){
     // Set projection based on field-of-view
     float top = tan((fov/2.0)*(glm::pi<float>()/180.0))*near;
     float right = top * w/h;
     perspective_matrix = glm::frustum(-right, right, -top, top, near, far);
 }
 
-void Camera::SetOrtho(GLfloat winwidth, GLfloat winheight){
+void Camera::SetOrtho(float winwidth, float winheight){
     float w = (float)winwidth/2.0f;
     float h = (float)winheight/2.0f;
     ortho_matrix = glm::ortho<float>(-w, w, -h, h, -1.0f, 1.0f);
 }
 
 
-void Camera::SetProjectionUniforms(Shader& shd, Projection projtype){
-    glm::mat4& projection = projtype == Projection::PERSPECTIVE ? perspective_matrix : ortho_matrix;
-    shd.SetUniform4m(view_matrix_, "view_mat");
-    shd.SetUniform4m(projection,  "projection_mat");
-}
+// void Camera::SetProjectionUniforms(Shader& shd, Projection projtype){
+//     glm::mat4& projection = projtype == Projection::PERSPECTIVE ? perspective_matrix : ortho_matrix;
+//     shd.SetUniform4m(view_matrix_, "view_mat");
+//     shd.SetUniform4m(projection,  "projection_mat");
+// }
 
 
 void Camera::SetupViewMatrix(void){

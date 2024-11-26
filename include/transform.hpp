@@ -1,5 +1,5 @@
-#ifndef UTILS_H
-#define UTILS_H
+#ifndef TRANSFORM_HPP
+#define TRANSFORM_HPP
 
 #include "glm/gtx/quaternion.hpp"
 #define GLM_FORCE_RADIANS
@@ -21,10 +21,10 @@ private:
                    {0.0f, 1.0f, 0.0f},
                    {0.0f, 0.0f, -1.0f}};
 
-    glm::mat4 transf_local_no_scale;
-    glm::mat4 transf_local;
-    glm::mat4 transf_world;
-    glm::mat4 transf_world_no_scale;
+    glm::mat4 transf_local_no_scale {};
+    glm::mat4 transf_local {};
+    glm::mat4 transf_world {};
+    glm::mat4 transf_world_no_scale {};
 
     Transform* parent;
     glm::mat4 cached_matrix;

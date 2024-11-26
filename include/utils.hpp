@@ -8,6 +8,9 @@
 #include <deque>
 #include <chrono>
 
+#define PI glm::pi<float>()
+#define PI_2 glm::pi<float>()/2.0f
+
 static std::unordered_map<VkResult, std::string> ErrorDescriptions = {
     {VK_SUCCESS, "Command successfully completed"},
     {VK_NOT_READY, "A fence or query has not yet completed"},
@@ -67,5 +70,6 @@ inline double GetTimestamp()
 {
     return std::chrono::time_point_cast<std::chrono::milliseconds>(std::chrono::system_clock::now()).time_since_epoch().count() / 1000.0;
 }
+
 
 #endif

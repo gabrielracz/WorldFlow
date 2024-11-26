@@ -168,7 +168,7 @@ vec4 traceVoxels(vec3 rayOrigin, vec3 rayDir) {
     ivec3 prevMapPos = mapPos;
     
     // Main ray traversal loop
-    for (int i = 0; i < 256 && t < pc.maxDistance; i++) {
+    for (int i = 0; i < 2048 && t < pc.maxDistance; i++) {
         // Convert current position to grid index
         uint index = mapPos.z * uint(pc.gridSize.x) * uint(pc.gridSize.y) +
                     mapPos.y * uint(pc.gridSize.x) +

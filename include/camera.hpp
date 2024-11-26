@@ -1,13 +1,12 @@
 #ifndef CAMERA_HPP
 #define CAMERA_HPP
 
-#define GLEW_STATIC
+// #define GLEW_STATIC
 // #include <GL/glew.h>
 #include <GLFW/glfw3.h>
 #include <glm/glm.hpp>
 
-#include "transform.h"
-#include "shader.h"
+#include "transform.hpp"
 
 class Camera {
 
@@ -29,6 +28,7 @@ class Camera {
         // Set projection from frustum parameters: field-of-view,
         // near and far planes, and width and height of viewport
         void SetPerspective(float fov, float near, float far, float w, float h);
+        void SetPerspective(glm::mat4 projection) {perspective_matrix = projection;}
         void SetOrtho(float w, float h);
         // void SetProjectionUniforms(Shader& shd, Projection = Projection::PERSPECTIVE);
 
@@ -40,6 +40,7 @@ class Camera {
         bool IsAttached();
         void SetupViewMatrix(void);
         const glm::mat4& GetViewMatrix() {return view_matrix_;}
+        const glm::mat4& GetProjectionMatrix() {return perspective_matrix;}
 
         void OrbitPitch(float pitch);
         void OrbitYaw(float yaw);

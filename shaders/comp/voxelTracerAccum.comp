@@ -20,6 +20,7 @@ layout(push_constant) uniform constants {
     float stepSize;         // Base color accumulation per step
     vec3 gridSize;          // Size of the voxel grid in each dimension
     float gridScale;        // Scale factor for the grid (new parameter)
+    vec4 lightSource;        // Scale factor for the grid (new parameter)
 } pc;
 
 // Helper function to convert 3D position to linear buffer index
@@ -108,7 +109,7 @@ vec4 traceVoxels(vec3 rayOrigin, vec3 rayDir) {
     }
     
     // Main ray traversal loop
-    for (int i = 0; i < 256 && t < pc.maxDistance; i++) {
+    for (int i = 0; i < 4096 && t < pc.maxDistance; i++) {
         // Convert current position to grid index
         uint index = mapPos.z * uint(pc.gridSize.x) * uint(pc.gridSize.y) +
                     mapPos.y * uint(pc.gridSize.x) +
@@ -123,10 +124,10 @@ vec4 traceVoxels(vec3 rayOrigin, vec3 rayDir) {
                 float attenuation = exp(-t * 0.1);
                 vec4 voxelColor = vec4(vec3(1.0 * attenuation), contribution);
                 
-                // voxelColor.rgb *= voxelColor.a;
-                // accumColor += voxelColor * (1.0 - accumColor.a);
-                accumColor = vec4(voxelColor.rgb, 0.8);
-                break;
+                voxelColor.rgb *= voxelColor.a;
+                accumColor += voxelColor * (1.0 - accumColor.a);
+                // accumColor = vec4(voxelColor.rgb, 0.8);
+                // break;
 
                 
                 if (accumColor.a > 0.99) break;

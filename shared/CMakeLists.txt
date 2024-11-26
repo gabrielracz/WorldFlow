@@ -12,8 +12,8 @@ add_library (vkguide_shared STATIC
   vk_pipelines.cpp
   vk_loader.h
   vk_loader.cpp
-  camera.cpp
-  camera.h
+  # camera.cpp
+  # camera.h
   meshes.h
   meshes.cpp
 )

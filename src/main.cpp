@@ -11,6 +11,7 @@
 #define VMA_IMPLEMENTATION
 #include <vk_mem_alloc.h>
 
+#define GLM_FORCE_RADIANS
 #include <stb_image.h>
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
@@ -19,6 +20,8 @@
 
 #include "path_config.hpp"
 #include "utils.hpp"
+#include "camera.hpp"
+#include "transform.hpp"
 
 #include "shared/vk_types.h"
 #include "shared/vk_images.h"
@@ -58,13 +61,15 @@ constexpr uint32_t PressureIterations = 11;
 constexpr uint64_t StagingBufferSize = 1024ul * 1024ul * 8ul;
 constexpr VkExtent3D DrawImageResolution {2560, 1440, 1};
 
-constexpr size_t VoxelGridResolution = 256;
+constexpr size_t VoxelGridResolution = 1024 - 16;
 constexpr size_t VoxelGridSize = VoxelGridResolution * VoxelGridResolution * VoxelGridResolution * sizeof(float);
-constexpr float VoxelGridScale = 2.0f;
+constexpr float VoxelGridScale = 3.0f;
 
-constexpr uint32_t MeshIdx = 2;
-// constexpr float MeshScale = 0.007;
-constexpr float MeshScale = 0.75;
+constexpr uint32_t MeshIdx = 0;
+constexpr float MeshScale = 0.01;
+// constexpr float MeshScale = 0.70;
+
+constexpr glm::vec3 CameraPosition = glm::vec3(0.0, 0.0, 2.0);
 }
 //should be odd to ensure consistency of final result buffer index
 static_assert(Constants::DiffusionIterations % 2 == 1); 
@@ -150,12 +155,12 @@ struct GraphicsPushConstants
     uint32_t padding[2];
 };
 
-struct Camera
-{
-    glm::vec3 pos;
-    glm::mat4 view;
-    glm::mat4 projection;
-};
+// struct Camera
+// {
+//     glm::vec3 pos;
+//     glm::mat4 view;
+//     glm::mat4 projection;
+// };
 
 static inline void
 printDeviceProperties(vkb::PhysicalDevice& dev)
@@ -226,6 +231,8 @@ public:
             resizeSwapchain();
             initCamera();
         }
+        this->_camera.OrbitYaw(glm::radians(30.0) * dt);
+        this->_camera.Update();
         draw(dt);
         this->_frameNumber++;
     }
@@ -327,7 +334,7 @@ private:
         // to opengl and gltf axis
         GraphicsPushConstants pc = {
             // .worldMatrix = this->_camera.projection * this->_camera.view,
-            .worldMatrix = this->_camera.projection * this->_camera.view * glm::scale(glm::vec3(Constants::MeshScale)),
+            .worldMatrix = this->_camera.GetProjectionMatrix() * this->_camera.GetViewMatrix() * glm::scale(glm::vec3(Constants::MeshScale)),
             .vertexBuffer = this->_testMeshes[Constants::MeshIdx].vertexBufferAddress
         };
 
@@ -408,12 +415,12 @@ private:
         vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, this->_raytracerPipeline.layout, 0, 1, this->_raytracerPipeline.descriptorSets.data(), 0, nullptr);
 
         RayTracerPushConstants rtpc = {
-            .inverseProjection = glm::inverse(this->_camera.projection),
-            .inverseView = glm::inverse(this->_camera.view),
-            .cameraPos = glm::inverse(this->_camera.view) * glm::vec4(0.0, 0.0, 0.0, 1.0),
+            .inverseProjection = glm::inverse(this->_camera.GetProjectionMatrix()),
+            .inverseView = glm::inverse(this->_camera.GetViewMatrix()),
+            .cameraPos = glm::inverse(this->_camera.GetViewMatrix()) * glm::vec4(0.0, 0.0, 0.0, 1.0),
             .nearPlane = 0.1f,
             .screenSize = glm::vec2(this->_windowExtent.width, this->_windowExtent.height),
-            .maxDistance = 1000.0f,
+            .maxDistance = 2000.0f,
             .stepSize = 0.1,
             .gridSize = glm::vec3(Constants::VoxelGridResolution),
             .gridScale = Constants::VoxelGridScale,
@@ -959,7 +966,7 @@ private:
         // MESHES
         std::vector<std::vector<Vertex>> vertexBuffers;
         std::vector<std::vector<uint32_t>> indexBuffers;
-        if(!loadGltfMeshes({ASSETS_DIRECTORY"/basicmesh.glb"}, vertexBuffers, indexBuffers)) {
+        if(!loadGltfMeshes({ASSETS_DIRECTORY"/xyz.glb"}, vertexBuffers, indexBuffers)) {
             std::cout << "[ERROR] Failed to load meshes" << std::endl;
         }
         for(int m = 0; m < vertexBuffers.size(); m++) {
@@ -1235,12 +1242,20 @@ private:
 
     bool initCamera()
     {
-        this->_camera.pos = glm::vec3(3.0, -1.5, 3.0);
+        // this->_camera.pos = glm::vec3(3.0, -1.5, 3.0);
         // this->_camera.view = glm::translate(-this->_camera.pos) * glm::rotate(glm::radians(-80.0f), glm::vec3(0.0, -1.0, 0.0));
-        this->_camera.view = glm::lookAt(this->_camera.pos, glm::vec3(0, 0, 0), glm::vec3(0, 1, 0));
-        this->_camera.projection = glm::perspective(glm::radians(70.f), (float)this->_windowExtent.width / (float)_windowExtent.height, 0.1f, 1000.0f);
-        // invert the Y axis from OpenGL coordinate system
-        // this->_camera.projection[1][1] *= -1;
+        // this->_camera.view = glm::lookAt(this->_camera.pos, glm::vec3(0, 0, 0), glm::vec3(0, 1, 0));
+        // this->_camera.projection = glm::perspective(glm::radians(70.f), (float)this->_windowExtent.width / (float)_windowExtent.height, 0.1f, 1000.0f);
+        this->_origin.SetPosition(glm::vec3(0.0, 0.0, 0.0));
+        this->_origin.Update();
+
+        this->_camera.SetView(Constants::CameraPosition, glm::vec3(0.0), glm::vec3(0.0, 1.0, 0.0));
+        this->_camera.SetPerspective(glm::perspective(glm::radians(70.f), (float)this->_windowExtent.width / (float)_windowExtent.height, 0.1f, 1000.0f));
+        this->_camera.Attach(&this->_origin);
+        this->_camera.OrbitYaw(PI/2.0f);
+        this->_camera.OrbitPitch(PI/2.0f);
+        this->_camera.SetupViewMatrix();
+
         return true;
     }
 
@@ -1273,7 +1288,7 @@ private:
     VkExtent3D _windowExtent {}; 
     VkExtent2D _drawExtent;
     bool _isInitialized {};
-    bool _resizeRequested {};
+    bool _resizeRequested {false};
     DeletionQueue _deletionQueue;
     std::string _name {};
     std::atomic<bool> _shouldClose {false};
@@ -1312,6 +1327,7 @@ private:
 
     /* RENDER DATA */
     Camera _camera;
+    Transform _origin;
 
     // Compute Shaders
     ComputePipeline _drawImagePipeline;
