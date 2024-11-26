@@ -58,11 +58,11 @@ constexpr uint32_t PressureIterations = 11;
 constexpr uint64_t StagingBufferSize = 1024ul * 1024ul * 8ul;
 constexpr VkExtent3D DrawImageResolution {2560, 1440, 1};
 
-constexpr size_t VoxelGridResolution = 64;
+constexpr size_t VoxelGridResolution = 128;
 constexpr size_t VoxelGridSize = VoxelGridResolution * VoxelGridResolution * VoxelGridResolution * sizeof(float);
 constexpr float VoxelGridScale = 1.0f;
 
-constexpr uint32_t MeshIdx = 1;
+constexpr uint32_t MeshIdx = 2;
 }
 //should be odd to ensure consistency of final result buffer index
 static_assert(Constants::DiffusionIterations % 2 == 1); 
@@ -447,7 +447,7 @@ private:
 
         clearImage(cmd, this->_drawImage);
         vkutil::transition_image(cmd, this->_drawImage.image, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
-        drawGeometry(cmd, dt);
+        // drawGeometry(cmd, dt);
         vkutil::transition_image(cmd, this->_drawImage.image, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_GENERAL);
         // updateVoxelVolume(cmd);
         voxelRasterizeGeometry(cmd);
@@ -1226,7 +1226,7 @@ private:
 
     bool initCamera()
     {
-        this->_camera.pos = glm::vec3(-5, 0, 0);
+        this->_camera.pos = glm::vec3(-0, 0.0, 4.5);
         // this->_camera.view = glm::translate(-this->_camera.pos) * glm::rotate(glm::radians(-80.0f), glm::vec3(0.0, -1.0, 0.0));
         this->_camera.view = glm::lookAt(this->_camera.pos, glm::vec3(0, 0, 0), glm::vec3(0, 1, 0));
         this->_camera.projection = glm::perspective(glm::radians(70.f), (float)this->_windowExtent.width / (float)_windowExtent.height, 0.1f, 10000.0f);
@@ -1328,25 +1328,25 @@ private:
 
 int main(int argc, char* argv[])
 {
-    // {
-    //     using namespace glm;
-    // //Orthograhic projection
-    // mat4 Ortho; 
-    // //Create an modelview-orthographic projection matrix see from +X axis
-    // Ortho = glm::ortho( -0.5f, 0.5f, -0.5f, 0.5f, 0.5f, -0.5f );
+    {
+        using namespace glm;
+    //Orthograhic projection
+    mat4 Ortho; 
+    //Create an modelview-orthographic projection matrix see from +X axis
+    Ortho = glm::ortho( -0.5f, 0.5f, -0.5f, 0.5f, 0.5f, -0.5f );
 
-    // mat4 mvpX = Ortho * glm::lookAt( vec3( 0.5, 0, 0 ), vec3( 0, 0, 0 ), vec3( 0, 1, 0 ) );
+    mat4 mvpX = Ortho * glm::lookAt( vec3( 0.5, 0, 0 ), vec3( 0, 0, 0 ), vec3( 0, 1, 0 ) );
 
-    // //Create an modelview-orthographic projection matrix see from +Y axis
-    // mat4 mvpY = Ortho * glm::lookAt( vec3( 0, 0.5, 0 ), vec3( 0, 0, 0 ), vec3( 0, 0, -1 ) );
+    //Create an modelview-orthographic projection matrix see from +Y axis
+    mat4 mvpY = Ortho * glm::lookAt( vec3( 0, 0.5, 0 ), vec3( 0, 0, 0 ), vec3( 0, 0, -1 ) );
 
-    // //Create an modelview-orthographic projection matrix see from +Z axis
-    // mat4 mvpZ = Ortho * glm::lookAt( vec3( 0, 0, 0.5 ), vec3( 0, 0, 0 ), vec3( 0, 1, 0 ) );
-    // std::cout << glm::to_string(mvpX) << std::endl;
-    // std::cout << glm::to_string(mvpY) << std::endl;
-    // std::cout << glm::to_string(mvpZ) << std::endl;
+    //Create an modelview-orthographic projection matrix see from +Z axis
+    mat4 mvpZ = Ortho * glm::lookAt( vec3( 0, 0, 0.5 ), vec3( 0, 0, 0 ), vec3( 0, 1, 0 ) );
+    std::cout << glm::to_string(mvpX) << std::endl;
+    std::cout << glm::to_string(mvpY) << std::endl;
+    std::cout << glm::to_string(mvpZ) << std::endl;
     // exit(0);
-    // }
+    }
 
     Renderer renderer("VulkanFlow", 600, 600);
     if(!renderer.Init()) {

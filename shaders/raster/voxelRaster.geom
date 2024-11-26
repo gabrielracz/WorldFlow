@@ -82,20 +82,25 @@ void main() {
 
     // Iterate through the input vertices of the primitive
     vec3 fakePos[3];
-    fakePos[0] = vec3(-0.5, -0.5,  0.0);
-    fakePos[1] = vec3( 0.0,  0.5,  0.5);
-    fakePos[2] = vec3( 0.5, -0.5,  0.0);
+    // fakePos[0] = vec3(-0.5, -0.5,  -0.5);
+    // fakePos[1] = vec3( 0.0,  0.5,  0.5);
+    // fakePos[2] = vec3( 0.5, -0.5,  -0.5);
+
+    fakePos[0] = vec3(-0.5, -0.5,  -0.5);
+    fakePos[1] = vec3( 0.0,  0.5,  0.0);
+    fakePos[2] = vec3( 0.5, -0.5,  0.5);
 
     for (int i = 0; i < 3; i++) {
         // Pass attributes to the next stage
         outColor = inColor[i];
         outUV = inUV[i];
 
-        vec3 pos = fakePos[i];
-        // vec3 pos = gl_in[i].gl_Position.xyz;
-        // vec4 outPosition = vec4(orthographicProjection(pos, dominantAxisIndex), 1.0);
-        dominantAxisIndex = 2;
-        vec4 outPosition = orthographicProjection(pos, dominantAxisIndex);
+        // vec3 pos = fakePos[i];
+        vec3 pos = gl_in[i].gl_Position.xyz;
+        vec4 outPosition = vec4(orthographicProjection(pos, dominantAxis), 1.0);
+        // dominantAxisIndex = 0;
+        // vec4 outPosition = orthographicProjection(pos, dominantAxisIndex);
+        // vec4 outPosition = vec4(2.0*pos.xy, 0.0, 1.0);
         // vec4 outPosition = orthographicProjection(pos, 2);
         // vec4 outPosition = mvpz * vec4(pos, 1.0);
         gl_Position = outPosition;

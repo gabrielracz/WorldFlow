@@ -42,16 +42,22 @@ uint getIndex(uvec3 pos)
 void main() 
 {
     // fix the axis to use the right "depth" channel
-    vec3 temp = vec3(gl_FragCoord.xy, gl_FragCoord.z * gridDimensions.z);
-    vec3 pos;
-    if(axis == 0) {
-        pos = vec3(temp.z, temp.y, temp.x);
-    } else if(axis == 1) {
-        pos = vec3(temp.x, temp.z, temp.y);
-    } else {
-        pos = vec3(temp.x, temp.y, temp.z);
-    }
+    vec3 temp = vec3(gl_FragCoord.xy, (inDepth + 0.5) * gridDimensions.z - 1);
+    vec3 pos = temp;
+    // if(axis == 0) {
+    //     pos = vec3(temp.z, temp.y, temp.x);
+    // } else if(axis == 1) {
+    //     pos = vec3(temp.x, temp.z, temp.y);
+    // } else {
+    //     pos = vec3(temp.x, temp.y, temp.z);
+    // }
 
     grid[getIndex(uvec3(floor(pos)))] = 0.7;
-    outColour = vec4(pos.z, 0.4, 0.0, 1.0);
+
+    uint d = uint(gridDimensions.x) - 1;
+    grid[getIndex(uvec3(0, 0, 0))] = 1.0;
+    // grid[getIndex(uvec3(d, 0, 0))] = 1.0;
+    grid[getIndex(uvec3(d, d, d))] = 1.0;
+    // grid[getIndex(uvec3(0, 0, d))] = 1.0;
+    outColour = vec4((inDepth + 0.5), 0.0, 0.0, 1.0);
 }
