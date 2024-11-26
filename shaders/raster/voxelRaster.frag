@@ -57,11 +57,6 @@ void main()
         // discard;
     }
 
-    grid[getIndex(uvec3(floor(pos)))] = 0.7;
-
-    grid[getIndex(uvec3(0, 0, 0))] = 1.0;
-    // grid[getIndex(uvec3(d, 0, 0))] = 1.0;
-    grid[getIndex(uvec3(d, d, d))] = 1.0;
-    // grid[getIndex(uvec3(0, 0, d))] = 1.0;
+    grid[getIndex(uvec3(floor(pos)))] = 1.0;
     outColour = vec4((inDepth), 0.0, 0.0, 1.0);
 }

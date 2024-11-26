@@ -154,20 +154,8 @@ void main() {
 
         // dominantAxisIndex = 0;
         vec4 outPosition = orthographicProjection(pos, dominantAxisIndex);
-        outPosition.z = ((outPosition.z + 1.0) / 2.0);
-
-        // vec4 outPosition = vec4(2.0*pos.xy, 0.0, 1.0);
-        // vec4 outPosition = orthographicProjection(pos, 2);
-        // vec4 outPosition = mvpz * vec4(pos, 1.0);
+        outPosition.z = ((outPosition.z + 1.0) / 2.0); // fix to range 0 - 1.0
         gl_Position = outPosition;
-        // if(dominantAxisIndex == 0) {
-        //     outDepth = pos.x;
-        // } else if (dominantAxisIndex == 1) {
-        //     outDepth = pos.y;
-        // } else {
-        //     outDepth = pos.z;
-        // }
-        // outDepth = (outPosition.z + 1.0) / 2.0;
         outDepth = outPosition.z;
         outAxis = dominantAxisIndex;
         // Emit the vertex

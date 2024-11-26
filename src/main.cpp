@@ -58,7 +58,7 @@ constexpr uint32_t PressureIterations = 11;
 constexpr uint64_t StagingBufferSize = 1024ul * 1024ul * 8ul;
 constexpr VkExtent3D DrawImageResolution {2560, 1440, 1};
 
-constexpr size_t VoxelGridResolution = 256;
+constexpr size_t VoxelGridResolution = 128;
 constexpr size_t VoxelGridSize = VoxelGridResolution * VoxelGridResolution * VoxelGridResolution * sizeof(float);
 constexpr float VoxelGridScale = 2.0f;
 
@@ -137,6 +137,7 @@ struct RayTracerPushConstants
     float stepSize;         // Base color accumulation per step
     glm::vec3 gridSize;          // Size of the voxel grid in each dimension
     float gridScale;          // Size of the voxel grid in each dimension
+    glm::vec4 lightSource;
 };
 
 // push constants for our mesh object draws
@@ -324,7 +325,7 @@ private:
         // to opengl and gltf axis
         GraphicsPushConstants pc = {
             // .worldMatrix = this->_camera.projection * this->_camera.view,
-            .worldMatrix = this->_camera.projection * this->_camera.view * glm::scale(glm::vec3(0.5)),
+            .worldMatrix = this->_camera.projection * this->_camera.view * glm::scale(glm::vec3(0.75)),
             .vertexBuffer = this->_testMeshes[Constants::MeshIdx].vertexBufferAddress
         };
 
@@ -362,8 +363,8 @@ private:
         // invert the Y direction on projection matrix so that we are more similar
         // to opengl and gltf axis
         GraphicsPushConstants pc = {
-            .worldMatrix = glm::mat4(1.0),
-            // .worldMatrix = glm::scale(glm::vec3(1.0)),
+            // .worldMatrix = glm::mat4(1.0),
+            .worldMatrix = glm::mat4(1.0) * glm::scale(glm::vec3(0.75)),
             .vertexBuffer = this->_testMeshes[Constants::MeshIdx].vertexBufferAddress
         };
 
@@ -413,7 +414,8 @@ private:
             .maxDistance = 1000.0f,
             .stepSize = 0.1,
             .gridSize = glm::vec3(Constants::VoxelGridResolution),
-            .gridScale = Constants::VoxelGridScale
+            .gridScale = Constants::VoxelGridScale,
+            .lightSource = glm::vec4(500.0, 500.0, 0.0, 1.0)
         };
         vkCmdPushConstants(cmd, this->_raytracerPipeline.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(RayTracerPushConstants), &rtpc);
         VkExtent3D groupCounts = getWorkgroupCounts(8);
@@ -1230,10 +1232,10 @@ private:
 
     bool initCamera()
     {
-        this->_camera.pos = glm::vec3(3.0, 0.0, 0.0);
+        this->_camera.pos = glm::vec3(3.0, 0.0, 3.0);
         // this->_camera.view = glm::translate(-this->_camera.pos) * glm::rotate(glm::radians(-80.0f), glm::vec3(0.0, -1.0, 0.0));
         this->_camera.view = glm::lookAt(this->_camera.pos, glm::vec3(0, 0, 0), glm::vec3(0, 1, 0));
-        this->_camera.projection = glm::perspective(glm::radians(70.f), (float)this->_windowExtent.width / (float)_windowExtent.height, 0.1f, 10000.0f);
+        this->_camera.projection = glm::perspective(glm::radians(70.f), (float)this->_windowExtent.width / (float)_windowExtent.height, 0.1f, 10.0f);
         // invert the Y axis from OpenGL coordinate system
         // this->_camera.projection[1][1] *= -1;
         return true;
