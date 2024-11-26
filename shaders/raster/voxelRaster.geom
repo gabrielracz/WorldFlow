@@ -26,16 +26,29 @@ vec3 getDominantAxis(vec3 normal)
     else return vec3(0, 0, -1);
 }
 
+// int getDominantAxisIndex(vec3 normal)
+// {
+//     // TODO: more efficient
+//     float a1 = length(dot(normal, vec3(1, 0, 0)));
+//     float a2 = length(dot(normal, vec3(0, 1, 0)));
+//     float a3 = length(dot(normal, vec3(0, 0, 1)));
+
+//     if(a1 > a2 && a1 > a3) return 0;
+//     else if(a2 > a1 && a2 > a3) return 1;
+//     else return 2;
+// }
+
 int getDominantAxisIndex(vec3 normal)
 {
-    // TODO: more efficient
-    float a1 = length(dot(normal, vec3(1, 0, 0)));
-    float a2 = length(dot(normal, vec3(0, 1, 0)));
-    float a3 = length(dot(normal, vec3(0, 0, 1)));
+    // Compute the absolute values of the normal's components
+    float absX = abs(normal.x);
+    float absY = abs(normal.y);
+    float absZ = abs(normal.z);
 
-    if(a1 > a2 && a1 > a3) return 0;
-    else if(a2 > a1 && a2 > a3) return 1;
-    else return 2;
+    // Determine the dominant axis based on the largest component
+    if (absX > absY && absX > absZ) return 0; // x-axis
+    else if (absY > absX && absY > absZ) return 1; // y-axis
+    else return 2; // z-axis
 }
 
 vec3 orthographicProjection(vec3 position, vec3 dominantAxis)
@@ -98,6 +111,7 @@ void main() {
         // vec3 pos = fakePos[i];
         vec3 pos = gl_in[i].gl_Position.xyz;
         vec4 outPosition = vec4(orthographicProjection(pos, dominantAxis), 1.0);
+
         // dominantAxisIndex = 0;
         // vec4 outPosition = orthographicProjection(pos, dominantAxisIndex);
         // vec4 outPosition = vec4(2.0*pos.xy, 0.0, 1.0);
@@ -106,7 +120,6 @@ void main() {
         gl_Position = outPosition;
         outDepth = pos.z;
         outAxis = dominantAxisIndex;
-
         // Emit the vertex
         EmitVertex();
     }

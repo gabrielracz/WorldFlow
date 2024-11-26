@@ -362,6 +362,7 @@ private:
         // to opengl and gltf axis
         GraphicsPushConstants pc = {
             .worldMatrix = glm::mat4(1.0),
+            // .worldMatrix = glm::rotate(glm::radians(90.0f), glm::vec3(0.0, 1.0, 0.0)),
             .vertexBuffer = this->_testMeshes[Constants::MeshIdx].vertexBufferAddress
         };
 
@@ -1186,7 +1187,7 @@ private:
             .set_polygon_mode(VK_POLYGON_MODE_FILL)
             .set_cull_mode(VK_CULL_MODE_NONE, VK_FRONT_FACE_CLOCKWISE)
             .set_multisampling_none()
-            .disable_blending()
+            .enable_blending_additive()
             .disable_depthtest()
             .set_color_attachment_format(this->_voxelImage.imageFormat)
             .set_depth_format(VK_FORMAT_UNDEFINED)
