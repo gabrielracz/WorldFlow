@@ -83,6 +83,13 @@ float cnoise(vec3 P){
   return 2.2 * n_xyz;
 }
 
+uint getIndex(uint x, uint y, uint z)
+{
+    return z * uint(pc.gridSize.x) * uint(pc.gridSize.y) +
+           y * uint(pc.gridSize.x) +
+           x;
+}
+
 void main() {
     // Calculate the global index of the thread in the 3D grid
     uvec3 globalID = gl_GlobalInvocationID;
@@ -105,4 +112,8 @@ void main() {
         grid[index] = cnoise(vec3(globalID * pc.gridScale * 3.2) + vec3(pc.time * 0.5));
         // grid[index] = 0.1;
     }
+    // grid[0] = 1.0;
+    // grid[getIndex(31, 31, 31)] = 1.0;
+    // grid[getIndex(31, 31, 0)] = 0.7;
+    // grid[getIndex(31, 31, 0)] = 0.7;
 }

@@ -3,52 +3,55 @@
 //shader input
 layout (location = 0) in vec3 inColor;
 layout (location = 1) in vec2 inUV;
+layout (location = 2) in float inDepth;
+layout (location = 3) in flat int axis;
 
 layout(std430, binding = 0) buffer GridBuffer {
     float grid[]; // 1D array to store the 3D grid data
 };
 
-layout(push_constant) uniform constants {
-    layout(offset = 80) vec3 gridSize;
-    layout(offset = 92) float gridScale;
-    layout(offset = 96) float time;
-} pc;
+layout(std140, binding = 1) uniform VoxelInfo {
+    vec3 gridDimensions;
+    float gridScale;
+};
+
+layout (location = 0) out vec4 outColour;
 
 uint getVoxelIndex(vec3 pos) {
     // Convert from scaled world space to grid space (0 to gridSize-1)
-    vec3 normalizedPos = pos / pc.gridScale;  // First normalize by scale
-    vec3 gridPos = (normalizedPos + 0.5) * pc.gridSize;
+    vec3 normalizedPos = pos / gridScale;  // First normalize by scale
+    vec3 gridPos = (normalizedPos + 0.5) * gridDimensions;
     ivec3 index = ivec3(floor(gridPos));
     
     // Clamp to grid bounds
-    index = clamp(index, ivec3(0), ivec3(pc.gridSize) - 1);
+    index = clamp(index, ivec3(0), ivec3(gridDimensions) - 1);
     
     // Convert to linear index using the same formula as construction
-    return index.z * uint(pc.gridSize.x) * uint(pc.gridSize.y) +
-           index.y * uint(pc.gridSize.x) +
+    return index.z * uint(gridDimensions.x) * uint(gridDimensions.y) +
+           index.y * uint(gridDimensions.x) +
            index.x;
 }
 
-uint getIndex(uint x, uint y, uint z)
+uint getIndex(uvec3 pos)
 {
-    return z * uint(pc.gridSize.x) * uint(pc.gridSize.y) +
-           y * uint(pc.gridSize.x) +
-           x;
+    return pos.z * uint(gridDimensions.x) * uint(gridDimensions.y) +
+           pos.y * uint(gridDimensions.x) +
+           pos.x;
 }
 
 void main() 
 {
-    vec3 gridPos = (gl_FragCoord.xyz * pc.gridSize.xyz) + pc.gridSize/2.0;
-    ivec3 index = clamp(ivec3(floor(gridPos)), ivec3(0), ivec3(pc.gridSize) - 1);
-    // Convert to linear index using the same formula as construction
-    uint ix =  index.z * uint(pc.gridSize.x) * uint(pc.gridSize.y) +
-           index.y * uint(pc.gridSize.x) +
-           index.x;
-    // grid[getVoxelIndex(*gl_FragCoord.xyz)] = 0.5;
-    // grid[ix] = 0.5;
-    grid[getIndex(0, 0, 0)] = 0.5;
-    grid[getIndex(128, 128, 128)] = 1.0;
-    grid[getIndex(256, 0, 0)] = 1.0;
-	// //return red
-	// outFragColor = vec4(inColor,1.0f);
+    // fix the axis to use the right "depth" channel
+    vec3 temp = vec3(gl_FragCoord.xy, gl_FragCoord.z * gridDimensions.z);
+    vec3 pos;
+    if(axis == 0) {
+        pos = vec3(temp.z, temp.y, temp.x);
+    } else if(axis == 1) {
+        pos = vec3(temp.x, temp.z, temp.y);
+    } else {
+        pos = vec3(temp.x, temp.y, temp.z);
+    }
+
+    grid[getIndex(uvec3(floor(pos)))] = 0.7;
+    outColour = vec4(((pos.z / gridDimensions.z) * 2.0 - 1), 0.4, 0.0, 1.0);
 }

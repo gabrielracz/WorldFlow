@@ -15,6 +15,7 @@
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtx/transform.hpp>
+#include <glm/gtx/string_cast.hpp>
 
 #include "path_config.hpp"
 #include "utils.hpp"
@@ -57,9 +58,11 @@ constexpr uint32_t PressureIterations = 11;
 constexpr uint64_t StagingBufferSize = 1024ul * 1024ul * 8ul;
 constexpr VkExtent3D DrawImageResolution {2560, 1440, 1};
 
-constexpr size_t VoxelGridResolution = 256;
+constexpr size_t VoxelGridResolution = 64;
 constexpr size_t VoxelGridSize = VoxelGridResolution * VoxelGridResolution * VoxelGridResolution * sizeof(float);
-constexpr float VoxelGridScale = 3.0f;
+constexpr float VoxelGridScale = 1.0f;
+
+constexpr uint32_t MeshIdx = 1;
 }
 //should be odd to ensure consistency of final result buffer index
 static_assert(Constants::DiffusionIterations % 2 == 1); 
@@ -115,6 +118,12 @@ struct VoxelizerPushConstants
     glm::uvec3 gridSize;
     float gridScale;
     float time;
+};
+
+struct VoxelInfo
+{
+    glm::vec3 gridDimensions;
+    float gridScale;
 };
 
 struct RayTracerPushConstants
@@ -315,21 +324,20 @@ private:
         // to opengl and gltf axis
         GraphicsPushConstants pc = {
             .worldMatrix = this->_camera.projection * this->_camera.view,
-            .vertexBuffer = this->_testMeshes[2].vertexBufferAddress
+            .vertexBuffer = this->_testMeshes[Constants::MeshIdx].vertexBufferAddress
         };
 
         vkCmdPushConstants(cmd, this->_meshPipeline.layout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(GraphicsPushConstants), &pc);
-        vkCmdBindIndexBuffer(cmd, this->_testMeshes[2].indexBuffer.buffer, 0, VK_INDEX_TYPE_UINT32);
-        vkCmdDrawIndexed(cmd, this->_testMeshes[2].numIndices, 1, 0, 0, 0);
+        vkCmdBindIndexBuffer(cmd, this->_testMeshes[Constants::MeshIdx].indexBuffer.buffer, 0, VK_INDEX_TYPE_UINT32);
+        vkCmdDrawIndexed(cmd, this->_testMeshes[Constants::MeshIdx].numIndices, 1, 0, 0, 0);
         vkCmdEndRendering(cmd);
     }
 
     void voxelRasterizeGeometry(VkCommandBuffer cmd)
     {
-        VkRenderingAttachmentInfo colorAttachmentInfo = {
-            .sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO
-        };
-        VkRenderingInfo renderInfo = vkinit::rendering_info(VkExtent2D{this->_windowExtent.width, this->_windowExtent.height}, &colorAttachmentInfo, nullptr);
+        vkutil::transition_image(cmd, this->_voxelImage.image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+        VkRenderingAttachmentInfo colorAttachmentInfo = vkinit::attachment_info(this->_voxelImage.imageView, nullptr, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+        VkRenderingInfo renderInfo = vkinit::rendering_info(VkExtent2D{Constants::VoxelGridResolution, Constants::VoxelGridResolution}, &colorAttachmentInfo, nullptr);
         vkCmdBeginRendering(cmd, &renderInfo);
         vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, this->_voxelRasterPipeline.pipeline);
         vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, this->_voxelRasterPipeline.layout, 0, 1, this->_voxelRasterPipeline.descriptorSets.data(), 0, nullptr);
@@ -354,19 +362,12 @@ private:
         // to opengl and gltf axis
         GraphicsPushConstants pc = {
             .worldMatrix = glm::mat4(1.0),
-            .vertexBuffer = this->_testMeshes[2].vertexBufferAddress
-        };
-
-        VoxelizerPushConstants voxpc = {
-            .gridSize = glm::vec3(Constants::VoxelGridResolution),
-            .gridScale = Constants::VoxelGridScale,
-            .time = static_cast<float>(this->_elapsed)
+            .vertexBuffer = this->_testMeshes[Constants::MeshIdx].vertexBufferAddress
         };
 
         vkCmdPushConstants(cmd, this->_voxelRasterPipeline.layout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(GraphicsPushConstants), &pc);
-        vkCmdPushConstants(cmd, this->_voxelRasterPipeline.layout, VK_SHADER_STAGE_FRAGMENT_BIT, sizeof(GraphicsPushConstants), sizeof(VoxelizerPushConstants), &voxpc);
-        vkCmdBindIndexBuffer(cmd, this->_testMeshes[2].indexBuffer.buffer, 0, VK_INDEX_TYPE_UINT32);
-        vkCmdDrawIndexed(cmd, this->_testMeshes[2].numIndices, 1, 0, 0, 0);
+        vkCmdBindIndexBuffer(cmd, this->_testMeshes[Constants::MeshIdx].indexBuffer.buffer, 0, VK_INDEX_TYPE_UINT32);
+        vkCmdDrawIndexed(cmd, this->_testMeshes[Constants::MeshIdx].numIndices, 1, 0, 0, 0);
         vkCmdEndRendering(cmd);
     }
 
@@ -446,11 +447,12 @@ private:
 
         clearImage(cmd, this->_drawImage);
         vkutil::transition_image(cmd, this->_drawImage.image, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
-        // drawGeometry(cmd, dt);
+        drawGeometry(cmd, dt);
         vkutil::transition_image(cmd, this->_drawImage.image, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_GENERAL);
-        updateVoxelVolume(cmd);
+        // updateVoxelVolume(cmd);
         voxelRasterizeGeometry(cmd);
         rayCastVoxelVolume(cmd);
+
 
         // prepare drawImage to swapchainImage copy
         AllocatedImage& drawImage = this->_drawImage;
@@ -459,6 +461,10 @@ private:
         vkutil::transition_image(cmd, drawImage.image, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
         vkutil::transition_image(cmd, swapchainImage, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
         vkutil::copy_image_to_image(cmd, drawImage.image, swapchainImage, this->_windowExtent, VkExtent3D{.width = this->_swapchainExtent.width, .height = this->_swapchainExtent.height, .depth = 1});
+
+
+        vkutil::transition_image(cmd, this->_voxelImage.image, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+        // vkutil::copy_image_to_image(cmd, this->_voxelImage.image, swapchainImage, this->_voxelImage.imageExtent, VkExtent3D{.width = this->_swapchainExtent.width, .height = this->_swapchainExtent.height, .depth = 1});
 
         // transition to present format
         vkutil::transition_image(cmd, swapchainImage, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
@@ -912,8 +918,34 @@ private:
             vkutil::transition_image(cmd, this->_drawImage.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL);
         });
 
+        this->_voxelImage = createImage(
+            VkExtent3D{Constants::VoxelGridResolution, Constants::VoxelGridResolution, 1},
+            VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT,
+            VK_IMAGE_ASPECT_COLOR_BIT,
+            VK_FORMAT_R32G32B32A32_SFLOAT
+        );
+        immediateSubmit([&](VkCommandBuffer cmd) {
+            vkutil::transition_image(cmd, this->_voxelImage.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+        });
+
         // BUFFERS
+        this->_stagingBuffer = createBuffer(Constants::StagingBufferSize, VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VMA_MEMORY_USAGE_CPU_ONLY);
         this->_voxelVolume = createBuffer(Constants::VoxelGridSize, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
+        this->_voxelInfoBuffer = createBuffer(sizeof(VoxelInfo), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
+        VoxelInfo voxInfo = {
+            .gridDimensions = glm::vec3(Constants::VoxelGridResolution),
+            .gridScale = Constants::VoxelGridScale
+        };
+        void* data = this->_stagingBuffer.allocation->GetMappedData();
+        std::memcpy(data, &voxInfo, sizeof(voxInfo));
+        immediateSubmit([&](VkCommandBuffer cmd) {
+            VkBufferCopy copy = {
+                .srcOffset = 0,
+                .dstOffset = 0,
+                .size = sizeof(VoxelInfo)
+            };
+            vkCmdCopyBuffer(cmd, this->_stagingBuffer.buffer, this->_voxelInfoBuffer.buffer, 1, &copy);
+        });
 
         // MESHES
         std::vector<std::vector<Vertex>> vertexBuffers;
@@ -966,11 +998,13 @@ private:
         // VOXEL RASTERIZER
         this->_voxelRasterPipeline.descriptorLayout = DescriptorLayoutBuilder::newLayout()
             .add_binding(0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER)
+            .add_binding(1, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER)
             .build(this->_device, VK_SHADER_STAGE_FRAGMENT_BIT);
         this->_voxelRasterPipeline.descriptorSets.push_back(this->_descriptorPool.allocateSet(this->_device, this->_voxelRasterPipeline.descriptorLayout));
         this->_descriptorWriter
             .clear()
             .write_buffer(0, this->_voxelVolume.buffer, Constants::VoxelGridSize, 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER)
+            .write_buffer(1, this->_voxelInfoBuffer.buffer, sizeof(VoxelInfo), 0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER)
             .update_set(this->_device, this->_voxelRasterPipeline.descriptorSets[0]);
         
         // VOXEL RENDERER
@@ -1113,12 +1147,7 @@ private:
                 .stageFlags = VK_SHADER_STAGE_VERTEX_BIT,
                 .offset = 0,
                 .size = sizeof(GraphicsPushConstants),
-            },
-            {
-                .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT,
-                .offset = sizeof(GraphicsPushConstants),
-                .size = sizeof(VoxelizerPushConstants),
-            },
+            }
         };
 
         // No descriptors
@@ -1126,7 +1155,7 @@ private:
             .sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
             .setLayoutCount = 1,
             .pSetLayouts = &this->_voxelRasterPipeline.descriptorLayout,
-            .pushConstantRangeCount = 2,
+            .pushConstantRangeCount = sizeof(pushConstantsRanges)/sizeof(VkPushConstantRange),
             .pPushConstantRanges = pushConstantsRanges
         };
         VK_CHECK(vkCreatePipelineLayout(this->_device, &pipelineLayoutInfo, nullptr, &this->_voxelRasterPipeline.layout));
@@ -1158,8 +1187,8 @@ private:
             .set_cull_mode(VK_CULL_MODE_NONE, VK_FRONT_FACE_CLOCKWISE)
             .set_multisampling_none()
             .disable_blending()
-            .disable_color_output()
-            .set_color_attachment_format(VK_FORMAT_UNDEFINED)
+            .disable_depthtest()
+            .set_color_attachment_format(this->_voxelImage.imageFormat)
             .set_depth_format(VK_FORMAT_UNDEFINED)
             .build_pipeline(this->_device);
 
@@ -1198,7 +1227,7 @@ private:
     bool initCamera()
     {
         this->_camera.pos = glm::vec3(0, 0, 5);
-        this->_camera.view = glm::translate(-this->_camera.pos) * glm::rotate(glm::radians(45.0f), glm::vec3(0.0, -1.0, 0.0));
+        this->_camera.view = glm::translate(-this->_camera.pos) * glm::rotate(glm::radians(-80.0f), glm::vec3(0.0, -1.0, 0.0));
         // this->_camera.view = glm::translate(-this->_camera.pos);
         this->_camera.projection = glm::perspective(glm::radians(70.f), (float)this->_windowExtent.width / (float)_windowExtent.height, 10000.f, 0.1f);
         // invert the Y axis from OpenGL coordinate system
@@ -1286,7 +1315,10 @@ private:
 
     // Shader Resources
     AllocatedImage _drawImage;
+    AllocatedImage _voxelImage;
+    AllocatedBuffer _stagingBuffer;
     AllocatedBuffer _voxelVolume;
+    AllocatedBuffer _voxelInfoBuffer;
     VkSampler _simpleSampler {};
 
     // Meshes
@@ -1296,6 +1328,26 @@ private:
 
 int main(int argc, char* argv[])
 {
+    // {
+    //     using namespace glm;
+    // //Orthograhic projection
+    // mat4 Ortho; 
+    // //Create an modelview-orthographic projection matrix see from +X axis
+    // Ortho = glm::ortho( -1.0f, 1.0f, -1.0f, 1.0f, 2.0f-1.0f, 3.0f );
+
+    // mat4 mvpX = Ortho * glm::lookAt( vec3( 1, 0, 0 ), vec3( 0, 0, 0 ), vec3( 0, -1, 0 ) );
+
+    // //Create an modelview-orthographic projection matrix see from +Y axis
+    // mat4 mvpY = Ortho * glm::lookAt( vec3( 0, -1, 0 ), vec3( 0, 0, 0 ), vec3( 0, 0, -1 ) );
+
+    // //Create an modelview-orthographic projection matrix see from +Z axis
+    // mat4 mvpZ = Ortho * glm::lookAt( vec3( 0, 0, 1 ), vec3( 0, 0, 0 ), vec3( 0, -1, 0 ) );
+    // std::cout << glm::to_string(mvpX) << std::endl;
+    // std::cout << glm::to_string(mvpY) << std::endl;
+    // std::cout << glm::to_string(mvpZ) << std::endl;
+    // exit(0);
+    // }
+
     Renderer renderer("VulkanFlow", 600, 600);
     if(!renderer.Init()) {
         std::cout << "[ERROR] Failed to initialize renderer" << std::endl;
