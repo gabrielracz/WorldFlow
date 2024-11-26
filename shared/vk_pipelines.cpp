@@ -237,8 +237,8 @@ PipelineBuilder& PipelineBuilder::disable_depthtest()
     _depthStencil.stencilTestEnable = VK_FALSE;
     _depthStencil.front = {};
     _depthStencil.back = {};
-    _depthStencil.minDepthBounds = 0.f;
-    _depthStencil.maxDepthBounds = 1.f;
+    _depthStencil.minDepthBounds = -10.f;
+    _depthStencil.maxDepthBounds = 10.f;
     return *this;
 }
 //< depth_disable

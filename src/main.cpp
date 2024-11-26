@@ -58,9 +58,9 @@ constexpr uint32_t PressureIterations = 11;
 constexpr uint64_t StagingBufferSize = 1024ul * 1024ul * 8ul;
 constexpr VkExtent3D DrawImageResolution {2560, 1440, 1};
 
-constexpr size_t VoxelGridResolution = 128;
+constexpr size_t VoxelGridResolution = 256;
 constexpr size_t VoxelGridSize = VoxelGridResolution * VoxelGridResolution * VoxelGridResolution * sizeof(float);
-constexpr float VoxelGridScale = 1.0f;
+constexpr float VoxelGridScale = 2.0f;
 
 constexpr uint32_t MeshIdx = 2;
 }
@@ -282,7 +282,7 @@ private:
     void clearImage(VkCommandBuffer cmd, AllocatedImage& img, VkClearColorValue color = {0.0, 0.0, 0.0, 0.0})
     {
         VkImageSubresourceRange clearRange = vkinit::image_subresource_range(VK_IMAGE_ASPECT_COLOR_BIT);
-        vkCmdClearColorImage(cmd, this->_drawImage.image, VK_IMAGE_LAYOUT_GENERAL, &color, 1, &clearRange);
+        vkCmdClearColorImage(cmd, img.image, VK_IMAGE_LAYOUT_GENERAL, &color, 1, &clearRange);
     }
 
     VkExtent3D getWorkgroupCounts(uint32_t localGroupSize = 16)
@@ -323,7 +323,8 @@ private:
         // invert the Y direction on projection matrix so that we are more similar
         // to opengl and gltf axis
         GraphicsPushConstants pc = {
-            .worldMatrix = this->_camera.projection * this->_camera.view,
+            // .worldMatrix = this->_camera.projection * this->_camera.view,
+            .worldMatrix = this->_camera.projection * this->_camera.view * glm::scale(glm::vec3(0.5)),
             .vertexBuffer = this->_testMeshes[Constants::MeshIdx].vertexBufferAddress
         };
 
@@ -335,7 +336,7 @@ private:
 
     void voxelRasterizeGeometry(VkCommandBuffer cmd)
     {
-        vkutil::transition_image(cmd, this->_voxelImage.image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+        vkutil::transition_image(cmd, this->_voxelImage.image, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
         VkRenderingAttachmentInfo colorAttachmentInfo = vkinit::attachment_info(this->_voxelImage.imageView, nullptr, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
         VkRenderingInfo renderInfo = vkinit::rendering_info(VkExtent2D{Constants::VoxelGridResolution, Constants::VoxelGridResolution}, &colorAttachmentInfo, nullptr);
         vkCmdBeginRendering(cmd, &renderInfo);
@@ -362,7 +363,7 @@ private:
         // to opengl and gltf axis
         GraphicsPushConstants pc = {
             .worldMatrix = glm::mat4(1.0),
-            // .worldMatrix = glm::rotate(glm::radians(90.0f), glm::vec3(0.0, 1.0, 0.0)),
+            // .worldMatrix = glm::scale(glm::vec3(1.0)),
             .vertexBuffer = this->_testMeshes[Constants::MeshIdx].vertexBufferAddress
         };
 
@@ -412,7 +413,7 @@ private:
             .maxDistance = 1000.0f,
             .stepSize = 0.1,
             .gridSize = glm::vec3(Constants::VoxelGridResolution),
-            .gridScale = 3.0f
+            .gridScale = Constants::VoxelGridScale
         };
         vkCmdPushConstants(cmd, this->_raytracerPipeline.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(RayTracerPushConstants), &rtpc);
         VkExtent3D groupCounts = getWorkgroupCounts(8);
@@ -448,7 +449,7 @@ private:
 
         clearImage(cmd, this->_drawImage);
         vkutil::transition_image(cmd, this->_drawImage.image, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
-        // drawGeometry(cmd, dt);
+        drawGeometry(cmd, dt);
         vkutil::transition_image(cmd, this->_drawImage.image, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_GENERAL);
         // updateVoxelVolume(cmd);
         voxelRasterizeGeometry(cmd);
@@ -466,6 +467,8 @@ private:
 
         vkutil::transition_image(cmd, this->_voxelImage.image, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
         // vkutil::copy_image_to_image(cmd, this->_voxelImage.image, swapchainImage, this->_voxelImage.imageExtent, VkExtent3D{.width = this->_swapchainExtent.width, .height = this->_swapchainExtent.height, .depth = 1});
+        vkutil::transition_image(cmd, this->_voxelImage.image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_GENERAL);
+        clearImage(cmd, this->_voxelImage);
 
         // transition to present format
         vkutil::transition_image(cmd, swapchainImage, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
@@ -921,12 +924,12 @@ private:
 
         this->_voxelImage = createImage(
             VkExtent3D{Constants::VoxelGridResolution, Constants::VoxelGridResolution, 1},
-            VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT,
+            VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT,
             VK_IMAGE_ASPECT_COLOR_BIT,
             VK_FORMAT_R32G32B32A32_SFLOAT
         );
         immediateSubmit([&](VkCommandBuffer cmd) {
-            vkutil::transition_image(cmd, this->_voxelImage.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+            vkutil::transition_image(cmd, this->_voxelImage.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL);
         });
 
         // BUFFERS
@@ -1227,7 +1230,7 @@ private:
 
     bool initCamera()
     {
-        this->_camera.pos = glm::vec3(-0, 0.0, 4.5);
+        this->_camera.pos = glm::vec3(3.0, 0.0, 0.0);
         // this->_camera.view = glm::translate(-this->_camera.pos) * glm::rotate(glm::radians(-80.0f), glm::vec3(0.0, -1.0, 0.0));
         this->_camera.view = glm::lookAt(this->_camera.pos, glm::vec3(0, 0, 0), glm::vec3(0, 1, 0));
         this->_camera.projection = glm::perspective(glm::radians(70.f), (float)this->_windowExtent.width / (float)_windowExtent.height, 0.1f, 10000.0f);
@@ -1334,15 +1337,15 @@ int main(int argc, char* argv[])
     //Orthograhic projection
     mat4 Ortho; 
     //Create an modelview-orthographic projection matrix see from +X axis
-    Ortho = glm::ortho( -0.5f, 0.5f, -0.5f, 0.5f, 0.5f, -0.5f );
+    Ortho = glm::ortho( -0.5f, 0.5f, -0.5f, 0.5f, 0.0f, -1.0f );
 
-    mat4 mvpX = Ortho * glm::lookAt( vec3( 0.5, 0, 0 ), vec3( 0, 0, 0 ), vec3( 0, 1, 0 ) );
+    mat4 mvpX = Ortho * glm::lookAt( vec3( 0.5, 0, 0 ), vec3( 0, 0, 0 ), vec3( 0, 0.5, 0 ) );
 
     //Create an modelview-orthographic projection matrix see from +Y axis
-    mat4 mvpY = Ortho * glm::lookAt( vec3( 0, 0.5, 0 ), vec3( 0, 0, 0 ), vec3( 0, 0, -1 ) );
+    mat4 mvpY = Ortho * glm::lookAt( vec3( 0, 0.5, 0 ), vec3( 0, 0, 0 ), vec3( 0, 0, -0.5 ) );
 
     //Create an modelview-orthographic projection matrix see from +Z axis
-    mat4 mvpZ = Ortho * glm::lookAt( vec3( 0, 0, 0.5 ), vec3( 0, 0, 0 ), vec3( 0, 1, 0 ) );
+    mat4 mvpZ = Ortho * glm::lookAt( vec3( 0, 0, 0.5 ), vec3( 0, 0, 0 ), vec3( 0, 0.5, 0 ) );
     std::cout << glm::to_string(mvpX) << std::endl;
     std::cout << glm::to_string(mvpY) << std::endl;
     std::cout << glm::to_string(mvpZ) << std::endl;

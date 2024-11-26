@@ -51,33 +51,73 @@ int getDominantAxisIndex(vec3 normal)
     else return 2; // z-axis
 }
 
-vec3 orthographicProjection(vec3 position, vec3 dominantAxis)
-{
-    return position - dominantAxis * dot(position, dominantAxis);
-}
+// vec3 orthographicProjection(vec3 position, vec3 dominantAxis)
+// {
+//     return position - dominantAxis * dot(position, dominantAxis);
+// }
+
+// vec4 orthographicProjection(vec3 position, int dominantAxis)
+// {
+//     mat3 viewRotation;
+
+//     // Define view rotation matrices for each dominant axis
+//     if (dominantAxis == 0) {
+//         // View along +X: Forward = -X, Up = +Y
+//         viewRotation = mat3(
+//             0.0,  0.0,  1.0,  // Right (Z)
+//             0.0,  1.0,  0.0,  // Up (Y)
+//            -1.0,  0.0,  0.0   // Forward (-X)
+//         );
+//     } else if (dominantAxis == 1) {
+//         // View along +Y: Forward = -Y, Up = -Z
+//         viewRotation = mat3(
+//             1.0,  0.0,  0.0,  // Right (X)
+//             0.0,  0.0, -1.0,  // Up (-Z)
+//             0.0, -1.0,  0.0   // Forward (-Y)
+//         );
+//     } else {
+//         // View along +Z: Forward = -Z, Up = +Y
+//         viewRotation = mat3(
+//             1.0,  0.0,  0.0,  // Right (X)
+//             0.0,  1.0,  0.0,  // Up (Y)
+//             0.0,  0.0, -1.0   // Forward (-Z)
+//         );
+//     }
+
+//     // Apply view rotation
+//     vec3 viewPosition = viewRotation * position;
+
+//     // Translate the camera
+//     viewPosition += vec3(0.5, 0.0, 0.0) * (dominantAxis == 0 ? 1.0 : 0.0);
+//     viewPosition += vec3(0.0, 0.5, 0.0) * (dominantAxis == 1 ? 1.0 : 0.0);
+//     viewPosition += vec3(0.0, 0.0, 0.5) * (dominantAxis == 2 ? 1.0 : 0.0);
+
+//     // Apply orthographic projection (scale to [-1, 1] and clip space)
+//     viewPosition = 2.0 * (viewPosition - vec3(-0.5)) - vec3(1.0);
+
+//     // Return as clip space coordinates
+//     return vec4(viewPosition, 1.0);
+// }
 
 vec4 orthographicProjection(vec3 position, int axisIndex)
 {
-    mat4 mvpx = mat4x4(
-        0.000000, 0.000000, 1.000000, 0.000000,
+    mat4 mvpx = mat4(
+        0.000000, 0.000000, 2.000000, 0.000000,
         0.000000, 2.000000, 0.000000, 0.000000,
         -2.000000, 0.000000, 0.000000, 0.000000,
-        -0.000000, -0.000000, 0.000000, 1.000000);
+        0.000000, 0.000000, 0.000000, 1.000000);
 
-    mat4 mvpy = mat4x4(
+    mat4 mvpy = mat4(
         2.000000, 0.000000, 0.000000, 0.000000,
-        0.000000, 0.000000, 1.000000, 0.000000,
+        0.000000, 0.000000, -2.000000, 0.000000,
         0.000000, -2.000000, 0.000000, 0.000000,
-        -0.000000, -0.000000, 0.000000, 1.000000);
+        0.000000, 0.000000, 0.000000, 1.000000);
 
-
-
-    mat4 mvpz = mat4x4(
+    mat4 mvpz = mat4(
         2.000000, 0.000000, 0.000000, 0.000000,
         0.000000, 2.000000, 0.000000, 0.000000,
-        0.000000, 0.000000, 1.000000, 0.000000,
-        -0.000000, -0.000000, 0.000000, 1.000000);
-
+        0.000000, 0.000000, 2.000000, 0.000000,
+        0.000000, 0.000000, 0.000000, 1.000000);
 
     mat4 proj;
     if(axisIndex == 0)  proj = mvpx;
@@ -110,15 +150,22 @@ void main() {
 
         // vec3 pos = fakePos[i];
         vec3 pos = gl_in[i].gl_Position.xyz;
-        vec4 outPosition = vec4(orthographicProjection(pos, dominantAxis), 1.0);
+        // vec4 outPosition = vec4(orthographicProjection(pos, dominantAxis), 1.0);
 
         // dominantAxisIndex = 0;
-        // vec4 outPosition = orthographicProjection(pos, dominantAxisIndex);
+        vec4 outPosition = orthographicProjection(pos, dominantAxisIndex);
         // vec4 outPosition = vec4(2.0*pos.xy, 0.0, 1.0);
         // vec4 outPosition = orthographicProjection(pos, 2);
         // vec4 outPosition = mvpz * vec4(pos, 1.0);
         gl_Position = outPosition;
-        outDepth = pos.z;
+        // if(dominantAxisIndex == 0) {
+        //     outDepth = pos.x;
+        // } else if (dominantAxisIndex == 1) {
+        //     outDepth = pos.y;
+        // } else {
+        //     outDepth = pos.z;
+        // }
+        outDepth = (outPosition.z + 1.0) / 2.0;
         outAxis = dominantAxisIndex;
         // Emit the vertex
         EmitVertex();
