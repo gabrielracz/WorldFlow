@@ -45,25 +45,25 @@ vec3 orthographicProjection(vec3 position, vec3 dominantAxis)
 
 vec4 orthographicProjection(vec3 position, int axisIndex)
 {
-    mat4 mvpx = mat4(
-        0.000000, 0.000000, -0.500000, 0.000000,
-        0.000000, 1.000000, 0.000000, 0.000000,
-        -1.000000, 0.000000, 0.000000, 0.000000,
-        -0.000000, -0.000000, -0.250000, 1.000000);
+    mat4 mvpx = mat4x4(
+        0.000000, 0.000000, 1.000000, 0.000000,
+        0.000000, 2.000000, 0.000000, 0.000000,
+        -2.000000, 0.000000, 0.000000, 0.000000,
+        -0.000000, -0.000000, 0.000000, 1.000000);
+
+    mat4 mvpy = mat4x4(
+        2.000000, 0.000000, 0.000000, 0.000000,
+        0.000000, 0.000000, 1.000000, 0.000000,
+        0.000000, -2.000000, 0.000000, 0.000000,
+        -0.000000, -0.000000, 0.000000, 1.000000);
 
 
-    mat4 mvpy = mat4(
-        1.000000, 0.000000, 0.000000, 0.000000, 
-        0.000000, 0.000000, -0.500000, 0.000000,
-        0.000000, -1.000000, 0.000000, 0.000000,
-        -0.000000, -0.000000, -0.250000, 1.000000);
 
-
-    mat4 mvpz = mat4(
-        1.000000, 0.000000, 0.000000, 0.000000,
-        0.000000, 1.000000, 0.000000, 0.000000,
-        0.000000, 0.000000, -0.500000, 0.000000,
-        -0.000000, -0.000000, -0.250000, 1.000000);
+    mat4 mvpz = mat4x4(
+        2.000000, 0.000000, 0.000000, 0.000000,
+        0.000000, 2.000000, 0.000000, 0.000000,
+        0.000000, 0.000000, 1.000000, 0.000000,
+        -0.000000, -0.000000, 0.000000, 1.000000);
 
 
     mat4 proj;
@@ -82,19 +82,19 @@ void main() {
 
     // Iterate through the input vertices of the primitive
     vec3 fakePos[3];
-    fakePos[0] = vec3(-1, 1, 1);
-    fakePos[1] = vec3(0, -1, -1);
-    fakePos[2] = vec3(1, 1, 1);
+    fakePos[0] = vec3(-0.5, -0.5,  0.0);
+    fakePos[1] = vec3( 0.0,  0.5,  0.5);
+    fakePos[2] = vec3( 0.5, -0.5,  0.0);
 
     for (int i = 0; i < 3; i++) {
         // Pass attributes to the next stage
         outColor = inColor[i];
         outUV = inUV[i];
 
-        // vec3 pos = fakePos[i];
-        vec3 pos = gl_in[i].gl_Position.xyz;
-        // pos.y *= -1;
+        vec3 pos = fakePos[i];
+        // vec3 pos = gl_in[i].gl_Position.xyz;
         // vec4 outPosition = vec4(orthographicProjection(pos, dominantAxisIndex), 1.0);
+        dominantAxisIndex = 2;
         vec4 outPosition = orthographicProjection(pos, dominantAxisIndex);
         // vec4 outPosition = orthographicProjection(pos, 2);
         // vec4 outPosition = mvpz * vec4(pos, 1.0);

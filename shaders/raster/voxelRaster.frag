@@ -53,5 +53,5 @@ void main()
     }
 
     grid[getIndex(uvec3(floor(pos)))] = 0.7;
-    outColour = vec4(((pos.z / gridDimensions.z) * 2.0 - 1), 0.4, 0.0, 1.0);
+    outColour = vec4(pos.z, 0.4, 0.0, 1.0);
 }

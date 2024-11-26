@@ -304,9 +304,9 @@ private:
 
         VkViewport viewport = {
             .x = 0,
-            .y = 0,
+            .y = (float)this->_windowExtent.height,
             .width = (float)this->_windowExtent.width,
-            .height = (float)this->_windowExtent.height,
+            .height = -(float)this->_windowExtent.height,
             .minDepth = 0.0,
             .maxDepth = 1.0
         };
@@ -344,9 +344,9 @@ private:
 
         VkViewport viewport = {
             .x = 0,
-            .y = 0,
+            .y = (float)Constants::VoxelGridResolution,
             .width = (float)Constants::VoxelGridResolution,
-            .height = (float)Constants::VoxelGridResolution,
+            .height = -(float)Constants::VoxelGridResolution,
             .minDepth = 0.0,
             .maxDepth = 1.0
         };
@@ -1226,12 +1226,12 @@ private:
 
     bool initCamera()
     {
-        this->_camera.pos = glm::vec3(0, 0, 5);
-        this->_camera.view = glm::translate(-this->_camera.pos) * glm::rotate(glm::radians(-80.0f), glm::vec3(0.0, -1.0, 0.0));
-        // this->_camera.view = glm::translate(-this->_camera.pos);
-        this->_camera.projection = glm::perspective(glm::radians(70.f), (float)this->_windowExtent.width / (float)_windowExtent.height, 10000.f, 0.1f);
+        this->_camera.pos = glm::vec3(-5, 0, 0);
+        // this->_camera.view = glm::translate(-this->_camera.pos) * glm::rotate(glm::radians(-80.0f), glm::vec3(0.0, -1.0, 0.0));
+        this->_camera.view = glm::lookAt(this->_camera.pos, glm::vec3(0, 0, 0), glm::vec3(0, 1, 0));
+        this->_camera.projection = glm::perspective(glm::radians(70.f), (float)this->_windowExtent.width / (float)_windowExtent.height, 0.1f, 10000.0f);
         // invert the Y axis from OpenGL coordinate system
-        this->_camera.projection[1][1] *= -1;
+        // this->_camera.projection[1][1] *= -1;
         return true;
     }
 
@@ -1333,15 +1333,15 @@ int main(int argc, char* argv[])
     // //Orthograhic projection
     // mat4 Ortho; 
     // //Create an modelview-orthographic projection matrix see from +X axis
-    // Ortho = glm::ortho( -1.0f, 1.0f, -1.0f, 1.0f, 2.0f-1.0f, 3.0f );
+    // Ortho = glm::ortho( -0.5f, 0.5f, -0.5f, 0.5f, 0.5f, -0.5f );
 
-    // mat4 mvpX = Ortho * glm::lookAt( vec3( 1, 0, 0 ), vec3( 0, 0, 0 ), vec3( 0, -1, 0 ) );
+    // mat4 mvpX = Ortho * glm::lookAt( vec3( 0.5, 0, 0 ), vec3( 0, 0, 0 ), vec3( 0, 1, 0 ) );
 
     // //Create an modelview-orthographic projection matrix see from +Y axis
-    // mat4 mvpY = Ortho * glm::lookAt( vec3( 0, -1, 0 ), vec3( 0, 0, 0 ), vec3( 0, 0, -1 ) );
+    // mat4 mvpY = Ortho * glm::lookAt( vec3( 0, 0.5, 0 ), vec3( 0, 0, 0 ), vec3( 0, 0, -1 ) );
 
     // //Create an modelview-orthographic projection matrix see from +Z axis
-    // mat4 mvpZ = Ortho * glm::lookAt( vec3( 0, 0, 1 ), vec3( 0, 0, 0 ), vec3( 0, -1, 0 ) );
+    // mat4 mvpZ = Ortho * glm::lookAt( vec3( 0, 0, 0.5 ), vec3( 0, 0, 0 ), vec3( 0, 1, 0 ) );
     // std::cout << glm::to_string(mvpX) << std::endl;
     // std::cout << glm::to_string(mvpY) << std::endl;
     // std::cout << glm::to_string(mvpZ) << std::endl;
