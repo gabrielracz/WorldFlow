@@ -10,6 +10,7 @@
 
 #define PI glm::pi<float>()
 #define PI_2 glm::pi<float>()/2.0f
+#define HEXCOLOR(h) {((h&0xFF0000)>>16)/255.0f, ((h&0x00FF00)>>8)/255.0f, (h&0x0000FF)/255.0f, 1.0f}
 
 static std::unordered_map<VkResult, std::string> ErrorDescriptions = {
     {VK_SUCCESS, "Command successfully completed"},

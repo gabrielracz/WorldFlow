@@ -61,15 +61,15 @@ constexpr uint32_t PressureIterations = 11;
 constexpr uint64_t StagingBufferSize = 1024ul * 1024ul * 8ul;
 constexpr VkExtent3D DrawImageResolution {2560, 1440, 1};
 
-constexpr size_t VoxelGridResolution = 1024 - 16;
+constexpr size_t VoxelGridResolution = 512;
 constexpr size_t VoxelGridSize = VoxelGridResolution * VoxelGridResolution * VoxelGridResolution * sizeof(float);
 constexpr float VoxelGridScale = 3.0f;
 
-constexpr uint32_t MeshIdx = 0;
-constexpr float MeshScale = 0.01;
-// constexpr float MeshScale = 0.70;
+constexpr uint32_t MeshIdx = 2;
+// constexpr float MeshScale = 0.01;
+constexpr float MeshScale = 0.70;
 
-constexpr glm::vec3 CameraPosition = glm::vec3(0.0, 0.0, 2.0);
+constexpr glm::vec3 CameraPosition = glm::vec3(0.0, 0.0, 3.0);
 }
 //should be odd to ensure consistency of final result buffer index
 static_assert(Constants::DiffusionIterations % 2 == 1); 
@@ -145,6 +145,7 @@ struct RayTracerPushConstants
     glm::vec3 gridSize;          // Size of the voxel grid in each dimension
     float gridScale;          // Size of the voxel grid in each dimension
     glm::vec4 lightSource;
+    glm::vec4 baseColor;
 };
 
 // push constants for our mesh object draws
@@ -424,7 +425,9 @@ private:
             .stepSize = 0.1,
             .gridSize = glm::vec3(Constants::VoxelGridResolution),
             .gridScale = Constants::VoxelGridScale,
-            .lightSource = glm::vec4(50.0, 50.0, 0.0, 1.0)
+            .lightSource = glm::vec4(50.0, 50.0, 0.0, 1.0),
+            // .baseColor = glm::vec4(HEXCOLOR(0xFFBF00))
+            .baseColor = glm::vec4(HEXCOLOR(0xFFFFFF))
         };
         vkCmdPushConstants(cmd, this->_raytracerPipeline.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(RayTracerPushConstants), &rtpc);
         VkExtent3D groupCounts = getWorkgroupCounts(8);
@@ -966,7 +969,7 @@ private:
         // MESHES
         std::vector<std::vector<Vertex>> vertexBuffers;
         std::vector<std::vector<uint32_t>> indexBuffers;
-        if(!loadGltfMeshes({ASSETS_DIRECTORY"/xyz.glb"}, vertexBuffers, indexBuffers)) {
+        if(!loadGltfMeshes({ASSETS_DIRECTORY"/basicmesh.glb"}, vertexBuffers, indexBuffers)) {
             std::cout << "[ERROR] Failed to load meshes" << std::endl;
         }
         for(int m = 0; m < vertexBuffers.size(); m++) {
@@ -1100,7 +1103,7 @@ private:
     {
         //TODO: these need pipeline.descriptorLayout set previously to work
         return createComputePipeline<VoxelizerPushConstants>(SHADER_DIRECTORY"/voxelizer.comp.spv", this->_voxelizerPipeline) &&
-               createComputePipeline<RayTracerPushConstants>(SHADER_DIRECTORY"/voxelTracer.comp.spv", this->_raytracerPipeline);
+               createComputePipeline<RayTracerPushConstants>(SHADER_DIRECTORY"/voxelTracerAccum.comp.spv", this->_raytracerPipeline);
     }
 
     bool initMeshPipeline()

@@ -21,6 +21,7 @@ layout(push_constant) uniform constants {
     vec3 gridSize;          // Size of the voxel grid in each dimension
     float gridScale;         // Scale factor for the grid
     vec4 lightSource;        // New light source (position in xyz, optional intensity in w)
+    vec3 baseColor;        // New light source (position in xyz, optional intensity in w)
 } pc;
 
 // Helper function to convert 3D position to linear buffer index
@@ -105,7 +106,7 @@ vec3 blinnPhongShading(vec3 worldPos, vec3 normal, vec3 viewDir) {
     float specular = pow(max(dot(normal, halfwayDir), 0.0), 32.0);
     
     // Combine terms
-    vec3 color = vec3(1.0);  // Base white color
+    vec3 color = pc.baseColor.rgb;  // Base white color
     // return (ambient + diffuse * 0.7 + specular * 0.5) * color * lightIntensity;
     return (ambient + diffuse * 0.8) * color * lightIntensity;
     // return diffuse * color * lightIntensity;

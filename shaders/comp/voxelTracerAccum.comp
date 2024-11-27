@@ -1,5 +1,6 @@
 #version 450
 #define FLT_MAX 3.402823466e+38
+#define HEXCOLORVEC(h) vec4(((h&0xFF0000)>>16)/255.0f, ((h&0x00FF00)>>8)/255.0f, (h&0x0000FF)/255.0f, 1.0f)
 
 layout(local_size_x = 8, local_size_y = 8) in;
 
@@ -21,6 +22,7 @@ layout(push_constant) uniform constants {
     vec3 gridSize;          // Size of the voxel grid in each dimension
     float gridScale;        // Scale factor for the grid (new parameter)
     vec4 lightSource;        // Scale factor for the grid (new parameter)
+    vec4 baseColor;        // Scale factor for the grid (new parameter)
 } pc;
 
 // Helper function to convert 3D position to linear buffer index
@@ -122,7 +124,8 @@ vec4 traceVoxels(vec3 rayOrigin, vec3 rayDir) {
             if (density > 0.0) {
                 float contribution = density * pc.stepSize;
                 float attenuation = exp(-t * 0.1);
-                vec4 voxelColor = vec4(vec3(1.0 * attenuation), contribution);
+                vec4 baseColor = pc.baseColor;
+                vec4 voxelColor = vec4(vec3(baseColor.rgb * attenuation), contribution);
                 
                 voxelColor.rgb *= voxelColor.a;
                 accumColor += voxelColor * (1.0 - accumColor.a);
