@@ -1,0 +1,26 @@
+
+// Shader for each voxel fragment
+
+NodeBounds = 2x2x2
+Brick Bounds = 4x4x4?
+
+in vec3 fragmentVoxelPos
+
+int getNodeIndex(vec3 pos, int depth)
+
+buffer Node[] nodePool;
+
+struct Node
+{
+    childNodeBlockPtr;
+    validChildMask;
+    leafChildMask;
+    brickPtr;
+}
+
+vec3 voxPos = fragmentVoxelPos; 
+for depth from 0 to MAX_TREE_DEPTH
+    int idx = getNodeIndex(voxPos, depth); // gets the node index this position belongs to
+    Node node = nodePool[idx];
+
+

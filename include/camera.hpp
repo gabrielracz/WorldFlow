@@ -25,6 +25,7 @@ class Camera {
         // point looking at, and up vector
         // Resets the current orientation and position of the camera
         void SetView(glm::vec3 position, glm::vec3 look_at, glm::vec3 up);
+        void SetViewMatrix(glm::mat4 view) {view_matrix_ = view;}
         // Set projection from frustum parameters: field-of-view,
         // near and far planes, and width and height of viewport
         void SetPerspective(float fov, float near, float far, float w, float h);

@@ -96,7 +96,7 @@ vec3 blinnPhongShading(vec3 worldPos, vec3 normal, vec3 viewDir) {
     vec3 lightDir = normalize(lightPos - worldPos);
     
     // Ambient term
-    vec3 ambient = vec3(0.3);
+    vec3 ambient = vec3(0.2);
     
     // Diffuse term
     float diffuse = max(dot(normal, lightDir), 0.0);
@@ -108,7 +108,7 @@ vec3 blinnPhongShading(vec3 worldPos, vec3 normal, vec3 viewDir) {
     // Combine terms
     vec3 color = pc.baseColor.rgb;  // Base white color
     // return (ambient + diffuse * 0.7 + specular * 0.5) * color * lightIntensity;
-    return (ambient + diffuse * 0.8) * color * lightIntensity;
+    return (ambient + diffuse * 2.5) * color * lightIntensity;
     // return diffuse * color * lightIntensity;
 }
 

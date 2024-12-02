@@ -50,7 +50,7 @@ namespace Constants
 // constexpr bool IsValidationLayersEnabled = true;
 // #endif
 constexpr bool IsValidationLayersEnabled = true;
-constexpr bool VSYNCEnabled = false;
+constexpr bool VSYNCEnabled = true;
 
 constexpr uint32_t FPSMeasurePeriod = 60;
 constexpr uint32_t FrameOverlap = 2;
@@ -61,15 +61,15 @@ constexpr uint32_t PressureIterations = 11;
 constexpr uint64_t StagingBufferSize = 1024ul * 1024ul * 8ul;
 constexpr VkExtent3D DrawImageResolution {2560, 1440, 1};
 
-constexpr size_t VoxelGridResolution = 512;
+constexpr size_t VoxelGridResolution = 256;
 constexpr size_t VoxelGridSize = VoxelGridResolution * VoxelGridResolution * VoxelGridResolution * sizeof(float);
 constexpr float VoxelGridScale = 3.0f;
 
-constexpr uint32_t MeshIdx = 2;
-// constexpr float MeshScale = 0.01;
-constexpr float MeshScale = 0.70;
+constexpr uint32_t MeshIdx = 0;
+constexpr float MeshScale = 0.01;
+// constexpr float MeshScale = 0.60;
 
-constexpr glm::vec3 CameraPosition = glm::vec3(0.0, 0.0, 3.0);
+constexpr glm::vec3 CameraPosition = glm::vec3(2.0, 0.0, -2.0);
 }
 //should be odd to ensure consistency of final result buffer index
 static_assert(Constants::DiffusionIterations % 2 == 1); 
@@ -232,8 +232,8 @@ public:
             resizeSwapchain();
             initCamera();
         }
-        this->_camera.OrbitYaw(glm::radians(30.0) * dt);
-        this->_camera.Update();
+        // this->_camera.OrbitYaw(glm::radians(30.0) * dt);
+        // this->_camera.Update();
         draw(dt);
         this->_frameNumber++;
     }
@@ -425,9 +425,9 @@ private:
             .stepSize = 0.1,
             .gridSize = glm::vec3(Constants::VoxelGridResolution),
             .gridScale = Constants::VoxelGridScale,
-            .lightSource = glm::vec4(50.0, 50.0, 0.0, 1.0),
+            .lightSource = glm::vec4(50.0, 50.0, 12.0, 1.0),
             // .baseColor = glm::vec4(HEXCOLOR(0xFFBF00))
-            .baseColor = glm::vec4(HEXCOLOR(0xFFFFFF))
+            .baseColor = glm::vec4(HEXCOLOR(0x675CFF))
         };
         vkCmdPushConstants(cmd, this->_raytracerPipeline.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(RayTracerPushConstants), &rtpc);
         VkExtent3D groupCounts = getWorkgroupCounts(8);
@@ -461,10 +461,10 @@ private:
         };
         VK_ASSERT(vkBeginCommandBuffer(cmd, &cmdBeginInfo));
 
-        clearImage(cmd, this->_drawImage);
-        vkutil::transition_image(cmd, this->_drawImage.image, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+        // clearImage(cmd, this->_drawImage);
+        // vkutil::transition_image(cmd, this->_drawImage.image, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
         // drawGeometry(cmd, dt);
-        vkutil::transition_image(cmd, this->_drawImage.image, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_GENERAL);
+        // vkutil::transition_image(cmd, this->_drawImage.image, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_GENERAL);
         // updateVoxelVolume(cmd);
         voxelRasterizeGeometry(cmd);
         rayCastVoxelVolume(cmd);
@@ -479,9 +479,9 @@ private:
         vkutil::copy_image_to_image(cmd, drawImage.image, swapchainImage, this->_windowExtent, VkExtent3D{.width = this->_swapchainExtent.width, .height = this->_swapchainExtent.height, .depth = 1});
 
 
-        vkutil::transition_image(cmd, this->_voxelImage.image, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+        // vkutil::transition_image(cmd, this->_voxelImage.image, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
         // vkutil::copy_image_to_image(cmd, this->_voxelImage.image, swapchainImage, this->_voxelImage.imageExtent, VkExtent3D{.width = this->_swapchainExtent.width, .height = this->_swapchainExtent.height, .depth = 1});
-        vkutil::transition_image(cmd, this->_voxelImage.image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_GENERAL);
+        vkutil::transition_image(cmd, this->_voxelImage.image, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_GENERAL);
         clearImage(cmd, this->_voxelImage);
 
         // transition to present format
@@ -966,10 +966,14 @@ private:
         });
         std::cout << "VOXBUFFMEM: " << this->_voxelVolume.info.size << std::endl;
 
+
+
+
+
         // MESHES
         std::vector<std::vector<Vertex>> vertexBuffers;
         std::vector<std::vector<uint32_t>> indexBuffers;
-        if(!loadGltfMeshes({ASSETS_DIRECTORY"/basicmesh.glb"}, vertexBuffers, indexBuffers)) {
+        if(!loadGltfMeshes({ASSETS_DIRECTORY"/xyz.glb"}, vertexBuffers, indexBuffers)) {
             std::cout << "[ERROR] Failed to load meshes" << std::endl;
         }
         for(int m = 0; m < vertexBuffers.size(); m++) {
@@ -1103,7 +1107,7 @@ private:
     {
         //TODO: these need pipeline.descriptorLayout set previously to work
         return createComputePipeline<VoxelizerPushConstants>(SHADER_DIRECTORY"/voxelizer.comp.spv", this->_voxelizerPipeline) &&
-               createComputePipeline<RayTracerPushConstants>(SHADER_DIRECTORY"/voxelTracerAccum.comp.spv", this->_raytracerPipeline);
+               createComputePipeline<RayTracerPushConstants>(SHADER_DIRECTORY"/voxelTracer.comp.spv", this->_raytracerPipeline);
     }
 
     bool initMeshPipeline()
@@ -1140,12 +1144,12 @@ private:
             .set_shaders(vertShader, fragShader)
             .set_input_topology(VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST)
             .set_polygon_mode(VK_POLYGON_MODE_FILL)
-            .set_cull_mode(VK_CULL_MODE_NONE, VK_FRONT_FACE_CLOCKWISE)
+            .set_cull_mode(VK_CULL_MODE_NONE, VK_FRONT_FACE_COUNTER_CLOCKWISE)
             .set_multisampling_none()
             .enable_blending_additive()
-            .disable_depthtest()
+            .enable_depthtest(false, VK_COMPARE_OP_ALWAYS)
             .set_color_attachment_format(this->_drawImage.imageFormat)
-            .set_depth_format(VK_FORMAT_UNDEFINED)
+            .set_depth_format(VK_FORMAT_D32_SFLOAT)
             .build_pipeline(this->_device);
 
         vkDestroyShaderModule(this->_device, fragShader, nullptr);
@@ -1252,12 +1256,13 @@ private:
         this->_origin.SetPosition(glm::vec3(0.0, 0.0, 0.0));
         this->_origin.Update();
 
-        this->_camera.SetView(Constants::CameraPosition, glm::vec3(0.0), glm::vec3(0.0, 1.0, 0.0));
+        // this->_camera.SetView(Constants::CameraPosition, glm::vec3(0.0, 0.0, 0.0), glm::vec3(0.0, 1.0, 0.0));
+        this->_camera.SetViewMatrix(glm::lookAt(Constants::CameraPosition, glm::vec3(0, 0, 0), glm::vec3(0, 1, 0)));
         this->_camera.SetPerspective(glm::perspective(glm::radians(70.f), (float)this->_windowExtent.width / (float)_windowExtent.height, 0.1f, 1000.0f));
-        this->_camera.Attach(&this->_origin);
-        this->_camera.OrbitYaw(PI/2.0f);
-        this->_camera.OrbitPitch(PI/2.0f);
-        this->_camera.SetupViewMatrix();
+        // this->_camera.Attach(&this->_origin);
+        // this->_camera.OrbitYaw(PI/2.0f);
+        // this->_camera.OrbitPitch(PI/2.0f);
+        // this->_camera.SetupViewMatrix();
 
         return true;
     }
@@ -1347,6 +1352,7 @@ private:
     AllocatedBuffer _stagingBuffer;
     AllocatedBuffer _voxelVolume;
     AllocatedBuffer _voxelInfoBuffer;
+    AllocatedBuffer _voxelFragmentCounter;
     VkSampler _simpleSampler {};
 
     // Meshes
@@ -1376,7 +1382,7 @@ int main(int argc, char* argv[])
     // exit(0);
     // }
 
-    Renderer renderer("VulkanFlow", 600, 600);
+    Renderer renderer("VulkanFlow", 900, 900);
     if(!renderer.Init()) {
         std::cout << "[ERROR] Failed to initialize renderer" << std::endl;
         return EXIT_FAILURE;
