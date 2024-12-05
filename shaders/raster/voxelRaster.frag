@@ -54,7 +54,7 @@ void main()
         pos = vec3(temp.z, temp.y, d - temp.x);
         // discard;
     } else if(axis == 1) {
-        pos = vec3(temp.x,  temp.z, temp.y);
+        pos = vec3(temp.x, d - temp.z, d - temp.y);
         // discard;
     } else {
         pos = vec3(temp.x, temp.y, temp.z);

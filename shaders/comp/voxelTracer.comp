@@ -41,6 +41,7 @@ uint getVoxelIndex(vec3 pos) {
 // Helper function to get ray direction from pixel coordinates
 vec3 getRayDirection(vec2 pixelPos) {
     vec2 ndc = (pixelPos / pc.screenSize) * 2.0 - 1.0;
+    // ndc.y = -ndc.y;
     
     vec4 viewSpace = pc.inverseProjection * vec4(ndc, 1.0, 1.0);
     viewSpace /= viewSpace.w;
@@ -235,12 +236,13 @@ void main() {
     }
     
     // Calculate ray direction for this pixel
-    vec3 rayDir = getRayDirection(vec2(pixelPos) + 0.5);
+    vec3 rayDir = getRayDirection(vec2(pixelPos));
     
     // Trace ray and accumulate color
     vec4 voxelColor = traceVoxels(pc.cameraPos, rayDir);
     vec4 storedColor = imageLoad(outputImage, pixelPos);
 
     // Write result to output image with blending
+    // imageStore(outputImage, ivec2(pixelPos.x, imageSize.y - pixelPos.y), vec4(mix(voxelColor.rgb, storedColor.rgb, (1-voxelColor.a)), 1.0));
     imageStore(outputImage, pixelPos, vec4(mix(voxelColor.rgb, storedColor.rgb, (1-voxelColor.a)), 1.0));
 }

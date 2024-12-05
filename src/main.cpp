@@ -62,13 +62,13 @@ constexpr uint32_t PressureIterations = 11;
 constexpr uint64_t StagingBufferSize = 1024ul * 1024ul * 8ul;
 constexpr VkExtent3D DrawImageResolution {2560, 1440, 1};
 
-constexpr size_t VoxelGridResolution = 512 + 256;
+constexpr size_t VoxelGridResolution = 256;
 constexpr size_t VoxelGridSize = VoxelGridResolution * VoxelGridResolution * VoxelGridResolution * sizeof(float);
-constexpr float VoxelGridScale = 3.0f;
+constexpr float VoxelGridScale = 2.0f;
 
-constexpr uint32_t MeshIdx = 0;
-constexpr float MeshScale = 0.01;
-// constexpr float MeshScale = 0.60;
+constexpr uint32_t MeshIdx = 2;
+// constexpr float MeshScale = 0.01;
+constexpr float MeshScale = 0.60;
 
 // constexpr glm::vec3 CameraPosition = glm::vec3(0.1, -0.15, -0.1);
 constexpr glm::vec3 CameraPosition = glm::vec3(0.0, 0.0, -3.0);
@@ -215,6 +215,8 @@ public:
             destroyBuffer(mesh.vertexBuffer);
             destroyBuffer(mesh.indexBuffer);
         }
+        destroyBuffer(this->_lineMesh.vertexBuffer);
+        destroyBuffer(this->_lineMesh.indexBuffer);
 
         this->_deletionQueue.flush();
         destroySwapchain();
@@ -299,7 +301,7 @@ private:
                 glm::vec2 look = mouse.move * mouse_sens;
                 if(this->_mouseButtons[SDL_BUTTON_LEFT]) {
                     this->_camera.OrbitYaw(-look.x);
-                    this->_camera.OrbitPitch(look.y);
+                    this->_camera.OrbitPitch(-look.y);
                 }
             }
 
@@ -349,6 +351,43 @@ private:
             .depth = 1
         };
     }
+    
+    void drawLines(VkCommandBuffer cmd)
+    {
+        // vkCmdSetLineWidth(cmd, 2.0);
+        VkRenderingAttachmentInfo colorAttachmentInfo = vkinit::attachment_info(this->_drawImage.imageView, nullptr, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+        VkRenderingInfo renderInfo = vkinit::rendering_info(VkExtent2D{this->_windowExtent.width, this->_windowExtent.height}, &colorAttachmentInfo, nullptr);
+        vkCmdBeginRendering(cmd, &renderInfo);
+        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, this->_linePipeline.pipeline);
+
+        VkViewport viewport = {
+            .x = 0,
+            .y = (float)this->_windowExtent.height,
+            .width = (float)this->_windowExtent.width,
+            .height = -(float)this->_windowExtent.height,
+            .minDepth = 0.0,
+            .maxDepth = 1.0
+        };
+
+        vkCmdSetViewport(cmd, 0, 1, &viewport);
+
+        VkRect2D scissor = {
+            .offset = { .x = 0, .y = 0 },
+            .extent = { .width = this->_windowExtent.width, .height = this->_windowExtent.height }
+        };
+
+        vkCmdSetScissor(cmd, 0, 1, &scissor);
+
+        GraphicsPushConstants pc = {
+            .worldMatrix = this->_camera.GetProjectionMatrix() * this->_camera.GetViewMatrix() * glm::scale(glm::vec3(Constants::VoxelGridScale)),
+            .vertexBuffer = this->_lineMesh.vertexBufferAddress
+        };
+
+        vkCmdPushConstants(cmd, this->_linePipeline.layout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(GraphicsPushConstants), &pc);
+        vkCmdBindIndexBuffer(cmd, this->_lineMesh.indexBuffer.buffer, 0, VK_INDEX_TYPE_UINT32);
+        vkCmdDrawIndexed(cmd, this->_lineMesh.numIndices, 1, 0, 0, 0);
+        vkCmdEndRendering(cmd);
+    }
 
     void drawGeometry(VkCommandBuffer cmd, double dt)
     {
@@ -381,6 +420,7 @@ private:
         GraphicsPushConstants pc = {
             // .worldMatrix = this->_camera.projection * this->_camera.view,
             .worldMatrix = this->_camera.GetProjectionMatrix() * this->_camera.GetViewMatrix() * glm::scale(glm::vec3(Constants::MeshScale)),
+            // .worldMatrix = this->_camera.GetProjectionMatrix() * this->_camera.GetViewMatrix(),
             .vertexBuffer = this->_testMeshes[Constants::MeshIdx].vertexBufferAddress
         };
 
@@ -421,9 +461,9 @@ private:
 
         VkViewport viewport = {
             .x = 0,
-            .y = (float)Constants::VoxelGridResolution,
+            .y = 0,
             .width = (float)Constants::VoxelGridResolution,
-            .height = -(float)Constants::VoxelGridResolution,
+            .height = (float)Constants::VoxelGridResolution,
             .minDepth = 0.0,
             .maxDepth = 1.0
         };
@@ -491,9 +531,12 @@ private:
         vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, this->_raytracerPipeline.pipeline);
         vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, this->_raytracerPipeline.layout, 0, 1, this->_raytracerPipeline.descriptorSets.data(), 0, nullptr);
 
+        glm::mat4 view = this->_camera.GetViewMatrix();
+        glm::mat4 projection = this->_camera.GetProjectionMatrix();
+        projection[1][1] *= -1;
         RayTracerPushConstants rtpc = {
-            .inverseProjection = glm::inverse(this->_camera.GetProjectionMatrix()),
-            .inverseView = glm::inverse(this->_camera.GetViewMatrix()),
+            .inverseProjection = glm::inverse(projection),
+            .inverseView = glm::inverse(view),
             .cameraPos = glm::inverse(this->_camera.GetViewMatrix()) * glm::vec4(0.0, 0.0, 0.0, 1.0),
             .nearPlane = 0.1f,
             .screenSize = glm::vec2(this->_windowExtent.width, this->_windowExtent.height),
@@ -540,9 +583,10 @@ private:
         VK_ASSERT(vkBeginCommandBuffer(cmd, &cmdBeginInfo));
 
         clearImage(cmd, this->_drawImage);
-        // vkutil::transition_image(cmd, this->_drawImage.image, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
-        // drawGeometry(cmd, dt);
-        // vkutil::transition_image(cmd, this->_drawImage.image, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_GENERAL);
+        vkutil::transition_image(cmd, this->_drawImage.image, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+        drawGeometry(cmd, dt);
+        drawLines(cmd);
+        vkutil::transition_image(cmd, this->_drawImage.image, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_GENERAL);
 
         // updateVoxelVolume(cmd);
         voxelRasterizeGeometry(cmd);
@@ -1062,21 +1106,44 @@ private:
             VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
             VMA_MEMORY_USAGE_CPU_ONLY
         );
-        uint32_t zero = 0;
-        // std::memcpy(this->_voxelFragmentCounter.allocation->GetMappedData(), &zero, sizeof(uint32_t));
-        // std::memset(this->_voxelFragmentCounter.allocation->GetMappedData(), 0, sizeof(VoxelFragmentCounter));
 
         // MESHES
         std::vector<std::vector<Vertex>> vertexBuffers;
         std::vector<std::vector<uint32_t>> indexBuffers;
-        if(!loadGltfMeshes({ASSETS_DIRECTORY"/xyz.glb"}, vertexBuffers, indexBuffers)) {
+        if(!loadGltfMeshes({ASSETS_DIRECTORY"/basicmesh.glb"}, vertexBuffers, indexBuffers)) {
             std::cout << "[ERROR] Failed to load meshes" << std::endl;
         }
         for(int m = 0; m < vertexBuffers.size(); m++) {
             this->_testMeshes.emplace_back(uploadMesh(vertexBuffers[m], indexBuffers[m]));
         }
 
+        // TEMP
 
+        std::vector<Vertex> lineVertices = {
+            {.position = glm::vec3(-0.5, -0.5, -0.5)},
+            {.position = glm::vec3(0.5, -0.5, -0.5)},
+            {.position = glm::vec3(0.5, 0.5, -0.5)},
+            {.position = glm::vec3(-0.5, 0.5, -0.5)},
+            {.position = glm::vec3(-0.5, -0.5, 0.5)},
+            {.position = glm::vec3(0.5, -0.5, 0.5)},
+            {.position = glm::vec3(0.5, 0.5, 0.5)},
+            {.position = glm::vec3(-0.5, 0.5, 0.5)}
+        };
+        std::vector<uint32_t> lineIndices = {
+            0, 1,
+            1, 2,
+            2, 3,
+            3, 0,
+            4, 5,
+            5, 6,
+            6, 7,
+            7, 4,
+            0, 4,
+            1, 5,
+            2, 6,
+            3, 7
+        };
+        this->_lineMesh = uploadMesh(lineVertices, lineIndices);
         return true;
     }
 
@@ -1326,6 +1393,59 @@ private:
         return true;        
     }
 
+    bool initLinePipeline()
+    {
+        const VkPushConstantRange pushConstantsRange = {
+            .stageFlags = VK_SHADER_STAGE_VERTEX_BIT,
+            .offset = 0,
+            .size = sizeof(GraphicsPushConstants),
+        };
+
+        VkPipelineLayoutCreateInfo pipelineLayoutInfo = {
+            .sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
+            .pushConstantRangeCount = 1,
+            .pPushConstantRanges = &pushConstantsRange
+        };
+
+        VK_CHECK(vkCreatePipelineLayout(this->_device, &pipelineLayoutInfo, nullptr, &this->_linePipeline.layout));
+
+        VkShaderModule fragShader;
+        if(!vkutil::load_shader_module(SHADER_DIRECTORY"/line.frag.spv", this->_device, &fragShader)) {
+            std::cout << "[ERROR] Failed to load fragment shader" << std::endl;
+            return false;
+        }
+
+        VkShaderModule vertShader;
+        if(!vkutil::load_shader_module(SHADER_DIRECTORY"/line.vert.spv", this->_device, &vertShader)) {
+            std::cout << "[ERROR] Failed to load vertex shader" << std::endl;
+            return false;
+        }
+
+        PipelineBuilder builder;
+        builder._pipelineLayout = this->_linePipeline.layout;
+        this->_linePipeline.pipeline = builder
+            .set_shaders(vertShader, fragShader)
+            .set_input_topology(VK_PRIMITIVE_TOPOLOGY_LINE_LIST)
+            .set_polygon_mode(VK_POLYGON_MODE_FILL)
+            .set_cull_mode(VK_CULL_MODE_NONE, VK_FRONT_FACE_COUNTER_CLOCKWISE)
+            .set_multisampling_none()
+            .enable_blending_additive()
+            .enable_depthtest(false, VK_COMPARE_OP_ALWAYS)
+            .set_color_attachment_format(this->_drawImage.imageFormat)
+            .set_depth_format(VK_FORMAT_D32_SFLOAT)
+            .build_pipeline(this->_device);
+
+        vkDestroyShaderModule(this->_device, fragShader, nullptr);
+        vkDestroyShaderModule(this->_device, vertShader, nullptr);
+
+        this->_deletionQueue.push([this]() {
+            vkDestroyPipelineLayout(this->_device, this->_linePipeline.layout, nullptr);
+            vkDestroyPipeline(this->_device, this->_linePipeline.pipeline, nullptr);
+        });
+
+        return true;
+    }
+
     bool initPipelines()
     {
         if(!initComputePipelines()) {
@@ -1335,6 +1455,11 @@ private:
 
         if(!initMeshPipeline()) {
             std::cout << "[ERROR] Failed to init mesh graphics pipeline" << std::endl;
+            return false;
+        }
+
+        if(!initLinePipeline()) {
+            std::cout << "[ERROR] Failed to init line graphics pipeline" << std::endl;
             return false;
         }
 
@@ -1446,6 +1571,7 @@ private:
     // Triangle Rasterization 
     GraphicsPipeline _meshPipeline;
     GraphicsPipeline _voxelRasterPipeline;
+    GraphicsPipeline _linePipeline;
 
     // Shader Resources
     AllocatedImage _drawImage;
@@ -1458,6 +1584,7 @@ private:
 
     // Meshes
     std::vector<GPUMeshBuffers> _testMeshes;
+    GPUMeshBuffers _lineMesh;
 
 };
 
