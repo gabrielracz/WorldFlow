@@ -29,14 +29,7 @@ void main()
 	Vertex v = pc.vertexBuffer.vertices[gl_VertexIndex];
 
 	//output the position of each vertex
-	mat4 scaling = mat4(
-		0.5, 0.0, 0.0, 0.0,
-		0.0, 0.5, 0.0, 0.0,
-		0.0, 0.0, 0.5, 0.0,
-		0.0, 0.0, 0.0, 1.0
-	);
 	gl_Position = pc.transform * vec4(v.position, 1.0);
-	// gl_Position = scaling * vec4(v.position, 1.0);
 	outColor = v.color.xyz;
 	outUV = vec2(v.uv_x, v.uv_y);
     outNormal = v.normal;

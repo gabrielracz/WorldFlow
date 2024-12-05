@@ -24,7 +24,7 @@ public:
 //< pipeline
     PipelineBuilder& set_shaders(VkShaderModule vertexShader, VkShaderModule fragmentShader, VkShaderModule geometryShader = nullptr);
     PipelineBuilder& set_input_topology(VkPrimitiveTopology topology);
-    PipelineBuilder& set_polygon_mode(VkPolygonMode mode);
+    PipelineBuilder& set_polygon_mode(VkPolygonMode mode, float lineWidth = 1.0);
     PipelineBuilder& set_cull_mode(VkCullModeFlags cullMode, VkFrontFace frontFace);
     PipelineBuilder& set_multisampling_none();
     PipelineBuilder& disable_blending();

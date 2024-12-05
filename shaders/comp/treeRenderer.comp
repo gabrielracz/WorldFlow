@@ -1,0 +1,20 @@
+#version 450
+#extension GL_EXT_buffer_reference : require
+
+layout (buffer_reference, std430) buffer VertexBuffer {
+    vec3 vertices[];
+};
+
+layout (buffer_reference, std430) buffer IndexBuffer {
+    uint indices[];
+};
+
+layout (push_constant) uniform PushConstants {
+    VertexBuffer vertexBuffer;
+    IndexBuffer indexBuffer;
+};
+
+void main()
+{
+
+}

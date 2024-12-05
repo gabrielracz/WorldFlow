@@ -133,10 +133,10 @@ PipelineBuilder& PipelineBuilder::set_input_topology(VkPrimitiveTopology topolog
 //< set_topo
 
 //> set_poly
-PipelineBuilder& PipelineBuilder::set_polygon_mode(VkPolygonMode mode)
+PipelineBuilder& PipelineBuilder::set_polygon_mode(VkPolygonMode mode, float lineWidth)
 {
     _rasterizer.polygonMode = mode;
-    _rasterizer.lineWidth = 1.f;
+    _rasterizer.lineWidth = lineWidth;
     return *this;
 }
 //< set_poly

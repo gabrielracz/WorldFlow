@@ -19,6 +19,16 @@ layout(std430, binding = 2) buffer VoxelFragmentListInfo {
     uint fragCounter;
 };
 
+struct VoxelFragment
+{
+    vec3 position;
+    uint gridIndex;
+};
+
+layout(std430, binding = 3) buffer VoxelFragmentList {
+    VoxelFragment fragList[];
+};
+
 layout (location = 0) out vec4 outColour;
 
 uint getVoxelIndex(vec3 pos) {
@@ -61,7 +71,17 @@ void main()
         // discard;
     }
 
-    grid[getIndex(uvec3(floor(pos)))] = 1.0;
+    // direct regular grid insert
+    uint gridIndex = getIndex(uvec3(floor(pos)));
+    grid[gridIndex] = 1.0;
+    
+    // orthographic image visulzation
     outColour = vec4((1.0 - inDepth), 0.0, 0.0, 1.0);
-    uint fragIndex = atomicAdd(fragCounter, 1);
+
+    // insert into voxel fragment list for octree placement
+    uint fragListIndex = atomicAdd(fragCounter, 1);
+    VoxelFragment voxelFrag;
+    voxelFrag.position = pos;
+    voxelFrag.gridIndex = gridIndex;
+    fragList[fragListIndex] = voxelFrag;
 }

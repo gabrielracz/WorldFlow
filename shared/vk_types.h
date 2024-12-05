@@ -91,6 +91,7 @@ struct GPUMeshBuffers {
     AllocatedBuffer indexBuffer;
     AllocatedBuffer vertexBuffer;
     VkDeviceAddress vertexBufferAddress;
+    VkDeviceAddress indexBufferAddress {};
     size_t numIndices;
     size_t numVertices;
 };
