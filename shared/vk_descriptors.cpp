@@ -1,6 +1,6 @@
 ﻿#include <vk_descriptors.h>
 #include "vk_initializers.h"
-#include "utils.hpp"
+#include "defines.hpp"
 
 
 DescriptorLayoutBuilder DescriptorLayoutBuilder::newLayout()

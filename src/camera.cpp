@@ -11,7 +11,7 @@
 #include <iostream>
 
 #include "camera.hpp"
-#include "utils.hpp"
+#include "defines.hpp"
 
 Camera::Camera(void){
 }

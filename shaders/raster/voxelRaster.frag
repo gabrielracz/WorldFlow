@@ -15,6 +15,10 @@ layout(std140, binding = 1) uniform VoxelInfo {
     float gridScale;
 };
 
+layout(std430, binding = 2) buffer VoxelFragmentListInfo {
+    uint fragCounter;
+};
+
 layout (location = 0) out vec4 outColour;
 
 uint getVoxelIndex(vec3 pos) {
@@ -59,4 +63,5 @@ void main()
 
     grid[getIndex(uvec3(floor(pos)))] = 1.0;
     outColour = vec4((1.0 - inDepth), 0.0, 0.0, 1.0);
+    uint fragIndex = atomicAdd(fragCounter, 1);
 }

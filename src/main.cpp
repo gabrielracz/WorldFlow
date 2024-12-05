@@ -19,7 +19,7 @@
 #include <glm/gtx/string_cast.hpp>
 
 #include "path_config.hpp"
-#include "utils.hpp"
+#include "defines.hpp"
 #include "camera.hpp"
 #include "transform.hpp"
 
@@ -41,6 +41,7 @@
 #include <cstddef>
 #include <deque>
 #include <csignal>
+#include <unordered_map>
 
 namespace Constants
 {
@@ -61,7 +62,7 @@ constexpr uint32_t PressureIterations = 11;
 constexpr uint64_t StagingBufferSize = 1024ul * 1024ul * 8ul;
 constexpr VkExtent3D DrawImageResolution {2560, 1440, 1};
 
-constexpr size_t VoxelGridResolution = 256;
+constexpr size_t VoxelGridResolution = 512 + 256;
 constexpr size_t VoxelGridSize = VoxelGridResolution * VoxelGridResolution * VoxelGridResolution * sizeof(float);
 constexpr float VoxelGridScale = 3.0f;
 
@@ -69,7 +70,8 @@ constexpr uint32_t MeshIdx = 0;
 constexpr float MeshScale = 0.01;
 // constexpr float MeshScale = 0.60;
 
-constexpr glm::vec3 CameraPosition = glm::vec3(2.0, 0.0, -2.0);
+// constexpr glm::vec3 CameraPosition = glm::vec3(0.1, -0.15, -0.1);
+constexpr glm::vec3 CameraPosition = glm::vec3(0.0, 0.0, -3.0);
 }
 //should be odd to ensure consistency of final result buffer index
 static_assert(Constants::DiffusionIterations % 2 == 1); 
@@ -133,6 +135,11 @@ struct VoxelInfo
     float gridScale;
 };
 
+struct VoxelFragmentCounter
+{
+    uint32_t fragCount;
+};
+
 struct RayTracerPushConstants
 {
     glm::mat4 inverseProjection;  // Inverse projection matrix
@@ -162,6 +169,15 @@ struct GraphicsPushConstants
 //     glm::mat4 view;
 //     glm::mat4 projection;
 // };
+
+typedef std::unordered_map<int, bool> MouseMap;
+struct Mouse 
+{
+    bool first_captured = true;
+    bool captured = true;
+    glm::vec2 prev;
+    glm::vec2 move;
+};
 
 static inline void
 printDeviceProperties(vkb::PhysicalDevice& dev)
@@ -219,6 +235,7 @@ public:
                                 initDescriptors() &&
                                 initPipelines() &&
                                 initCamera()
+                                // preProcess()
                                 ;
         return this->_isInitialized;
     }
@@ -231,9 +248,10 @@ public:
         if(this->_resizeRequested) {
             resizeSwapchain();
             initCamera();
+            this->_mouse.first_captured = true;
         }
         // this->_camera.OrbitYaw(glm::radians(30.0) * dt);
-        // this->_camera.Update();
+        this->_camera.Update();
         draw(dt);
         this->_frameNumber++;
     }
@@ -260,8 +278,35 @@ private:
         while(SDL_PollEvent(&event)) {
             if(event.type == SDL_QUIT) {
                 this->_shouldClose = true;
+            } 
+            
+            else if(event.type == SDL_MOUSEBUTTONDOWN) {
+                this->_mouseButtons[event.button.button] = true;
+            } else if(event.type == SDL_MOUSEBUTTONUP) {
+                this->_mouseButtons[event.button.button] = false;
+            }
+            
+            else if(event.type == SDL_MOUSEMOTION) {
+                Mouse& mouse = this->_mouse;
+                if (mouse.first_captured) {
+                    mouse.prev = {event.motion.x, event.motion.y};
+                    mouse.first_captured = false;
+                }
+                mouse.move = glm::vec2(event.motion.x, event.motion.y) - mouse.prev;
+                mouse.prev = {event.motion.x, event.motion.y};
+
+                float mouse_sens = -0.003f;
+                glm::vec2 look = mouse.move * mouse_sens;
+                if(this->_mouseButtons[SDL_BUTTON_LEFT]) {
+                    this->_camera.OrbitYaw(-look.x);
+                    this->_camera.OrbitPitch(look.y);
+                }
             }
 
+            else if(event.type == SDL_MOUSEWHEEL) {
+                float delta = -event.wheel.preciseY * 0.1f;
+                this->_camera.distance += delta;
+            }
         }
     }
 
@@ -347,6 +392,26 @@ private:
 
     void voxelRasterizeGeometry(VkCommandBuffer cmd)
     {
+        // Zero the counter
+        // std::memset(this->_voxelFragmentCounter.allocation->GetMappedData(), 0, sizeof(VoxelFragmentCounter));
+        vkCmdFillBuffer(cmd, this->_voxelFragmentCounter.buffer, 0, VK_WHOLE_SIZE, 0);
+        // Synchronization barrier
+        VkMemoryBarrier2 memBarrier = {
+            .sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2,
+            .srcStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT,
+            .srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT,
+            .dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+            .dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT,
+        };
+
+        VkDependencyInfo dependencyInfo = {
+            .sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO,
+            .memoryBarrierCount = 1,
+            .pMemoryBarriers = &memBarrier
+        };
+
+        vkCmdPipelineBarrier2(cmd, &dependencyInfo);
+
         vkutil::transition_image(cmd, this->_voxelImage.image, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
         VkRenderingAttachmentInfo colorAttachmentInfo = vkinit::attachment_info(this->_voxelImage.imageView, nullptr, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
         VkRenderingInfo renderInfo = vkinit::rendering_info(VkExtent2D{Constants::VoxelGridResolution, Constants::VoxelGridResolution}, &colorAttachmentInfo, nullptr);
@@ -402,15 +467,26 @@ private:
 
     void rayCastVoxelVolume(VkCommandBuffer cmd)
     {
-        VkBufferMemoryBarrier bufferBarrier = {
-            .sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER,
-            .srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT,
-            .dstAccessMask = VK_ACCESS_SHADER_READ_BIT,
-            .buffer = this->_voxelVolume.buffer,
-            .offset = 0,
-            .size = Constants::VoxelGridSize,
+        // wait for rasterizer to complete
+        VkBufferMemoryBarrier bufferBarriers[] = {
+            {
+                .sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER,
+                .srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT,
+                .dstAccessMask = VK_ACCESS_SHADER_READ_BIT,
+                .buffer = this->_voxelVolume.buffer,
+                .offset = 0,
+                .size = Constants::VoxelGridSize,
+            },
+            {
+                .sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER,
+                .srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT,
+                .dstAccessMask = VK_ACCESS_SHADER_READ_BIT,
+                .buffer = this->_voxelFragmentCounter.buffer,
+                .offset = 0,
+                .size = sizeof(VoxelFragmentCounter)
+            }
         };
-        vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, nullptr, 1, &bufferBarrier, 0, nullptr);
+        vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_ALL_GRAPHICS_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, nullptr, 2, bufferBarriers, 0, nullptr);
 
         vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, this->_raytracerPipeline.pipeline);
         vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, this->_raytracerPipeline.layout, 0, 1, this->_raytracerPipeline.descriptorSets.data(), 0, nullptr);
@@ -425,7 +501,7 @@ private:
             .stepSize = 0.1,
             .gridSize = glm::vec3(Constants::VoxelGridResolution),
             .gridScale = Constants::VoxelGridScale,
-            .lightSource = glm::vec4(50.0, 50.0, 12.0, 1.0),
+            .lightSource = glm::vec4(30.0, 50.0, 10.0, 1.0),
             // .baseColor = glm::vec4(HEXCOLOR(0xFFBF00))
             .baseColor = glm::vec4(HEXCOLOR(0x675CFF))
         };
@@ -436,6 +512,7 @@ private:
 
     bool draw(double dt)
     {
+        // std::this_thread::sleep_for(std::chrono::milliseconds(1000));
         // wait for gpu to be done with last frame and clean
         VK_ASSERT(vkWaitForFences(this->_device, 1, &getCurrentFrame().renderFence, true, Constants::TimeoutNs));
         VK_ASSERT(vkResetFences(this->_device, 1, &getCurrentFrame().renderFence));
@@ -454,6 +531,7 @@ private:
         VkCommandBuffer cmd = getCurrentFrame().commandBuffer;
         VK_ASSERT(vkResetCommandBuffer(cmd, 0)); // we can safely reset as we waited on the fence
 
+
         // begin recording commands
         VkCommandBufferBeginInfo cmdBeginInfo {
             .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
@@ -461,14 +539,14 @@ private:
         };
         VK_ASSERT(vkBeginCommandBuffer(cmd, &cmdBeginInfo));
 
-        // clearImage(cmd, this->_drawImage);
+        clearImage(cmd, this->_drawImage);
         // vkutil::transition_image(cmd, this->_drawImage.image, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
         // drawGeometry(cmd, dt);
         // vkutil::transition_image(cmd, this->_drawImage.image, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_GENERAL);
+
         // updateVoxelVolume(cmd);
         voxelRasterizeGeometry(cmd);
         rayCastVoxelVolume(cmd);
-
 
         // prepare drawImage to swapchainImage copy
         AllocatedImage& drawImage = this->_drawImage;
@@ -505,7 +583,8 @@ private:
             .sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO,
             .semaphore = getCurrentFrame().renderSemaphore,
             .value = 1,
-            .stageMask = VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT
+            // .stageMask = VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT | VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT
+            .stageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT
         };
         VkSubmitInfo2 queueSubmitInfo = {
             .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO_2,
@@ -536,6 +615,18 @@ private:
         if(res == VK_ERROR_OUT_OF_DATE_KHR) {
             this->_resizeRequested = true;
         }
+        return true;
+    }
+
+    bool preProcess()
+    {
+        immediateSubmit([&](VkCommandBuffer cmd) {
+            voxelRasterizeGeometry(cmd);
+        });
+        VoxelFragmentCounter fragCounter;
+        std::memcpy(&fragCounter, this->_voxelFragmentCounter.allocation->GetMappedData(), sizeof(VoxelFragmentCounter));
+        std::cout << "Voxel Fragment Count: " << fragCounter.fragCount << std::endl;
+        // exit(0);
         return true;
     }
 
@@ -966,9 +1057,14 @@ private:
         });
         std::cout << "VOXBUFFMEM: " << this->_voxelVolume.info.size << std::endl;
 
-
-
-
+        this->_voxelFragmentCounter = createBuffer(
+            sizeof(VoxelFragmentCounter),
+            VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+            VMA_MEMORY_USAGE_CPU_ONLY
+        );
+        uint32_t zero = 0;
+        // std::memcpy(this->_voxelFragmentCounter.allocation->GetMappedData(), &zero, sizeof(uint32_t));
+        // std::memset(this->_voxelFragmentCounter.allocation->GetMappedData(), 0, sizeof(VoxelFragmentCounter));
 
         // MESHES
         std::vector<std::vector<Vertex>> vertexBuffers;
@@ -979,6 +1075,7 @@ private:
         for(int m = 0; m < vertexBuffers.size(); m++) {
             this->_testMeshes.emplace_back(uploadMesh(vertexBuffers[m], indexBuffers[m]));
         }
+
 
         return true;
     }
@@ -1022,12 +1119,14 @@ private:
         this->_voxelRasterPipeline.descriptorLayout = DescriptorLayoutBuilder::newLayout()
             .add_binding(0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER)
             .add_binding(1, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER)
+            .add_binding(2, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER)
             .build(this->_device, VK_SHADER_STAGE_FRAGMENT_BIT);
         this->_voxelRasterPipeline.descriptorSets.push_back(this->_descriptorPool.allocateSet(this->_device, this->_voxelRasterPipeline.descriptorLayout));
         this->_descriptorWriter
             .clear()
             .write_buffer(0, this->_voxelVolume.buffer, this->_voxelVolume.info.size, 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER)
             .write_buffer(1, this->_voxelInfoBuffer.buffer, sizeof(VoxelInfo), 0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER)
+            .write_buffer(2, this->_voxelFragmentCounter.buffer, sizeof(VoxelFragmentCounter), 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER)
             .update_set(this->_device, this->_voxelRasterPipeline.descriptorSets[0]);
         
         // VOXEL RENDERER
@@ -1253,16 +1352,16 @@ private:
         // this->_camera.view = glm::translate(-this->_camera.pos) * glm::rotate(glm::radians(-80.0f), glm::vec3(0.0, -1.0, 0.0));
         // this->_camera.view = glm::lookAt(this->_camera.pos, glm::vec3(0, 0, 0), glm::vec3(0, 1, 0));
         // this->_camera.projection = glm::perspective(glm::radians(70.f), (float)this->_windowExtent.width / (float)_windowExtent.height, 0.1f, 1000.0f);
-        this->_origin.SetPosition(glm::vec3(0.0, 0.0, 0.0));
+        this->_origin.SetPosition(glm::vec3(0.0, Constants::CameraPosition.y, 0.0));
         this->_origin.Update();
 
-        // this->_camera.SetView(Constants::CameraPosition, glm::vec3(0.0, 0.0, 0.0), glm::vec3(0.0, 1.0, 0.0));
-        this->_camera.SetViewMatrix(glm::lookAt(Constants::CameraPosition, glm::vec3(0, 0, 0), glm::vec3(0, 1, 0)));
-        this->_camera.SetPerspective(glm::perspective(glm::radians(70.f), (float)this->_windowExtent.width / (float)_windowExtent.height, 0.1f, 1000.0f));
-        // this->_camera.Attach(&this->_origin);
-        // this->_camera.OrbitYaw(PI/2.0f);
-        // this->_camera.OrbitPitch(PI/2.0f);
-        // this->_camera.SetupViewMatrix();
+        this->_camera.SetView(Constants::CameraPosition, glm::vec3(0.0, 0.0, 0.0), glm::vec3(0.0, 1.0, 0.0));
+        // this->_camera.SetViewMatrix(glm::lookAt(Constants::CameraPosition, glm::vec3(0, 0, 0), glm::vec3(0, 1, 0)));
+        this->_camera.SetPerspective(glm::perspective(glm::radians(70.f), (float)this->_windowExtent.width / (float)_windowExtent.height, 0.01f, 1000.0f));
+        this->_camera.Attach(&this->_origin);
+        this->_camera.OrbitYaw(PI/2.0f);
+        this->_camera.OrbitPitch(PI/2.0f);
+        this->_camera.SetupViewMatrix();
 
         return true;
     }
@@ -1302,6 +1401,8 @@ private:
     std::atomic<bool> _shouldClose {false};
     double _elapsed {};
     double _lastFpsMeasurementTime {};
+    Mouse _mouse;
+    MouseMap _mouseButtons;
 
     /* VULKAN */
     VkInstance _instance {};
