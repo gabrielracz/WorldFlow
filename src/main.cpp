@@ -348,6 +348,8 @@ private:
                     case SDL_KeyCode::SDLK_q:
                         this->_shouldRenderGeometry = !this->_shouldRenderGeometry;
                         break;
+                    case SDL_KeyCode::SDLK_w:
+                        this->_shouldSubdivide = true;
                     default:
                         break;
                 }
@@ -604,7 +606,8 @@ private:
             .indexBuffer = this->_treeMesh.indexBufferAddress
         };
         vkCmdPushConstants(cmd, this->_treeLineGenerator.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(TreeRendererPushConstants), &pc);
-        vkCmdDispatch(cmd, Constants::NodeChildren, 1, 1);
+        // vkCmdDispatch(cmd, Constants::NodeChildren, 1, 1);
+        vkCmdDispatchIndirect(cmd, this->_treeIndirectDispatchBuffer.buffer, 0);
         VkBufferMemoryBarrier bufferBarriers[] = {
             {
                 .sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER,
@@ -720,12 +723,15 @@ private:
         // updateVoxelVolume(cmd);
         voxelRasterizeGeometry(cmd);
 
-        generateTreeGeometry(cmd);
         generateTreeIndirectCommands(cmd);
+        generateTreeGeometry(cmd);
         vkutil::transition_image(cmd, this->_drawImage.image, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
         drawLines(cmd);
         vkutil::transition_image(cmd, this->_drawImage.image, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_GENERAL);
-        subdivideTree(cmd);
+        if(this->_shouldSubdivide) {
+            subdivideTree(cmd);
+            this->_shouldSubdivide = false;
+        }
 
         if(this->_shouldRenderGeometry) {
             vkutil::transition_image(cmd, this->_drawImage.image, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
@@ -1816,6 +1822,7 @@ private:
     Mouse _mouse;
     MouseMap _mouseButtons;
     bool _shouldRenderGeometry = false;
+    bool _shouldSubdivide = false;
 
     /* VULKAN */
     VkInstance _instance {};

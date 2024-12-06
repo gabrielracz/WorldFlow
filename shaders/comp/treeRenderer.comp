@@ -92,7 +92,7 @@ void main()
     const float divisionFactor = DIM;
     const float globalGridSize = 0.5;
     float nodeLevel = node.pos.w;
-    float s = globalGridSize / (nodeLevel * divisionFactor); // "radius" of nodes at this level
+    float s = globalGridSize / (1 << uint(nodeLevel)); // "radius" of nodes at this level
 
     // vec3 center = getGridPosition(gl_GlobalInvocationID.x);
     vec3 center = node.pos.xyz;
