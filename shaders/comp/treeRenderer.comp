@@ -1,5 +1,32 @@
 #version 450
 #extension GL_EXT_buffer_reference : require
+#extension GL_EXT_shader_explicit_arithmetic_types_int64 : enable
+
+layout(local_size_x = 1, local_size_y = 1, local_size_z = 1) in;
+
+struct VkDrawIndexedIndirectCommand
+{
+    uint indexCount;
+    uint instanceCount;
+    uint firstIndex;
+    int vertexOffset;
+    uint firstInstance;
+};
+
+struct Node
+{
+    vec4 pos;
+    uint childPtr;
+    uint mask;
+};
+
+layout (std140, set = 0, binding = 0) buffer readonly TreeNodesBuffer {
+    Node treeNodes[];
+};
+
+layout (set = 0, binding = 1) buffer writeonly IndirectDispatch {
+    VkDrawIndexedIndirectCommand drawCommand;
+};
 
 layout (buffer_reference, std430) buffer VertexBuffer {
     vec3 vertices[];
@@ -10,11 +37,115 @@ layout (buffer_reference, std430) buffer IndexBuffer {
 };
 
 layout (push_constant) uniform PushConstants {
-    VertexBuffer vertexBuffer;
-    IndexBuffer indexBuffer;
-};
+    uint64_t vertexBufferAddress;
+    uint64_t indexBufferAddress;
+} pc;
+
+#define DIM 2
+
+vec3 getGridPosition(uint flatIndex)
+{
+    // Get grid dimensions
+    // uvec3 dimensions = uvec3(gridDimensions.x, gridDimensions.y, gridDimensions.z);
+    uvec3 dimensions = uvec3(DIM, DIM, DIM);
+    
+    // Calculate z coordinate
+    uint zDimProduct = dimensions.x * dimensions.y;
+    uint z = flatIndex / zDimProduct;
+    
+    // Subtract z-plane offset
+    uint remainingIndex = flatIndex % zDimProduct;
+    
+    // Calculate y coordinate
+    uint y = remainingIndex / dimensions.x;
+    
+    // Calculate x coordinate (remaining index)
+    uint x = remainingIndex % dimensions.x;
+    
+    // return (vec3(x, y, z) - vec3(0.5, 0.5, 0.5)) * (1.0/DIM);
+    // return ((vec3(x, y, z)) * (1.0/DIM));
+    return ((vec3(x, y, z)) - vec3((DIM - 1.0)/2.0)) * (1.0/(DIM));
+}
+
+uint getNumInvocations()
+{
+    uvec3 workGroupSize = gl_WorkGroupSize;
+    uvec3 numWorkGroups = gl_NumWorkGroups;
+    return workGroupSize.x * workGroupSize.y * workGroupSize.z *
+           numWorkGroups.x * numWorkGroups.y * numWorkGroups.z;
+}
+
+uint getIndex(uvec3 pos)
+{
+    return gl_GlobalInvocationID.x + 
+           gl_GlobalInvocationID.y * gl_NumWorkGroups.x * gl_WorkGroupSize.x + 
+           gl_GlobalInvocationID.z * gl_NumWorkGroups.x * gl_NumWorkGroups.y * gl_WorkGroupSize.x * gl_WorkGroupSize.y;
+}
 
 void main()
 {
+    uint vtxBufDst = getIndex(gl_GlobalInvocationID) * 8; // 8 vertices per box
+    uint idxBufDst = getIndex(gl_GlobalInvocationID) * 24; // 12 line segments to enclose box, 2 indices each
 
+    Node node = treeNodes[getIndex(gl_GlobalInvocationID)];
+
+    const float divisionFactor = DIM;
+    const float globalGridSize = 0.5;
+    float nodeLevel = node.pos.w;
+    float s = globalGridSize / (nodeLevel * divisionFactor); // "radius" of nodes at this level
+
+    // vec3 center = getGridPosition(gl_GlobalInvocationID.x);
+    vec3 center = node.pos.xyz;
+
+    // generation
+    const vec3 nodeVertices[] = {
+        vec3(-s, -s, -s) + center,
+        vec3( s, -s, -s) + center,
+        vec3( s,  s, -s) + center,
+        vec3(-s,  s, -s) + center,
+        vec3(-s, -s,  s) + center,
+        vec3( s, -s,  s) + center,
+        vec3( s,  s,  s) + center,
+        vec3(-s,  s,  s) + center,
+    };
+
+    uint nodeIndices[] = {
+        0, 1,
+        1, 2,
+        2, 3,
+        3, 0,
+        4, 5,
+        5, 6,
+        6, 7,
+        7, 4,
+        0, 4,
+        1, 5,
+        2, 6,
+        3, 7
+    };
+
+    for(int i = 0; i < 24; i++) {
+        nodeIndices[i] += vtxBufDst;
+    }
+
+    // Then in your code:
+    VertexBuffer vertexBuffer = VertexBuffer(pc.vertexBufferAddress);
+    IndexBuffer indexBuffer = IndexBuffer(pc.indexBufferAddress);
+
+    // upload
+    for(int v = 0; v < 8; v++) {
+        vertexBuffer.vertices[vtxBufDst + v] = nodeVertices[v];
+    }
+
+    for(int i = 0; i < 24; i++) {
+        indexBuffer.indices[idxBufDst + i] = nodeIndices[i];
+    }
+
+    // if(gl_GlobalInvocationID == uvec3(0, 0, 0)) {
+    //     drawCommand.indexCount = getNumInvocations() * 24;
+    //     drawCommand.instanceCount = 1;
+    //     drawCommand.firstIndex = 0;
+    //     drawCommand.vertexOffset = 0;
+    //     drawCommand.firstInstance = 0;
+    // }
 }

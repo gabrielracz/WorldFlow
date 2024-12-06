@@ -97,7 +97,7 @@ vec3 blinnPhongShading(vec3 worldPos, vec3 normal, vec3 viewDir) {
     vec3 lightDir = normalize(lightPos - worldPos);
     
     // Ambient term
-    vec3 ambient = vec3(0.2);
+    vec3 ambient = vec3(0.1);
     
     // Diffuse term
     float diffuse = max(dot(normal, lightDir), 0.0);

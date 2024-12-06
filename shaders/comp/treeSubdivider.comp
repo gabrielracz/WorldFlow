@@ -1,0 +1,22 @@
+#version 450
+layout(local_size_x = 1, local_size_y = 1, local_size_z = 1) in;
+
+struct Node
+{
+    vec4 pos;
+    uint childPtr;
+    uint mask;
+};
+
+layout(std140, set = 0, binding = 0) buffer NodeBufferInfo {
+    uint nodeCounter;
+};
+
+layout (std140, set = 0, binding = 1) buffer readonly TreeNodesBuffer {
+    Node treeNodes[];
+};
+
+void main()
+{
+
+}

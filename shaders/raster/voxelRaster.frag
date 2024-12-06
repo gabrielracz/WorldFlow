@@ -57,7 +57,7 @@ void main()
 {
     uint d = uint(gridDimensions.x) - 1;
     // fix the axis to use the right "depth" channel
-    vec3 temp = vec3(gl_FragCoord.xy, ((inDepth)) * (gridDimensions.z - 1));
+    vec3 temp = vec3(gl_FragCoord.xy, ((inDepth)) * (gridDimensions.z));
     vec3 pos = vec3(0.0);
 
     if(axis == 0) {

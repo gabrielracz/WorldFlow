@@ -1,0 +1,49 @@
+#version 450
+layout(local_size_x = 1, local_size_y = 1, local_size_z = 1) in;
+
+struct VkDispatchIndirectCommand
+{
+    uint x;
+    uint y;
+    uint z;
+};
+
+struct VkDrawIndexedIndirectCommand
+{
+    uint indexCount;
+    uint instanceCount;
+    uint firstIndex;
+    int vertexOffset;
+    uint firstInstance;
+};
+
+struct TreeInfo
+{
+    uint nodeCounter;
+};
+
+layout (set = 0, binding = 0) buffer writeonly IndirectDispatch {
+    VkDispatchIndirectCommand dispatchCommand;
+};
+
+layout (set = 0, binding = 1) buffer writeonly IndirectDraw {
+    VkDrawIndexedIndirectCommand drawCommand;
+};
+
+layout (set = 0, binding = 2) buffer readonly TreeInfoBuffer {
+    TreeInfo treeInfo;
+};
+
+void main()
+{
+    drawCommand.indexCount = treeInfo.nodeCounter * 24;
+    drawCommand.instanceCount = 1;
+    drawCommand.firstIndex = 0;
+    drawCommand.vertexOffset = 0;
+    drawCommand.firstInstance = 0;
+
+    dispatchCommand.x = treeInfo.nodeCounter;
+    dispatchCommand.y = 1;
+    dispatchCommand.z = 1;
+
+}
