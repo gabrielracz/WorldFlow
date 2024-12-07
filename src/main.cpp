@@ -68,8 +68,8 @@ constexpr float VoxelGridScale = 2.0f;
 
 constexpr uint32_t MeshIdx = 2;
 // constexpr float MeshScale = 0.01;
-constexpr float MeshScale = 0.40;
-constexpr glm::vec3 MeshTranslation = glm::vec3(0.0, 0.0, -0.7);
+constexpr float MeshScale = 0.10;
+constexpr glm::vec3 MeshTranslation = glm::vec3(0.0, 0.0, 0.7);
 const glm::mat4 MeshTransform = glm::translate(MeshTranslation) * glm::scale(glm::vec3(MeshScale));
 
 // constexpr glm::vec3 CameraPosition = glm::vec3(0.1, -0.15, -0.1);
@@ -756,11 +756,11 @@ private:
         vkutil::transition_image(cmd, this->_drawImage.image, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
         drawLines(cmd);
         vkutil::transition_image(cmd, this->_drawImage.image, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_GENERAL);
-        // if(this->_shouldSubdivide) {
+        if(this->_shouldSubdivide) {
             flagNodesForSubdivision(cmd);
             subdivideTree(cmd);
-        //     this->_shouldSubdivide = false;
-        // }
+            this->_shouldSubdivide = false;
+        }
 
         if(this->_shouldRenderGeometry) {
             vkutil::transition_image(cmd, this->_drawImage.image, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
@@ -778,9 +778,9 @@ private:
         vkutil::copy_image_to_image(cmd, drawImage.image, swapchainImage, this->_windowExtent, VkExtent3D{.width = this->_swapchainExtent.width, .height = this->_swapchainExtent.height, .depth = 1});
 
 
-        // vkutil::transition_image(cmd, this->_voxelImage.image, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+        vkutil::transition_image(cmd, this->_voxelImage.image, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
         // vkutil::copy_image_to_image(cmd, this->_voxelImage.image, swapchainImage, this->_voxelImage.imageExtent, VkExtent3D{.width = this->_swapchainExtent.width, .height = this->_swapchainExtent.height, .depth = 1});
-        vkutil::transition_image(cmd, this->_voxelImage.image, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_GENERAL);
+        vkutil::transition_image(cmd, this->_voxelImage.image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_GENERAL);
         clearImage(cmd, this->_voxelImage);
         vkutil::transition_image(cmd, this->_voxelImage.image, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
 

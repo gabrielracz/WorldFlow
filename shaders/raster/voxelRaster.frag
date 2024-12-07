@@ -59,12 +59,12 @@ void main()
     // fix the axis to use the right "depth" channel
     vec3 temp = vec3(gl_FragCoord.xy, ((gl_FragCoord.z)) * (gridDimensions.z));
     vec3 pos = vec3(0.0);
-
+    
     if(axis == 0) {
-        pos = vec3(temp.z, temp.y, d - temp.x);
+        pos = vec3(temp.z, temp.y, temp.x);
         // discard;
     } else if(axis == 1) {
-        pos = vec3(temp.x, d - temp.z, d - temp.y);
+        pos = vec3(temp.x, temp.z, temp.y);
         // discard;
     } else {
         pos = vec3(temp.x, temp.y, temp.z);
@@ -76,12 +76,16 @@ void main()
     grid[gridIndex] = 1.0;
     
     // orthographic image visulzation
-    outColour = vec4((1.0 - inDepth), 0.0, 0.0, 1.0);
+    outColour = vec4((1.0 - inDepth)/2.0, 0.0, 0.0, 1.0);
 
     // insert into voxel fragment list for octree placement
     uint fragListIndex = atomicAdd(fragCounter, 1);
+    // fragCounter = 1;
     VoxelFragment voxelFrag;
     voxelFrag.position = (pos / gridDimensions);
     voxelFrag.gridIndex = gridIndex;
     fragList[fragListIndex] = voxelFrag;
+
+    // voxelFrag.position = vec3(0.65, 0.25, 0.85);
+    // fragList[0] = voxelFrag;
 }

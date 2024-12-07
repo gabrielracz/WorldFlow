@@ -1,5 +1,5 @@
 #version 450
-layout(local_size_x = 8, local_size_y = 8, local_size_z = 8) in;
+layout(local_size_x = 1, local_size_y = 1, local_size_z = 1) in;
 
 struct VoxelFragment
 {
@@ -40,24 +40,34 @@ uint getGridIndex(uvec3 pos, uvec3 gridDimensions)
            pos.x;
 }
 
-#define MAX_LEVEL 3
-
+#define MAX_LEVEL 10
 void main()
 {
-    uint fragIndex = getIndex();
+    // uint fragIndex = getIndex();
+    uint fragIndex = gl_GlobalInvocationID.x;
     if(fragIndex > fragCounter) return;
     VoxelFragment frag = fragList[fragIndex];
-    uint nodeIndex;
+    uint baseNodeIndex = 0;
+    vec4 nodePos = vec4(0, 0, 0, 1.0);
+    vec3 fragPos = frag.position;
+    vec3 loc = frag.position;
+
+
     for(int level = 1; level < MAX_LEVEL; level++) {
         vec3 gridDimensions = vec3(2, 2, 2);
-        uvec3 relativeNodePos = uvec3(floor((frag.position) * gridDimensions));
-        uint childIndex = getGridIndex(relativeNodePos, uvec3(gridDimensions));
+        uvec3 relativeNodePos = uvec3(floor((loc * gridDimensions)));
+        uint childIndex = baseNodeIndex + getGridIndex(relativeNodePos, uvec3(gridDimensions));
 
-        if(treeNodes[childIndex].mask == 0) {
-            treeNodes[childIndex].mask = 1;
-        }
+
+        atomicAdd(treeNodes[childIndex].mask, 1);
         if(treeNodes[childIndex].childPtr == 0) {
             break;
         }
+        
+        baseNodeIndex = treeNodes[childIndex].childPtr;
+
+        nodePos = treeNodes[childIndex].pos;
+        float dim = (1 << level);
+        loc = (fragPos - (nodePos.xyz + vec3(0.5))) * dim + vec3(0.5);
     }
 }
