@@ -26,5 +26,5 @@ void main()
     vec3 pos = pc.vertexBuffer.vertices[gl_VertexIndex];
     gl_Position = pc.renderMatrix * vec4(pos, 1.0);
     // outColor = vec4(1.0, 1.0, 1.0, 1.0);
-    outColor = vec4(0.40, 0.36, 1.0, 1.0);
+    outColor = vec4(0.40, 0.36, 1.0, 0.8);
 }

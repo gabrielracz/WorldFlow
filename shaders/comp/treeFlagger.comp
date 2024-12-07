@@ -11,7 +11,6 @@ struct Node
 {
     vec4 pos;
     uint childPtr;
-    uint mask;
 };
 
 layout(std430, binding = 0) buffer readonly VoxelFragmentList {
@@ -40,6 +39,8 @@ uint getGridIndex(uvec3 pos, uvec3 gridDimensions)
            pos.x;
 }
 
+#define DIVIDE_MASK   0x80000000
+#define CHILDPTR_MASK 0x7FFFFFFF
 #define MAX_LEVEL 10
 void main()
 {
@@ -58,13 +59,12 @@ void main()
         uvec3 relativeNodePos = uvec3(floor((loc * gridDimensions)));
         uint childIndex = baseNodeIndex + getGridIndex(relativeNodePos, uvec3(gridDimensions));
 
-
-        atomicAdd(treeNodes[childIndex].mask, 1);
-        if(treeNodes[childIndex].childPtr == 0) {
+        if((treeNodes[childIndex].childPtr & CHILDPTR_MASK) == 0) {
+            treeNodes[childIndex].childPtr = treeNodes[childIndex].childPtr | DIVIDE_MASK;
             break;
         }
         
-        baseNodeIndex = treeNodes[childIndex].childPtr;
+        baseNodeIndex = (treeNodes[childIndex].childPtr & CHILDPTR_MASK);
 
         nodePos = treeNodes[childIndex].pos;
         float dim = (1 << level);

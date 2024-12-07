@@ -68,8 +68,8 @@ constexpr float VoxelGridScale = 2.0f;
 
 constexpr uint32_t MeshIdx = 2;
 // constexpr float MeshScale = 0.01;
-constexpr float MeshScale = 0.10;
-constexpr glm::vec3 MeshTranslation = glm::vec3(0.0, 0.0, 0.7);
+constexpr float MeshScale = 0.60;
+constexpr glm::vec3 MeshTranslation = glm::vec3(0.0, 0.0, 0.0);
 const glm::mat4 MeshTransform = glm::translate(MeshTranslation) * glm::scale(glm::vec3(MeshScale));
 
 // constexpr glm::vec3 CameraPosition = glm::vec3(0.1, -0.15, -0.1);
@@ -161,12 +161,10 @@ struct VoxelFragment
     uint32_t index;
 };
 
-__declspec(align(16)) 
-struct VoxelNode
+struct alignas(16) VoxelNode
 {
     glm::vec4 pos; // w component = depth
     uint32_t childPtr; 
-    uint32_t mask; 
 };
 
 struct RayTracerPushConstants
@@ -303,10 +301,13 @@ private:
             const double delta = (this->_elapsed - this->_lastFpsMeasurementTime);
             const double averageFrameTime =  delta / Constants::FPSMeasurePeriod;
             const double fps = Constants::FPSMeasurePeriod / delta;
-            std::cout << std::fixed << std::setprecision(3) << "FPS: " << fps  << std::setprecision(5) << "  (" << averageFrameTime << ")" << std::endl;
+            std::cout << std::fixed << std::setprecision(3) << "FPS: " << fps  << std::setprecision(5) << "  (" << averageFrameTime << ") ";
             this->_lastFpsMeasurementTime = this->_elapsed;
+
+            TreeInfo treeInfo;
+            std::memcpy(&treeInfo, this->_treeInfoBuffer.allocation->GetMappedData(), sizeof(TreeInfo));
+            std::cout << "\tVoxel Nodes: " << treeInfo.nodeCounter << " Nodes VRAM: " << treeInfo.nodeCounter * sizeof(VoxelNode) << std::endl;
         }
-        
     }
 
     void pollEvents()
@@ -351,7 +352,11 @@ private:
                         this->_shouldRenderGeometry = !this->_shouldRenderGeometry;
                         break;
                     case SDL_KeyCode::SDLK_w:
+                        this->_shouldRenderVoxels = !this->_shouldRenderVoxels;
+                        break;
+                    case SDL_KeyCode::SDLK_e:
                         this->_shouldSubdivide = true;
+                        break;
                     default:
                         break;
                 }
@@ -767,7 +772,10 @@ private:
             drawGeometry(cmd, dt);
             vkutil::transition_image(cmd, this->_drawImage.image, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_GENERAL);
         }
-        rayCastVoxelVolume(cmd);
+
+        if(this->_shouldRenderVoxels) {
+            rayCastVoxelVolume(cmd);
+        }
 
         // prepare drawImage to swapchainImage copy
         AllocatedImage& drawImage = this->_drawImage;
@@ -1344,8 +1352,8 @@ private:
 
         this->_treeInfoBuffer = createBuffer(
             sizeof(TreeInfo),
-            VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
-            VMA_MEMORY_USAGE_GPU_ONLY
+            VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT |VK_BUFFER_USAGE_TRANSFER_SRC_BIT, 
+            VMA_MEMORY_USAGE_CPU_ONLY
         );
         TreeInfo treeInfo = {.nodeCounter = Constants::NodeChildren}; // init base level
         std::memcpy(this->_stagingBuffer.allocation->GetMappedData(), &treeInfo, sizeof(TreeInfo));
@@ -1378,7 +1386,6 @@ private:
                             1.0
                         ),
                         .childPtr = 0,
-                        .mask = 0
                     };
                 }
             }
@@ -1877,6 +1884,7 @@ private:
     Mouse _mouse;
     MouseMap _mouseButtons;
     bool _shouldRenderGeometry = false;
+    bool _shouldRenderVoxels = true;
     bool _shouldSubdivide = false;
 
     /* VULKAN */

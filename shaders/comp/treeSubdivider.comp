@@ -5,7 +5,6 @@ struct Node
 {
     vec4 pos;
     uint childPtr;
-    uint mask;
 };
 
 layout(std140, set = 0, binding = 0) buffer NodeBufferInfo {
@@ -23,12 +22,14 @@ uint getInvocationIndex()
            gl_GlobalInvocationID.z * gl_NumWorkGroups.x * gl_NumWorkGroups.y * gl_WorkGroupSize.x * gl_WorkGroupSize.y;
 }
 
+#define DIVIDE_MASK  0x80000000
+#define CHILDPTR_MASK 0x7FFFFFFF
 void main()
 {
     // uint idx = getInvocationIndex();
     uint idx = gl_GlobalInvocationID.x;
     Node node = treeNodes[idx];
-    if(node.childPtr > 0 || node.mask == 0) { //already subdivied / not flagged
+    if((node.childPtr & DIVIDE_MASK) == 0) {
         return;
     }
 
@@ -52,10 +53,7 @@ void main()
         Node child;
         child.pos = vec4(childPositions[i], childDepth);
         child.childPtr = 0;
-        // child.mask = (idx < 72) ? 1 : 0;
-        child.mask = 0;
         treeNodes[childBlockIdx + i] = child;
     }
     treeNodes[idx].childPtr = childBlockIdx;
-    treeNodes[idx].mask = 0;
 }
