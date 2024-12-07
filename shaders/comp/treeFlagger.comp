@@ -1,0 +1,63 @@
+#version 450
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 8) in;
+
+struct VoxelFragment
+{
+    vec3 position;
+    uint gridIndex;
+};
+
+struct Node
+{
+    vec4 pos;
+    uint childPtr;
+    uint mask;
+};
+
+layout(std430, binding = 0) buffer readonly VoxelFragmentList {
+    VoxelFragment fragList[];
+};
+
+layout(std430, binding = 1) buffer readonly VoxelFragmentListInfo {
+    uint fragCounter;
+};
+
+layout (std140, set = 0, binding = 2) buffer TreeNodesBuffer {
+    Node treeNodes[];
+};
+
+uint getIndex()
+{
+    return gl_GlobalInvocationID.x + 
+           gl_GlobalInvocationID.y * gl_NumWorkGroups.x * gl_WorkGroupSize.x + 
+           gl_GlobalInvocationID.z * gl_NumWorkGroups.x * gl_NumWorkGroups.y * gl_WorkGroupSize.x * gl_WorkGroupSize.y;
+}
+
+uint getGridIndex(uvec3 pos, uvec3 gridDimensions)
+{
+    return pos.z * gridDimensions.x * gridDimensions.y +
+           pos.y * gridDimensions.x +
+           pos.x;
+}
+
+#define MAX_LEVEL 3
+
+void main()
+{
+    uint fragIndex = getIndex();
+    if(fragIndex > fragCounter) return;
+    VoxelFragment frag = fragList[fragIndex];
+    uint nodeIndex;
+    for(int level = 1; level < MAX_LEVEL; level++) {
+        vec3 gridDimensions = vec3(2, 2, 2);
+        uvec3 relativeNodePos = uvec3(floor((frag.position) * gridDimensions));
+        uint childIndex = getGridIndex(relativeNodePos, uvec3(gridDimensions));
+
+        if(treeNodes[childIndex].mask == 0) {
+            treeNodes[childIndex].mask = 1;
+        }
+        if(treeNodes[childIndex].childPtr == 0) {
+            break;
+        }
+    }
+}

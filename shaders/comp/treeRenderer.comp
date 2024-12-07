@@ -41,41 +41,7 @@ layout (push_constant) uniform PushConstants {
     uint64_t indexBufferAddress;
 } pc;
 
-#define DIM 2
-
-vec3 getGridPosition(uint flatIndex)
-{
-    // Get grid dimensions
-    // uvec3 dimensions = uvec3(gridDimensions.x, gridDimensions.y, gridDimensions.z);
-    uvec3 dimensions = uvec3(DIM, DIM, DIM);
-    
-    // Calculate z coordinate
-    uint zDimProduct = dimensions.x * dimensions.y;
-    uint z = flatIndex / zDimProduct;
-    
-    // Subtract z-plane offset
-    uint remainingIndex = flatIndex % zDimProduct;
-    
-    // Calculate y coordinate
-    uint y = remainingIndex / dimensions.x;
-    
-    // Calculate x coordinate (remaining index)
-    uint x = remainingIndex % dimensions.x;
-    
-    // return (vec3(x, y, z) - vec3(0.5, 0.5, 0.5)) * (1.0/DIM);
-    // return ((vec3(x, y, z)) * (1.0/DIM));
-    return ((vec3(x, y, z)) - vec3((DIM - 1.0)/2.0)) * (1.0/(DIM));
-}
-
-uint getNumInvocations()
-{
-    uvec3 workGroupSize = gl_WorkGroupSize;
-    uvec3 numWorkGroups = gl_NumWorkGroups;
-    return workGroupSize.x * workGroupSize.y * workGroupSize.z *
-           numWorkGroups.x * numWorkGroups.y * numWorkGroups.z;
-}
-
-uint getIndex(uvec3 pos)
+uint getIndex()
 {
     return gl_GlobalInvocationID.x + 
            gl_GlobalInvocationID.y * gl_NumWorkGroups.x * gl_WorkGroupSize.x + 
@@ -84,12 +50,11 @@ uint getIndex(uvec3 pos)
 
 void main()
 {
-    uint vtxBufDst = getIndex(gl_GlobalInvocationID) * 8; // 8 vertices per box
-    uint idxBufDst = getIndex(gl_GlobalInvocationID) * 24; // 12 line segments to enclose box, 2 indices each
+    uint vtxBufDst = getIndex() * 8; // 8 vertices per box
+    uint idxBufDst = getIndex() * 24; // 12 line segments to enclose box, 2 indices each
 
-    Node node = treeNodes[getIndex(gl_GlobalInvocationID)];
+    Node node = treeNodes[getIndex()];
 
-    const float divisionFactor = DIM;
     const float globalGridSize = 0.5;
     float nodeLevel = node.pos.w;
     float s = globalGridSize / (1 << uint(nodeLevel)); // "radius" of nodes at this level
@@ -140,12 +105,4 @@ void main()
     for(int i = 0; i < 24; i++) {
         indexBuffer.indices[idxBufDst + i] = nodeIndices[i];
     }
-
-    // if(gl_GlobalInvocationID == uvec3(0, 0, 0)) {
-    //     drawCommand.indexCount = getNumInvocations() * 24;
-    //     drawCommand.instanceCount = 1;
-    //     drawCommand.firstIndex = 0;
-    //     drawCommand.vertexOffset = 0;
-    //     drawCommand.firstInstance = 0;
-    // }
 }

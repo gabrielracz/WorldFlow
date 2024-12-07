@@ -68,7 +68,9 @@ constexpr float VoxelGridScale = 2.0f;
 
 constexpr uint32_t MeshIdx = 2;
 // constexpr float MeshScale = 0.01;
-constexpr float MeshScale = 0.80;
+constexpr float MeshScale = 0.40;
+constexpr glm::vec3 MeshTranslation = glm::vec3(0.0, 0.0, -0.7);
+const glm::mat4 MeshTransform = glm::translate(MeshTranslation) * glm::scale(glm::vec3(MeshScale));
 
 // constexpr glm::vec3 CameraPosition = glm::vec3(0.1, -0.15, -0.1);
 constexpr glm::vec3 CameraPosition = glm::vec3(0.0, 0.0, -3.0);
@@ -464,7 +466,7 @@ private:
         // to opengl and gltf axis
         GraphicsPushConstants pc = {
             // .worldMatrix = this->_camera.projection * this->_camera.view,
-            .worldMatrix = this->_camera.GetProjectionMatrix() * this->_camera.GetViewMatrix() * glm::scale(glm::vec3(Constants::MeshScale)),
+            .worldMatrix = this->_camera.GetProjectionMatrix() * this->_camera.GetViewMatrix() * Constants::MeshTransform,
             // .worldMatrix = this->_camera.GetProjectionMatrix() * this->_camera.GetViewMatrix(),
             .vertexBuffer = this->_testMeshes[Constants::MeshIdx].vertexBufferAddress
         };
@@ -522,7 +524,7 @@ private:
         // to opengl and gltf axis
         GraphicsPushConstants pc = {
             // .worldMatrix = glm::mat4(1.0),
-            .worldMatrix = glm::mat4(1.0) * glm::scale(glm::vec3(Constants::MeshScale)),
+            .worldMatrix = glm::mat4(1.0) * Constants::MeshTransform,
             .vertexBuffer = this->_testMeshes[Constants::MeshIdx].vertexBufferAddress
         };
 
@@ -655,6 +657,14 @@ private:
                 .sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER,
                 .srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT,
                 .dstAccessMask = VK_ACCESS_SHADER_READ_BIT,
+                .buffer = this->_treeFlaggerIndirectDispatchBuffer.buffer,
+                .offset = 0,
+                .size = VK_WHOLE_SIZE,
+            },
+            {
+                .sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER,
+                .srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT,
+                .dstAccessMask = VK_ACCESS_SHADER_READ_BIT,
                 .buffer = this->_treeIndirectDrawBuffer.buffer,
                 .offset = 0,
                 .size = VK_WHOLE_SIZE,
@@ -687,6 +697,24 @@ private:
             },
         };
         vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_ALL_GRAPHICS_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, nullptr, 2, bufferBarriers, 0, nullptr);
+    }
+
+    void flagNodesForSubdivision(VkCommandBuffer cmd)
+    {
+        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, this->_treeFlagger.pipeline);
+        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, this->_treeFlagger.layout, 0, 1, this->_treeFlagger.descriptorSets.data(), 0, nullptr);
+        vkCmdDispatchIndirect(cmd, this->_treeFlaggerIndirectDispatchBuffer.buffer, 0); // TODO: rethink this indirect buffer
+        VkBufferMemoryBarrier bufferBarriers[] = {
+            {
+                .sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER,
+                .srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT,
+                .dstAccessMask = VK_ACCESS_SHADER_READ_BIT,
+                .buffer = this->_voxelNodes.buffer,
+                .offset = 0,
+                .size = VK_WHOLE_SIZE,
+            },
+        };
+        vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_ALL_GRAPHICS_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, nullptr, 1, bufferBarriers, 0, nullptr);
     }
 
     bool draw(double dt)
@@ -728,10 +756,11 @@ private:
         vkutil::transition_image(cmd, this->_drawImage.image, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
         drawLines(cmd);
         vkutil::transition_image(cmd, this->_drawImage.image, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_GENERAL);
-        if(this->_shouldSubdivide) {
+        // if(this->_shouldSubdivide) {
+            flagNodesForSubdivision(cmd);
             subdivideTree(cmd);
-            this->_shouldSubdivide = false;
-        }
+        //     this->_shouldSubdivide = false;
+        // }
 
         if(this->_shouldRenderGeometry) {
             vkutil::transition_image(cmd, this->_drawImage.image, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
@@ -1307,6 +1336,12 @@ private:
             VMA_MEMORY_USAGE_GPU_ONLY
         );
 
+        this->_treeFlaggerIndirectDispatchBuffer = createBuffer(
+            sizeof(VkDispatchIndirectCommand),
+            VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+            VMA_MEMORY_USAGE_GPU_ONLY
+        );
+
         this->_treeInfoBuffer = createBuffer(
             sizeof(TreeInfo),
             VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
@@ -1343,7 +1378,7 @@ private:
                             1.0
                         ),
                         .childPtr = 0,
-                        .mask = 1
+                        .mask = 0
                     };
                 }
             }
@@ -1472,13 +1507,17 @@ private:
             .add_binding(0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER)
             .add_binding(1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER)
             .add_binding(2, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER)
+            .add_binding(3, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER)
+            .add_binding(4, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER)
             .build(this->_device, VK_SHADER_STAGE_COMPUTE_BIT);
         this->_treeIndirectCmdGenerator.descriptorSets.push_back(this->_descriptorPool.allocateSet(this->_device, this->_treeIndirectCmdGenerator.descriptorLayout));
         this->_descriptorWriter
             .clear()
             .write_buffer(0, this->_treeIndirectDispatchBuffer.buffer, sizeof(VkDispatchIndirectCommand), 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER)
-            .write_buffer(1, this->_treeIndirectDrawBuffer.buffer, sizeof(VkDrawIndexedIndirectCommand), 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER)
-            .write_buffer(2, this->_treeInfoBuffer.buffer, sizeof(TreeInfo), 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER)
+            .write_buffer(1, this->_treeFlaggerIndirectDispatchBuffer.buffer, sizeof(VkDispatchIndirectCommand), 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER)
+            .write_buffer(2, this->_treeIndirectDrawBuffer.buffer, sizeof(VkDrawIndexedIndirectCommand), 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER)
+            .write_buffer(3, this->_treeInfoBuffer.buffer, sizeof(TreeInfo), 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER)
+            .write_buffer(4, this->_voxelFragmentCounter.buffer, sizeof(VoxelFragmentCounter), 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER)
             .update_set(this->_device, this->_treeIndirectCmdGenerator.descriptorSets[0]);
         
         // TREE SUBDIVISION
@@ -1493,6 +1532,20 @@ private:
             .write_buffer(1, this->_voxelNodes.buffer, this->_voxelNodes.allocation->GetSize(), 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER)
             .update_set(this->_device, this->_treeSubdivider.descriptorSets[0]);
 
+        // TREE DESCENT AND FLAGGING FROM FRAGMENT LIST
+        this->_treeFlagger.descriptorLayout = DescriptorLayoutBuilder::newLayout()
+            .add_binding(0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER)
+            .add_binding(1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER)
+            .add_binding(2, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER)
+            .build(this->_device, VK_SHADER_STAGE_COMPUTE_BIT);
+        this->_treeFlagger.descriptorSets.push_back(this->_descriptorPool.allocateSet(this->_device, this->_treeFlagger.descriptorLayout));
+        this->_descriptorWriter
+            .clear()
+            .write_buffer(0, this->_voxelFragmentList.buffer, this->_voxelFragmentList.allocation->GetSize(), 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER)
+            .write_buffer(1, this->_voxelFragmentCounter.buffer, sizeof(VoxelFragmentCounter), 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER)
+            .write_buffer(2, this->_voxelNodes.buffer, this->_voxelNodes.allocation->GetSize(), 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER)
+            .update_set(this->_device, this->_treeFlagger.descriptorSets[0]);
+
         this->_deletionQueue.push([&]() {
             this->_descriptorPool.destroy(this->_device);
             vkDestroyDescriptorSetLayout(this->_device, this->_drawImagePipeline.descriptorLayout, nullptr);
@@ -1502,6 +1555,7 @@ private:
             vkDestroyDescriptorSetLayout(this->_device, this->_treeLineGenerator.descriptorLayout, nullptr);
             vkDestroyDescriptorSetLayout(this->_device, this->_treeIndirectCmdGenerator.descriptorLayout, nullptr);
             vkDestroyDescriptorSetLayout(this->_device, this->_treeSubdivider.descriptorLayout, nullptr);
+            vkDestroyDescriptorSetLayout(this->_device, this->_treeFlagger.descriptorLayout, nullptr);
         });
         return true;
     }
@@ -1565,6 +1619,7 @@ private:
                createComputePipeline<TreeRendererPushConstants>(SHADER_DIRECTORY"/treeRenderer.comp.spv", this->_treeLineGenerator) &&
                createComputePipeline<std::nullopt_t>(SHADER_DIRECTORY"/treePopulateIndirectCmds.comp.spv", this->_treeIndirectCmdGenerator) &&
                createComputePipeline<std::nullopt_t>(SHADER_DIRECTORY"/treeSubdivider.comp.spv", this->_treeSubdivider) &&
+               createComputePipeline<std::nullopt_t>(SHADER_DIRECTORY"/treeFlagger.comp.spv", this->_treeFlagger) &&
                true;
     }
 
@@ -1777,8 +1832,8 @@ private:
         this->_camera.SetView(Constants::CameraPosition, glm::vec3(0.0, 0.0, 0.0), glm::vec3(0.0, 1.0, 0.0));
         // this->_camera.SetViewMatrix(glm::lookAt(Constants::CameraPosition, glm::vec3(0, 0, 0), glm::vec3(0, 1, 0)));
         this->_camera.Attach(&this->_origin);
-        this->_camera.OrbitYaw(PI/2.5f);
-        this->_camera.OrbitPitch(PI/2.5f);
+        // this->_camera.OrbitYaw(PI/2.5f);
+        // this->_camera.OrbitPitch(PI/2.5f);
         this->_camera.SetupViewMatrix();
 
         return true;
@@ -1866,6 +1921,7 @@ private:
     ComputePipeline _treeLineGenerator;
     ComputePipeline _treeIndirectCmdGenerator;
     ComputePipeline _treeSubdivider;
+    ComputePipeline _treeFlagger;
 
     // Triangle Rasterization 
     GraphicsPipeline _meshPipeline;
@@ -1884,6 +1940,7 @@ private:
     AllocatedBuffer _voxelNodesToSubdivide;
     AllocatedBuffer _treeIndirectDrawBuffer;
     AllocatedBuffer _treeIndirectDispatchBuffer;
+    AllocatedBuffer _treeFlaggerIndirectDispatchBuffer;
     AllocatedBuffer _treeInfoBuffer;
     VkSampler _simpleSampler {};
 

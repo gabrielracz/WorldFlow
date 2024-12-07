@@ -57,7 +57,7 @@ void main()
 {
     uint d = uint(gridDimensions.x) - 1;
     // fix the axis to use the right "depth" channel
-    vec3 temp = vec3(gl_FragCoord.xy, ((inDepth)) * (gridDimensions.z));
+    vec3 temp = vec3(gl_FragCoord.xy, ((gl_FragCoord.z)) * (gridDimensions.z));
     vec3 pos = vec3(0.0);
 
     if(axis == 0) {
@@ -81,7 +81,7 @@ void main()
     // insert into voxel fragment list for octree placement
     uint fragListIndex = atomicAdd(fragCounter, 1);
     VoxelFragment voxelFrag;
-    voxelFrag.position = pos;
+    voxelFrag.position = (pos / gridDimensions);
     voxelFrag.gridIndex = gridIndex;
     fragList[fragListIndex] = voxelFrag;
 }

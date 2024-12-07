@@ -53,7 +53,7 @@ void main()
         child.pos = vec4(childPositions[i], childDepth);
         child.childPtr = 0;
         // child.mask = (idx < 72) ? 1 : 0;
-        child.mask = 1;
+        child.mask = 0;
         treeNodes[childBlockIdx + i] = child;
     }
     treeNodes[idx].childPtr = childBlockIdx;

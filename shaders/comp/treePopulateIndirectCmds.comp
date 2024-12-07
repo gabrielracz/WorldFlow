@@ -26,12 +26,20 @@ layout (set = 0, binding = 0) buffer writeonly IndirectDispatch {
     VkDispatchIndirectCommand dispatchCommand;
 };
 
-layout (set = 0, binding = 1) buffer writeonly IndirectDraw {
+layout (set = 0, binding = 1) buffer writeonly FragmentListIndirectDispatch {
+    VkDispatchIndirectCommand fragListDispatchCommand;
+};
+
+layout (set = 0, binding = 2) buffer writeonly IndirectDraw {
     VkDrawIndexedIndirectCommand drawCommand;
 };
 
-layout (set = 0, binding = 2) buffer readonly TreeInfoBuffer {
+layout (set = 0, binding = 3) buffer readonly TreeInfoBuffer {
     TreeInfo treeInfo;
+};
+
+layout (set = 0, binding = 4) buffer readonly VoxelFragmentListInfo {
+    uint fragCounter;
 };
 
 void main()
@@ -46,4 +54,9 @@ void main()
     dispatchCommand.y = 1;
     dispatchCommand.z = 1;
 
+    const float fragListLocalSize = 8.0;
+    float workgroupCount = ceil(pow(float(fragCounter) / (fragListLocalSize * fragListLocalSize * fragListLocalSize), 1.0/3.0));
+    fragListDispatchCommand.x = uint(workgroupCount);
+    fragListDispatchCommand.y = uint(workgroupCount);
+    fragListDispatchCommand.z = uint(workgroupCount);
 }
