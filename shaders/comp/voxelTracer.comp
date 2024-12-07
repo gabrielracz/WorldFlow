@@ -11,20 +11,19 @@ layout(set = 0, binding = 0) readonly buffer GridBuffer {
 layout(rgba32f, set = 0, binding = 1) uniform image2D outputImage;
 
 layout(push_constant) uniform constants {
-    mat4 inverseProjection;  // Inverse projection matrix
-    mat4 inverseView;        // Inverse view matrix
-    vec3 cameraPos;         // Camera position in world space
-    float nearPlane;        // Near plane distance
-    vec2 screenSize;        // Width and height of output image
-    float maxDistance;      // Maximum ray travel distance
-    float stepSize;         // Base color accumulation per step
-    vec3 gridSize;          // Size of the voxel grid in each dimension
-    float gridScale;         // Scale factor for the grid
-    vec4 lightSource;        // New light source (position in xyz, optional intensity in w)
-    vec3 baseColor;        // New light source (position in xyz, optional intensity in w)
+    mat4 inverseProjection; 
+    mat4 inverseView;       
+    vec3 cameraPos;       
+    float nearPlane;      
+    vec2 screenSize;      
+    float maxDistance;    
+    float stepSize;       
+    vec3 gridSize;         
+    float gridScale;        
+    vec4 lightSource;        
+    vec3 baseColor;        
 } pc;
 
-// Helper function to convert 3D position to linear buffer index
 uint getVoxelIndex(vec3 pos) {
     vec3 normalizedPos = pos / pc.gridScale;
     vec3 gridPos = (normalizedPos + 0.5) * pc.gridSize;
@@ -38,7 +37,6 @@ uint getVoxelIndex(vec3 pos) {
            index.x;
 }
 
-// Helper function to get ray direction from pixel coordinates
 vec3 getRayDirection(vec2 pixelPos) {
     vec2 ndc = (pixelPos / pc.screenSize) * 2.0 - 1.0;
     // ndc.y = -ndc.y;
@@ -58,13 +56,10 @@ vec3 calculateNormal(ivec3 mapPos, vec3 rayDir) {
     // Determine which face was intersected based on ray direction
     vec3 absDir = abs(rayDir);
     if (absDir.x > absDir.y && absDir.x > absDir.z) {
-        // normal = vec3(sign(rayDir.x), 0, 0);
         normal = vec3(1.0, 0, 0);
     } else if (absDir.y > absDir.z) {
-        // normal = vec3(0, sign(rayDir.y), 0);
         normal = vec3(0, 1.0, 0);
     } else {
-        // normal = vec3(0, 0, sign(rayDir.z));
         normal = vec3(0, 0, 1.0);
     }
     
@@ -72,7 +67,7 @@ vec3 calculateNormal(ivec3 mapPos, vec3 rayDir) {
 }
 
 vec3 calculateNormal(ivec3 currentVoxel, ivec3 previousVoxel) {
-    // Calculate the difference to determine which axis we crossed
+    // calculate the difference to determine which axis we crossed
     ivec3 diff = currentVoxel - previousVoxel;
     
     if (diff.x != 0) {
@@ -83,30 +78,23 @@ vec3 calculateNormal(ivec3 currentVoxel, ivec3 previousVoxel) {
         return vec3(0.0, 0.0, sign(diff.z));
     }
     
-    // Fallback (shouldn't happen in a proper ray march)
+    // fallback (shouldn't happen in a proper ray march)
     return vec3(0.0, 1.0, 0.0);
 }
 
-// Blinn-Phong lighting calculation
 vec3 blinnPhongShading(vec3 worldPos, vec3 normal, vec3 viewDir) {
-    // Light properties from push constants
     vec3 lightPos = pc.lightSource.xyz;
     float lightIntensity = pc.lightSource.w > 0.0 ? pc.lightSource.w : 1.0;
     
-    // Light direction and view direction
     vec3 lightDir = normalize(lightPos - worldPos);
     
-    // Ambient term
     vec3 ambient = vec3(0.1);
     
-    // Diffuse term
     float diffuse = max(dot(normal, lightDir), 0.0);
     
-    // Specular term (Blinn-Phong)
     vec3 halfwayDir = normalize(lightDir + viewDir);
     float specular = pow(max(dot(normal, halfwayDir), 0.0), 32.0);
     
-    // Combine terms
     vec3 color = pc.baseColor.rgb;  // Base white color
     // return (ambient + diffuse * 0.7 + specular * 0.5) * color * lightIntensity;
     return (ambient + diffuse * 2.5) * color * lightIntensity;
@@ -116,10 +104,8 @@ vec3 blinnPhongShading(vec3 worldPos, vec3 normal, vec3 viewDir) {
 vec4 traceVoxels(vec3 rayOrigin, vec3 rayDir) {
     vec4 accumColor = vec4(0.0);
     
-    // Calculate voxel size in world space (now scaled)
     vec3 voxelSize = (vec3(1.0) / pc.gridSize) * pc.gridScale;
     
-    // Calculate initial intersection with scaled grid bounds
     vec3 gridMin = vec3(-0.5) * pc.gridScale;
     vec3 gridMax = vec3(0.5) * pc.gridScale;
     
@@ -135,26 +121,23 @@ vec4 traceVoxels(vec3 rayOrigin, vec3 rayDir) {
         return vec4(0.0);
     }
     
-    // Start at first intersection
     float t = max(0.0, tNear);
-    
-    // Calculate initial position and step direction
     vec3 pos = rayOrigin + t * rayDir;
     vec3 step = sign(rayDir);
     
-    // Calculate current voxel indices
+    //current voxel indices
     vec3 normalizedPos = pos / pc.gridScale;
     vec3 voxelPos = (normalizedPos + 0.5) * pc.gridSize;
     ivec3 mapPos = ivec3(floor(voxelPos));
     
-    // Calculate delta t for moving one voxel in each direction
+    // calculate delta t for moving one voxel in each direction
     vec3 tDelta = abs(voxelSize / rayDir);
     
-    // Calculate next crossing points
+    // find next crossing points
     vec3 nextCrossing = vec3(mapPos) + max(step, 0.0);
     vec3 tMaxAxis;
     
-    // Calculate accurate tMax values for each axis
+    // calculate accurate tMax values for each axis
     for (int i = 0; i < 3; i++) {
         if (rayDir[i] > 0.0) {
             float worldCrossing = (nextCrossing[i] / pc.gridSize[i] - 0.5) * pc.gridScale;
@@ -169,33 +152,26 @@ vec4 traceVoxels(vec3 rayOrigin, vec3 rayDir) {
 
     ivec3 prevMapPos = mapPos;
     
-    // Main ray traversal loop
     for (int i = 0; i < 2048 && t < pc.maxDistance; i++) {
-        // Convert current position to grid index
+        // convert current position to grid index
         uint index = mapPos.z * uint(pc.gridSize.x) * uint(pc.gridSize.y) +
                     mapPos.y * uint(pc.gridSize.x) +
                     mapPos.x;
         
-        // Bounds check
         if (all(greaterThanEqual(mapPos, ivec3(0))) && all(lessThan(mapPos, ivec3(pc.gridSize)))) {
             float density = voxelData[index];
             
             if (density > 0.0) {
-                // Calculate world position of intersection
                 vec3 worldPos = rayOrigin + t * rayDir;
                 
-                // Calculate surface normal
-                // vec3 normal = calculateNormal(mapPos, step);
                 vec3 normal = calculateNormal(mapPos, prevMapPos);
                 
-                // Apply Blinn-Phong lighting
                 vec3 viewDir = -rayDir;
                 vec3 litColor = blinnPhongShading(worldPos, normal * normal, viewDir);
                 
-                // Attenuate color based on distance
+                // attenuate color based on distance
                 float attenuation = exp(-t * 0.1);
                 
-                // Store the lit color with some opacity
                 accumColor = vec4(litColor * attenuation, 0.8);
                 // accumColor = vec4(normal * normal, 1.0);
                 // accumColor = vec4(1.0, 0.0, 0.0, 1.0);
@@ -227,22 +203,16 @@ vec4 traceVoxels(vec3 rayOrigin, vec3 rayDir) {
 }
 
 void main() {
-    // Get current pixel coordinates
     ivec2 pixelPos = ivec2(gl_GlobalInvocationID.xy);
-    
-    // Check if within image bounds
     if (any(greaterThanEqual(pixelPos, ivec2(pc.screenSize)))) {
         return;
     }
     
-    // Calculate ray direction for this pixel
     vec3 rayDir = getRayDirection(vec2(pixelPos));
     
-    // Trace ray and accumulate color
+    // trace ray and accumulate color
     vec4 voxelColor = traceVoxels(pc.cameraPos, rayDir);
     vec4 storedColor = imageLoad(outputImage, pixelPos);
 
-    // Write result to output image with blending
-    // imageStore(outputImage, ivec2(pixelPos.x, imageSize.y - pixelPos.y), vec4(mix(voxelColor.rgb, storedColor.rgb, (1-voxelColor.a)), 1.0));
     imageStore(outputImage, pixelPos, vec4(mix(voxelColor.rgb, storedColor.rgb, (1-voxelColor.a)), 1.0));
 }

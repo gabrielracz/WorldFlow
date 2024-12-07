@@ -16,12 +16,11 @@ layout (location = 3) out flat int outAxis;
 // Find axis which maximized orthographic projected area of triangle
 int getDominantAxisIndex(vec3 normal)
 {
-    // Compute the absolute values of the normal's components
     float absX = abs(normal.x);
     float absY = abs(normal.y);
     float absZ = abs(normal.z);
 
-    // Determine the dominant axis based on the largest component
+    // determine the dominant axis based on the largest component
     if (absX > absY && absX > absZ) return 0; // x-axis
     else if (absY > absX && absY > absZ) return 1; // y-axis
     else return 2; // z-axis
@@ -61,23 +60,15 @@ void main() {
     int dominantAxisIndex = getDominantAxisIndex(normal);
 
     for (int i = 0; i < 3; i++) {
-        // Pass attributes to the next stage
-        outColor = inColor[i];
-        outUV = inUV[i];
-
-        // vec3 pos = fakePos[i];
         vec3 pos = gl_in[i].gl_Position.xyz;
-
-        // dominantAxisIndex = 0;
         vec4 outPosition = orthographicProjection(pos, dominantAxisIndex);
         outPosition.z = ((outPosition.z + 1.0) / 2.0); // fix to range 0 - 1.0
         gl_Position = outPosition;
         outDepth = outPosition.z;
         outAxis = dominantAxisIndex;
-        // Emit the vertex
+        outColor = inColor[i];
+        outUV = inUV[i];
         EmitVertex();
     }
-
-    // Complete the current primitive
     EndPrimitive();
 }

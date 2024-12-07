@@ -57,8 +57,6 @@ constexpr uint32_t FPSMeasurePeriod = 60;
 constexpr uint32_t FrameOverlap = 2;
 constexpr uint64_t TimeoutNs = 1000000000;
 constexpr uint32_t MaxDescriptorSets = 10;
-constexpr uint32_t DiffusionIterations = 11;
-constexpr uint32_t PressureIterations = 11;
 constexpr uint64_t StagingBufferSize = 1024ul * 1024ul * 8ul;
 constexpr VkExtent3D DrawImageResolution {2560, 1440, 1};
 
@@ -68,9 +66,11 @@ constexpr float VoxelGridScale = 2.0f;
 
 constexpr uint32_t MeshIdx = 2;
 // constexpr float MeshScale = 0.01;
+// constexpr float MeshScale = 0.0007;
 constexpr float MeshScale = 0.60;
 constexpr glm::vec3 MeshTranslation = glm::vec3(0.0, 0.0, 0.0);
 const glm::mat4 MeshTransform = glm::translate(MeshTranslation) * glm::scale(glm::vec3(MeshScale));
+const std::string MeshFile = ASSETS_DIRECTORY"/basicmesh.glb";
 
 // constexpr glm::vec3 CameraPosition = glm::vec3(0.1, -0.15, -0.1);
 constexpr glm::vec3 CameraPosition = glm::vec3(0.0, 0.0, -3.0);
@@ -82,9 +82,7 @@ constexpr uint32_t MaxTreeDepth = 2;
 constexpr uint32_t NodeDivisions = 2;
 constexpr uint32_t NodeChildren = NodeDivisions * NodeDivisions * NodeDivisions;
 }
-//should be odd to ensure consistency of final result buffer index
-static_assert(Constants::DiffusionIterations % 2 == 1); 
-static_assert(Constants::PressureIterations % 2 == 1);
+
 
 /* TODO:
 - Make image class to handle transitions statefully
@@ -247,8 +245,6 @@ public:
             destroyBuffer(mesh.vertexBuffer);
             destroyBuffer(mesh.indexBuffer);
         }
-        destroyBuffer(this->_lineMesh.vertexBuffer);
-        destroyBuffer(this->_lineMesh.indexBuffer);
 
         this->_deletionQueue.flush();
         destroySwapchain();
@@ -436,7 +432,6 @@ private:
 
         vkCmdPushConstants(cmd, this->_linePipeline.layout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(GraphicsPushConstants), &pc);
         vkCmdBindIndexBuffer(cmd, this->_treeIndices.buffer, 0, VK_INDEX_TYPE_UINT32);
-        // vkCmdDrawIndexed(cmd, this->_lineMesh.numIndices, 1, 0, 0, 0);
         vkCmdDrawIndexedIndirect(cmd, this->_treeIndirectDrawBuffer.buffer, 0, 1, sizeof(VkDrawIndexedIndirectCommand));
         vkCmdEndRendering(cmd);
     }
@@ -467,12 +462,8 @@ private:
 
         vkCmdSetScissor(cmd, 0, 1, &scissor);
 
-        // invert the Y direction on projection matrix so that we are more similar
-        // to opengl and gltf axis
         GraphicsPushConstants pc = {
-            // .worldMatrix = this->_camera.projection * this->_camera.view,
             .worldMatrix = this->_camera.GetProjectionMatrix() * this->_camera.GetViewMatrix() * Constants::MeshTransform,
-            // .worldMatrix = this->_camera.GetProjectionMatrix() * this->_camera.GetViewMatrix(),
             .vertexBuffer = this->_testMeshes[Constants::MeshIdx].vertexBufferAddress
         };
 
@@ -485,9 +476,7 @@ private:
     void voxelRasterizeGeometry(VkCommandBuffer cmd)
     {
         // Zero the counter
-        // std::memset(this->_voxelFragmentCounter.allocation->GetMappedData(), 0, sizeof(VoxelFragmentCounter));
         vkCmdFillBuffer(cmd, this->_voxelFragmentCounter.buffer, 0, VK_WHOLE_SIZE, 0);
-        // Synchronization barrier
         VkMemoryBarrier2 memBarrier = {
             .sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2,
             .srcStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT,
@@ -525,10 +514,8 @@ private:
         };
         vkCmdSetScissor(cmd, 0, 1, &scissor);
 
-        // invert the Y direction on projection matrix so that we are more similar
-        // to opengl and gltf axis
+
         GraphicsPushConstants pc = {
-            // .worldMatrix = glm::mat4(1.0),
             .worldMatrix = glm::mat4(1.0) * Constants::MeshTransform,
             .vertexBuffer = this->_testMeshes[Constants::MeshIdx].vertexBufferAddress
         };
@@ -714,7 +701,6 @@ private:
 
     bool draw(double dt)
     {
-        // std::this_thread::sleep_for(std::chrono::milliseconds(1000));
         // wait for gpu to be done with last frame and clean
         VK_ASSERT(vkWaitForFences(this->_device, 1, &getCurrentFrame().renderFence, true, Constants::TimeoutNs));
         VK_ASSERT(vkResetFences(this->_device, 1, &getCurrentFrame().renderFence));
@@ -852,15 +838,10 @@ private:
             vkutil::transition_image(cmd, this->_drawImage.image, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_GENERAL);
         });
         VoxelFragmentCounter fragCounter;
-        // std::memcpy(&fragCounter, this->_stagingBuffer.allocation->GetMappedData(), this->_voxelFragmentCounter.allocation->GetSize());
         std::memcpy(&fragCounter, this->_voxelFragmentCounter.allocation->GetMappedData(), this->_voxelFragmentCounter.allocation->GetSize());
         this->_fragmentListCount = fragCounter.fragCount;
         std::cout << "Voxel Fragment Count: " << fragCounter.fragCount << std::endl;
 
-
-
-
-        // exit(0);
         return true;
     }
 
@@ -985,51 +966,12 @@ private:
         return true;
     }
 
-    bool createDrawImage()
-    {
-        // Hardcord image format to float16 and extent to current window size
-        // this->_drawImage.imageFormat = VK_FORMAT_R16G16B16A16_SFLOAT;
-        this->_drawImage.imageFormat = VK_FORMAT_R8G8B8A8_UNORM;
-        this->_drawImage.imageExtent = VkExtent3D {
-            this->_windowExtent.width,
-            this->_windowExtent.height,
-            1
-        };
-
-        VkImageUsageFlags drawImageUses {};
-        drawImageUses |= VK_IMAGE_USAGE_TRANSFER_SRC_BIT; // allow copying from
-        drawImageUses |= VK_IMAGE_USAGE_TRANSFER_DST_BIT; // allow copying to
-        drawImageUses |= VK_IMAGE_USAGE_STORAGE_BIT; // read-write access in compute shaders
-        drawImageUses |= VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT; // able to be rendered to with graphics pipeline
-
-        VkImageCreateInfo imgInfo = vkinit::image_create_info(this->_drawImage.imageFormat, drawImageUses, this->_drawImage.imageExtent);
-        VmaAllocationCreateInfo imgAllocInfo = {
-            .usage = VMA_MEMORY_USAGE_GPU_ONLY,
-            .requiredFlags = VkMemoryPropertyFlags(VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT)
-        };
-        VK_ASSERT(vmaCreateImage(this->_allocator, &imgInfo, &imgAllocInfo, &this->_drawImage.image, &this->_drawImage.allocation, nullptr));
-
-        // create simple 1-1 view
-        VkImageViewCreateInfo imgViewInfo = vkinit::imageview_create_info(this->_drawImage.imageFormat, this->_drawImage.image, VK_IMAGE_ASPECT_COLOR_BIT);
-        VK_ASSERT(vkCreateImageView(this->_device, &imgViewInfo, nullptr, &this->_drawImage.imageView));
-
-        this->_deletionQueue.push([&]() {
-            vkDestroyImageView(this->_device, this->_drawImage.imageView, nullptr);
-            vmaDestroyImage(this->_allocator, this->_drawImage.image, this->_drawImage.allocation);
-        });
-        return true;
-    }
-
     bool initSwapchain()
     {
         if(!createSwapchain(this->_windowExtent.width, this->_windowExtent.height)) {
             std::cout << "[ERROR] Failed to create swapchain" << std::endl;
             return false;
         }
-        // if(!createDrawImage()) {
-        //     std::cout << "[ERROR] Failed to create draw image" << std::endl;
-        //     return false;
-        // }
         return true;
     }
 
@@ -1392,39 +1334,13 @@ private:
         // MESHES
         std::vector<std::vector<Vertex>> vertexBuffers;
         std::vector<std::vector<uint32_t>> indexBuffers;
-        if(!loadGltfMeshes({ASSETS_DIRECTORY"/basicmesh.glb"}, vertexBuffers, indexBuffers)) {
+        if(!loadGltfMeshes(Constants::MeshFile, vertexBuffers, indexBuffers)) {
             std::cout << "[ERROR] Failed to load meshes" << std::endl;
         }
         for(int m = 0; m < vertexBuffers.size(); m++) {
             this->_testMeshes.emplace_back(uploadMesh(vertexBuffers[m], indexBuffers[m]));
+            std::cout << "Mesh Triangles: " << indexBuffers[m].size() / 3 << std::endl;
         }
-
-        // TEMP
-        std::vector<Vertex> lineVertices = {
-            {.position = glm::vec3(-0.5, -0.5, -0.5)},
-            {.position = glm::vec3(0.5, -0.5, -0.5)},
-            {.position = glm::vec3(0.5, 0.5, -0.5)},
-            {.position = glm::vec3(-0.5, 0.5, -0.5)},
-            {.position = glm::vec3(-0.5, -0.5, 0.5)},
-            {.position = glm::vec3(0.5, -0.5, 0.5)},
-            {.position = glm::vec3(0.5, 0.5, 0.5)},
-            {.position = glm::vec3(-0.5, 0.5, 0.5)}
-        };
-        std::vector<uint32_t> lineIndices = {
-            0, 1,
-            1, 2,
-            2, 3,
-            3, 0,
-            4, 5,
-            5, 6,
-            6, 7,
-            7, 4,
-            0, 4,
-            1, 5,
-            2, 6,
-            3, 7
-        };
-        this->_lineMesh = uploadMesh(lineVertices, lineIndices);
         return true;
     }
 
@@ -1821,20 +1737,13 @@ private:
 
     bool initCamera()
     {
-        // this->_camera.pos = glm::vec3(3.0, -1.5, 3.0);
-        // this->_camera.view = glm::translate(-this->_camera.pos) * glm::rotate(glm::radians(-80.0f), glm::vec3(0.0, -1.0, 0.0));
-        // this->_camera.view = glm::lookAt(this->_camera.pos, glm::vec3(0, 0, 0), glm::vec3(0, 1, 0));
-        // this->_camera.projection = glm::perspective(glm::radians(70.f), (float)this->_windowExtent.width / (float)_windowExtent.height, 0.1f, 1000.0f);
         this->_camera.SetPerspective(glm::perspective(glm::radians(70.f), (float)this->_windowExtent.width / (float)_windowExtent.height, 0.01f, 1000.0f));
         if(this->_resizeRequested) return true;
         this->_origin.SetPosition(glm::vec3(0.0, Constants::CameraPosition.y, 0.0));
         this->_origin.Update();
 
         this->_camera.SetView(Constants::CameraPosition, glm::vec3(0.0, 0.0, 0.0), glm::vec3(0.0, 1.0, 0.0));
-        // this->_camera.SetViewMatrix(glm::lookAt(Constants::CameraPosition, glm::vec3(0, 0, 0), glm::vec3(0, 1, 0)));
         this->_camera.Attach(&this->_origin);
-        // this->_camera.OrbitYaw(PI/2.5f);
-        // this->_camera.OrbitPitch(PI/2.5f);
         this->_camera.SetupViewMatrix();
 
         return true;
@@ -1950,7 +1859,6 @@ private:
 
     // Meshes
     std::vector<GPUMeshBuffers> _testMeshes;
-    GPUMeshBuffers _lineMesh;
 
     GPUMeshBuffers _treeMesh;
     AllocatedBuffer _treeVertices;
@@ -1960,7 +1868,7 @@ private:
 
 int main(int argc, char* argv[])
 {
-    Renderer renderer("WorldFlow", 900, 900);
+    Renderer renderer("VoxelFlow", 900, 900);
     if(!renderer.Init()) {
         std::cout << "[ERROR] Failed to initialize renderer" << std::endl;
         return EXIT_FAILURE;

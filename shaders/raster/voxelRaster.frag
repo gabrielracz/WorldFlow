@@ -31,21 +31,6 @@ layout(std430, binding = 3) buffer VoxelFragmentList {
 
 layout (location = 0) out vec4 outColour;
 
-uint getVoxelIndex(vec3 pos) {
-    // Convert from scaled world space to grid space (0 to gridSize-1)
-    vec3 normalizedPos = pos / gridScale;  // First normalize by scale
-    vec3 gridPos = (normalizedPos + 0.5) * gridDimensions;
-    ivec3 index = ivec3(floor(gridPos));
-    
-    // Clamp to grid bounds
-    index = clamp(index, ivec3(0), ivec3(gridDimensions) - 1);
-    
-    // Convert to linear index using the same formula as construction
-    return index.z * uint(gridDimensions.x) * uint(gridDimensions.y) +
-           index.y * uint(gridDimensions.x) +
-           index.x;
-}
-
 uint getIndex(uvec3 pos)
 {
     return pos.z * uint(gridDimensions.x) * uint(gridDimensions.y) +
@@ -62,30 +47,23 @@ void main()
     
     if(axis == 0) {
         pos = vec3(temp.z, temp.y, temp.x);
-        // discard;
     } else if(axis == 1) {
         pos = vec3(temp.x, temp.z, temp.y);
-        // discard;
     } else {
         pos = vec3(temp.x, temp.y, temp.z);
-        // discard;
     }
 
     // direct regular grid insert
     uint gridIndex = getIndex(uvec3(floor(pos)));
-    grid[gridIndex] = 1.0;
+    grid[gridIndex] = 1.0; // TODO: use atomic here
     
-    // orthographic image visulzation
+    // orthographic image visualization
     outColour = vec4((1.0 - inDepth)/2.0, 0.0, 0.0, 1.0);
 
     // insert into voxel fragment list for octree placement
     uint fragListIndex = atomicAdd(fragCounter, 1);
-    // fragCounter = 1;
     VoxelFragment voxelFrag;
     voxelFrag.position = (pos / gridDimensions);
     voxelFrag.gridIndex = gridIndex;
     fragList[fragListIndex] = voxelFrag;
-
-    // voxelFrag.position = vec3(0.65, 0.25, 0.85);
-    // fragList[0] = voxelFrag;
 }
