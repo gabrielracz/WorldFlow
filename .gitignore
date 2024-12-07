@@ -1,1 +1,5 @@
 assets/*.glb
+shaders/bin/*
+build/*
+bin/*
+
