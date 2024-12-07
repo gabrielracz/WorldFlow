@@ -92,7 +92,7 @@ static_assert(Constants::PressureIterations % 2 == 1);
 */
 
 // LIFO stack
-struct DeletionQueue
+struct alignas(16) alignas(16) DeletionQueue
 {
     void push(std::function<void()>&& function) { deletors.push_front(function); }
     void flush()
@@ -105,7 +105,7 @@ struct DeletionQueue
     std::deque<std::function<void()>> deletors;
 };
 
-struct FrameData
+struct alignas(16) FrameData
 {
     VkCommandPool commandPool {};
     VkCommandBuffer commandBuffer {};
@@ -115,7 +115,7 @@ struct FrameData
     DeletionQueue deletionQueue;
 };
 
-struct ComputePipeline
+struct alignas(16) ComputePipeline
 {
     VkPipeline pipeline {};
     VkPipelineLayout layout {};
@@ -123,7 +123,7 @@ struct ComputePipeline
     VkDescriptorSetLayout descriptorLayout {};
 };
 
-struct GraphicsPipeline
+struct alignas(16) GraphicsPipeline
 {
     VkPipeline pipeline {};
     VkPipelineLayout layout {};
@@ -131,43 +131,43 @@ struct GraphicsPipeline
     VkDescriptorSetLayout descriptorLayout {};
 };
 
-struct VoxelizerPushConstants
+struct alignas(16) VoxelizerPushConstants
 {
     glm::uvec3 gridSize;
     float gridScale;
     float time;
 };
 
-struct VoxelInfo
+struct alignas(16) VoxelInfo
 {
     glm::vec3 gridDimensions;
     float gridScale;
 };
 
-struct VoxelFragmentCounter
+struct alignas(16) VoxelFragmentCounter
 {
     uint32_t fragCount;
 };
 
-struct TreeInfo
+struct alignas(16) TreeInfo
 {
     uint32_t nodeCounter;
 };
 
 
-struct VoxelFragment
+struct alignas(16) VoxelFragment
 {
     glm::vec3 position;
     uint32_t index;
 };
 
-struct alignas(16) VoxelNode
+struct alignas(16) alignas(16) VoxelNode
 {
     glm::vec4 pos; // w component = depth
     uint32_t childPtr; 
 };
 
-struct RayTracerPushConstants
+struct alignas(16) RayTracerPushConstants
 {
     glm::mat4 inverseProjection;  // Inverse projection matrix
     glm::mat4 inverseView;        // Inverse view matrix
@@ -183,27 +183,27 @@ struct RayTracerPushConstants
 };
 
 // push constants for our mesh object draws
-struct GraphicsPushConstants
+struct alignas(16) GraphicsPushConstants
 {
     glm::mat4 worldMatrix;
     VkDeviceAddress vertexBuffer;
     uint32_t padding[2];
 };
 
-struct TreeBuilderPushConstants
+struct alignas(16) TreeBuilderPushConstants
 {
     VkDeviceAddress vertexBuffer;
     VkDeviceAddress indexBuffer;
 };
 
-struct TreeRendererPushConstants
+struct alignas(16) TreeRendererPushConstants
 {
     VkDeviceAddress vertexBuffer;
     VkDeviceAddress indexBuffer;
 };
 
 typedef std::unordered_map<int, bool> MouseMap;
-struct Mouse 
+struct alignas(16) Mouse 
 {
     bool first_captured = false;
     bool captured = true;
@@ -537,6 +537,25 @@ private:
         vkCmdBindIndexBuffer(cmd, this->_testMeshes[Constants::MeshIdx].indexBuffer.buffer, 0, VK_INDEX_TYPE_UINT32);
         vkCmdDrawIndexed(cmd, this->_testMeshes[Constants::MeshIdx].numIndices, 1, 0, 0, 0);
         vkCmdEndRendering(cmd);
+        VkBufferMemoryBarrier bufferBarriers[] = {
+            {
+                .sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER,
+                .srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT,
+                .dstAccessMask = VK_ACCESS_SHADER_READ_BIT,
+                .buffer = this->_voxelVolume.buffer,
+                .offset = 0,
+                .size = VK_WHOLE_SIZE,
+            },
+            {
+                .sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER,
+                .srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT,
+                .dstAccessMask = VK_ACCESS_SHADER_READ_BIT,
+                .buffer = this->_voxelFragmentCounter.buffer,
+                .offset = 0,
+                .size = VK_WHOLE_SIZE
+            }
+        };
+        vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_ALL_GRAPHICS_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, nullptr, 2, bufferBarriers, 0, nullptr);
     }
 
     void updateVoxelVolume(VkCommandBuffer cmd)
@@ -557,27 +576,6 @@ private:
 
     void rayCastVoxelVolume(VkCommandBuffer cmd)
     {
-        // wait for rasterizer to complete
-        VkBufferMemoryBarrier bufferBarriers[] = {
-            {
-                .sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER,
-                .srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT,
-                .dstAccessMask = VK_ACCESS_SHADER_READ_BIT,
-                .buffer = this->_voxelVolume.buffer,
-                .offset = 0,
-                .size = Constants::VoxelGridSize,
-            },
-            {
-                .sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER,
-                .srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT,
-                .dstAccessMask = VK_ACCESS_SHADER_READ_BIT,
-                .buffer = this->_voxelFragmentCounter.buffer,
-                .offset = 0,
-                .size = sizeof(VoxelFragmentCounter)
-            }
-        };
-        vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_ALL_GRAPHICS_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, nullptr, 2, bufferBarriers, 0, nullptr);
-
         vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, this->_raytracerPipeline.pipeline);
         vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, this->_raytracerPipeline.layout, 0, 1, this->_raytracerPipeline.descriptorSets.data(), 0, nullptr);
 
@@ -620,14 +618,6 @@ private:
                 .sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER,
                 .srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT,
                 .dstAccessMask = VK_ACCESS_SHADER_READ_BIT,
-                .buffer = this->_treeIndirectDrawBuffer.buffer,
-                .offset = 0,
-                .size = VK_WHOLE_SIZE,
-            },
-            {
-                .sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER,
-                .srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT,
-                .dstAccessMask = VK_ACCESS_SHADER_READ_BIT,
                 .buffer = this->_treeIndices.buffer,
                 .offset = 0,
                 .size = VK_WHOLE_SIZE,
@@ -641,7 +631,7 @@ private:
                 .size = VK_WHOLE_SIZE,
             },
         };
-        vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_ALL_GRAPHICS_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, nullptr, 3, bufferBarriers, 0, nullptr);
+        vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_ALL_GRAPHICS_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, nullptr, 2, bufferBarriers, 0, nullptr);
     }
 
     void generateTreeIndirectCommands(VkCommandBuffer cmd)
@@ -862,7 +852,8 @@ private:
             vkutil::transition_image(cmd, this->_drawImage.image, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_GENERAL);
         });
         VoxelFragmentCounter fragCounter;
-        std::memcpy(&fragCounter, this->_stagingBuffer.allocation->GetMappedData(), sizeof(VoxelFragmentCounter));
+        // std::memcpy(&fragCounter, this->_stagingBuffer.allocation->GetMappedData(), this->_voxelFragmentCounter.allocation->GetSize());
+        std::memcpy(&fragCounter, this->_voxelFragmentCounter.allocation->GetMappedData(), this->_voxelFragmentCounter.allocation->GetSize());
         this->_fragmentListCount = fragCounter.fragCount;
         std::cout << "Voxel Fragment Count: " << fragCounter.fragCount << std::endl;
 
@@ -1283,7 +1274,10 @@ private:
 
         // BUFFERS
         this->_stagingBuffer = createBuffer(Constants::StagingBufferSize, VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VMA_MEMORY_USAGE_CPU_ONLY);
-        this->_voxelVolume = createBuffer(Constants::VoxelGridSize, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
+        this->_voxelVolume = createBuffer(Constants::VoxelGridSize, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
+        immediateSubmit([&](VkCommandBuffer cmd) {
+            vkCmdFillBuffer(cmd, this->_voxelVolume.buffer, 0, VK_WHOLE_SIZE, 0);
+        });
         this->_voxelInfoBuffer = createBuffer(sizeof(VoxelInfo), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
         VoxelInfo voxInfo = {
             .gridDimensions = glm::vec3(Constants::VoxelGridResolution),
@@ -1304,7 +1298,7 @@ private:
         this->_voxelFragmentCounter = createBuffer(
             sizeof(VoxelFragmentCounter),
             VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
-            VMA_MEMORY_USAGE_GPU_ONLY
+            VMA_MEMORY_USAGE_CPU_ONLY
         );
 
         this->_voxelFragmentList = createBuffer(
