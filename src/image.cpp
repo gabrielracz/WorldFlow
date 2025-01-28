@@ -32,3 +32,11 @@ Image::Transition(VkCommandBuffer cmd, VkImageLayout newLayout)
     vkCmdPipelineBarrier2(cmd, &depInfo);
 	this->currentLayout = newLayout;
 }
+
+void 
+Image::Clear(VkCommandBuffer cmd, VkClearColorValue color)
+{
+	VkImageSubresourceRange clearRange = vkinit::image_subresource_range(VK_IMAGE_ASPECT_COLOR_BIT);
+	Transition(cmd, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+	vkCmdClearColorImage(cmd, this->image, this->currentLayout, &color, 1, &clearRange);
+}

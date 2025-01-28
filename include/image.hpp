@@ -8,6 +8,7 @@ class Image
 {
 public:
 	void Transition(VkCommandBuffer cmd, VkImageLayout newLayout);
+	void Clear(VkCommandBuffer cmd, VkClearColorValue color = {0.0, 0.0, 0.0, 0.0});
 
     VkImage image {};
     VkImageView imageView {};

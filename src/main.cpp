@@ -5,6 +5,7 @@
 #include <iomanip>
 #include <stdexcept>
 #include <system_error>
+#include <variant>
 #include <vulkan/vulkan.h>
 #include <VkBootstrap.h>
 
@@ -44,6 +45,7 @@
 #include <deque>
 #include <csignal>
 #include <unordered_map>
+#include <unordered_set>
 
 namespace Constants
 {
@@ -386,13 +388,6 @@ private:
         return true;
     }
 
-    void clearImage(VkCommandBuffer cmd, Image& img, VkClearColorValue color = {0.0, 0.0, 0.0, 0.0})
-    {
-        VkImageSubresourceRange clearRange = vkinit::image_subresource_range(VK_IMAGE_ASPECT_COLOR_BIT);
-		img.Transition(cmd, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
-        vkCmdClearColorImage(cmd, img.image, img.currentLayout, &color, 1, &clearRange);
-    }
-
     VkExtent3D getWorkgroupCounts(uint32_t localGroupSize = 16)
     {
         return VkExtent3D {
@@ -687,7 +682,7 @@ private:
         };
         VK_ASSERT(vkBeginCommandBuffer(cmd, &cmdBeginInfo));
 
-        clearImage(cmd, this->_drawImage);
+        this->_drawImage.Clear(cmd);
 
         // updateVoxelVolume(cmd); // fill voxels with sample noise
 		this->_voxelImage.Transition(cmd, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
@@ -726,7 +721,7 @@ private:
         // this->_voxelImage.Transition(cmd, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
         // vkutil::copy_image_to_image(cmd, this->_voxelImage.image, swapchainImage, this->_voxelImage.imageExtent, VkExtent3D{.width = this->_swapchainExtent.width, .height = this->_swapchainExtent.height, .depth = 1});
 
-        clearImage(cmd, this->_voxelImage);
+        this->_voxelImage.Clear(cmd);
 
         // transition to present format
         vkutil::transition_image(cmd, swapchainImage, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
@@ -1298,6 +1293,77 @@ private:
         return true;
     }
 
+
+	struct BufferDescriptor
+	{
+		unsigned int set;
+		unsigned int binding;
+		VkDescriptorType type;
+		VkBuffer handle;
+		size_t size;
+		unsigned int offset;
+		BufferDescriptor(unsigned int set, unsigned int binding, VkDescriptorType type, VkBuffer handle, size_t size, unsigned int offset = 0)
+			: set(set), binding(binding), type(type), handle(handle), size(size), offset(offset) {}
+	};
+
+	struct ImageDescriptor
+	{
+		unsigned int set;
+		unsigned int binding;
+		VkDescriptorType type;
+		VkImageView imageView;
+		VkSampler sampler;
+		VkImageLayout layout;
+	};
+
+	// IMPORTANT descriptors should be passed with their sets in ascending sorted order
+	void createPipelineDescriptors(ComputePipeline& pipeline, std::vector<std::variant<BufferDescriptor, ImageDescriptor>> descriptors)
+	{
+        // this->_voxelRasterPipeline.descriptorLayout = DescriptorLayoutBuilder::newLayout()
+        //     .add_binding(0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER)
+        //     .add_binding(1, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER)
+        //     .add_binding(2, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER)
+        //     .add_binding(3, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER)
+        //     .build(this->_device, VK_SHADER_STAGE_FRAGMENT_BIT);
+        // this->_voxelRasterPipeline.descriptorSets.push_back(this->_descriptorPool.allocateSet(this->_device, this->_voxelRasterPipeline.descriptorLayout));
+        // this->_descriptorWriter
+        //     .clear()
+        //     .write_buffer(0, this->_voxelVolume.bufferHandle, this->_voxelVolume.info.size, 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER)
+        //     .write_buffer(1, this->_voxelInfoBuffer.bufferHandle, sizeof(VoxelInfo), 0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER)
+        //     .write_buffer(2, this->_voxelFragmentCounter.bufferHandle, sizeof(VoxelFragmentCounter), 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER)
+        //     .write_buffer(3, this->_voxelFragmentList.bufferHandle, this->_voxelFragmentList.allocation->GetSize(), 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER)
+        //     .update_set(this->_device, this->_voxelRasterPipeline.descriptorSets[0]);
+
+		// create the layout based on the first descriptor set (we assume all sets have the same layout)
+		std::unordered_map<unsigned int, unsigned int> descriptorSetCounts;
+		DescriptorLayoutBuilder layoutBuilder = DescriptorLayoutBuilder::newLayout();
+		for(const auto& desc : descriptors) {
+			std::visit([&descriptorSetCounts, &layoutBuilder](const auto& d) {
+				descriptorSetCounts[d.set] += 1;
+				if(d.set != 0) { return; }
+				layoutBuilder.add_binding(d.binding, d.type);
+			}, desc);
+		}
+		pipeline.descriptorLayout = layoutBuilder.build(this->_device, VK_SHADER_STAGE_COMPUTE_BIT);
+
+		// allocate number of implicitely requested sets
+		for(int i = 0; i < descriptorSetCounts.size(); i++) {
+			pipeline.descriptorSets.push_back(this->_descriptorPool.allocateSet(this->_device, pipeline.descriptorLayout));
+		}
+
+		this->_descriptorWriter.clear();
+		for(const auto& desc : descriptors) {
+			if(std::holds_alternative<BufferDescriptor>(desc)) {
+				const auto& buf = std::get<BufferDescriptor>(desc);
+				this->_descriptorWriter.write_buffer(buf.binding, buf.handle, buf.size, buf.offset, buf.type);
+			}
+			else if(std::holds_alternative<ImageDescriptor>(desc)) {
+				const auto& img = std::get<ImageDescriptor>(desc);
+				this->_descriptorWriter.write_image(img.binding, img.imageView, img.sampler, img.layout, img.type);
+			}
+		}
+	}
+
     bool initDescriptors()
     {
         std::vector<DescriptorPool::DescriptorQuantity> sizes = {
@@ -1362,16 +1428,23 @@ private:
             .update_set(this->_device, this->_raytracerPipeline.descriptorSets[0]);
 
         // TREE MESH GENERATOR
-        this->_treeLineGenerator.descriptorLayout = DescriptorLayoutBuilder::newLayout()
-            .add_binding(0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER)
-            .add_binding(1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER)
-            .build(this->_device, VK_SHADER_STAGE_COMPUTE_BIT);
-        this->_treeLineGenerator.descriptorSets.push_back(this->_descriptorPool.allocateSet(this->_device, this->_treeLineGenerator.descriptorLayout));
-        this->_descriptorWriter
-            .clear()
-            .write_buffer(0, this->_voxelNodes.bufferHandle, this->_voxelNodes.allocation->GetSize(), 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER)
-            .write_buffer(1, this->_treeIndirectDrawBuffer.bufferHandle, sizeof(VkDrawIndexedIndirectCommand), 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER)
-            .update_set(this->_device, this->_treeLineGenerator.descriptorSets[0]);
+
+		createPipelineDescriptors(
+			this->_treeLineGenerator, {
+			BufferDescriptor(0, 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, this->_voxelNodes.bufferHandle, this->_voxelNodes.allocation->GetSize()),
+			BufferDescriptor(0, 1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, this->_treeIndirectDrawBuffer.bufferHandle, sizeof(VkDrawIndexedIndirectCommand)),
+		});
+
+        // this->_treeLineGenerator.descriptorLayout = DescriptorLayoutBuilder::newLayout()
+        //     .add_binding(0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER)
+        //     .add_binding(1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER)
+        //     .build(this->_device, VK_SHADER_STAGE_COMPUTE_BIT);
+        // this->_treeLineGenerator.descriptorSets.push_back(this->_descriptorPool.allocateSet(this->_device, this->_treeLineGenerator.descriptorLayout));
+        // this->_descriptorWriter
+        //     .clear()
+        //     .write_buffer(0, this->_voxelNodes.bufferHandle, this->_voxelNodes.allocation->GetSize(), 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER)
+        //     .write_buffer(1, this->_treeIndirectDrawBuffer.bufferHandle, sizeof(VkDrawIndexedIndirectCommand), 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER)
+        //     .update_set(this->_device, this->_treeLineGenerator.descriptorSets[0]);
 
         // GENERATE INDIRECT COMMAND BUFFERS
         this->_treeIndirectCmdGenerator.descriptorLayout = DescriptorLayoutBuilder::newLayout()
@@ -1430,6 +1503,8 @@ private:
         });
         return true;
     }
+	
+	// bool createCompleteComputePipeline(ComputePipeline& newPipeline, const std::string& shaderFilename, )
 
     template <typename PushConstants>
     bool createComputePipeline(const std::string& shaderFilename, ComputePipeline& newPipeline, bool autoCleanup = true)
@@ -1810,6 +1885,20 @@ private:
     VkSampler _simpleSampler {};
 
     uint32_t _fragmentListCount = 0;
+void createPipeline(std::vector<std::variant<BufferDescriptor, ImageDescriptor>> descriptors)
+{
+	for(const auto& desc : descriptors) {
+		if(std::holds_alternative<BufferDescriptor>(desc)) {
+			const auto& buf = std::get<BufferDescriptor>(desc);
+			std::cout << buf.size << std::endl;
+		}
+		else if(std::holds_alternative<ImageDescriptor>(desc)) {
+			const auto& img = std::get<ImageDescriptor>(desc);
+			std::cout << img.layout << std::endl;
+		}
+	}
+
+}
 
     // Meshes
     std::vector<GPUMesh> _testMeshes;
@@ -1822,6 +1911,11 @@ private:
 
 int main(int argc, char* argv[])
 {
+	// createPipeline({
+	// 	{BufferDescriptor{0, 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_NULL_HANDLE, 64}},
+	// 	{ImageDescriptor{0, 1, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, VK_NULL_HANDLE, VK_NULL_HANDLE, VK_IMAGE_LAYOUT_GENERAL}}
+	// });
+
     Renderer renderer("VoxelFlow", 900, 900);
     if(!renderer.Init()) {
         std::cout << "[ERROR] Failed to initialize renderer" << std::endl;
