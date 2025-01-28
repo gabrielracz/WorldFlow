@@ -22,6 +22,8 @@
 #include "defines.hpp"
 #include "camera.hpp"
 #include "transform.hpp"
+#include "buffer.hpp"
+#include "image.hpp"
 
 #include "shared/vk_types.h"
 #include "shared/vk_images.h"
@@ -77,7 +79,7 @@ constexpr glm::vec3 CameraPosition = glm::vec3(0.0, 0.0, -3.0);
 constexpr glm::vec3 LightPosition = glm::vec4(10.0, 10.0, 10.0, 1.0);
 
 constexpr uint32_t NumAllocatedVoxelFragments = 1024 * 1024;
-constexpr uint32_t NumAllocatedNodes = 256 * 256 * 256;
+constexpr uint32_t NumAllocatedNodes = 256 * 256 * 256 * 2;
 constexpr uint32_t MaxTreeDepth = 2;
 constexpr uint32_t NodeDivisions = 2;
 constexpr uint32_t NodeChildren = NodeDivisions * NodeDivisions * NodeDivisions;
@@ -241,9 +243,8 @@ public:
             frame.deletionQueue.flush();
         }
 
-        for(GPUMeshBuffers& mesh : this->_testMeshes) {
-            destroyBuffer(mesh.vertexBuffer);
-            destroyBuffer(mesh.indexBuffer);
+        for(GPUMesh& mesh : this->_testMeshes) {
+			mesh.Destroy(this->_allocator);
         }
 
         this->_deletionQueue.flush();
@@ -385,10 +386,11 @@ private:
         return true;
     }
 
-    void clearImage(VkCommandBuffer cmd, AllocatedImage& img, VkClearColorValue color = {0.0, 0.0, 0.0, 0.0})
+    void clearImage(VkCommandBuffer cmd, Image& img, VkClearColorValue color = {0.0, 0.0, 0.0, 0.0})
     {
         VkImageSubresourceRange clearRange = vkinit::image_subresource_range(VK_IMAGE_ASPECT_COLOR_BIT);
-        vkCmdClearColorImage(cmd, img.image, VK_IMAGE_LAYOUT_GENERAL, &color, 1, &clearRange);
+		img.Transition(cmd, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+        vkCmdClearColorImage(cmd, img.image, img.currentLayout, &color, 1, &clearRange);
     }
 
     VkExtent3D getWorkgroupCounts(uint32_t localGroupSize = 16)
@@ -431,8 +433,8 @@ private:
         };
 
         vkCmdPushConstants(cmd, this->_linePipeline.layout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(GraphicsPushConstants), &pc);
-        vkCmdBindIndexBuffer(cmd, this->_treeIndices.buffer, 0, VK_INDEX_TYPE_UINT32);
-        vkCmdDrawIndexedIndirect(cmd, this->_treeIndirectDrawBuffer.buffer, 0, 1, sizeof(VkDrawIndexedIndirectCommand));
+        vkCmdBindIndexBuffer(cmd, this->_treeIndices.bufferHandle, 0, VK_INDEX_TYPE_UINT32);
+        vkCmdDrawIndexedIndirect(cmd, this->_treeIndirectDrawBuffer.bufferHandle, 0, 1, sizeof(VkDrawIndexedIndirectCommand));
         vkCmdEndRendering(cmd);
     }
 
@@ -468,7 +470,7 @@ private:
         };
 
         vkCmdPushConstants(cmd, this->_meshPipeline.layout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(GraphicsPushConstants), &pc);
-        vkCmdBindIndexBuffer(cmd, this->_testMeshes[Constants::MeshIdx].indexBuffer.buffer, 0, VK_INDEX_TYPE_UINT32);
+        vkCmdBindIndexBuffer(cmd, this->_testMeshes[Constants::MeshIdx].indexBuffer.bufferHandle, 0, VK_INDEX_TYPE_UINT32);
         vkCmdDrawIndexed(cmd, this->_testMeshes[Constants::MeshIdx].numIndices, 1, 0, 0, 0);
         vkCmdEndRendering(cmd);
     }
@@ -476,7 +478,7 @@ private:
     void voxelRasterizeGeometry(VkCommandBuffer cmd)
     {
         // Zero the counter
-        vkCmdFillBuffer(cmd, this->_voxelFragmentCounter.buffer, 0, VK_WHOLE_SIZE, 0);
+        vkCmdFillBuffer(cmd, this->_voxelFragmentCounter.bufferHandle, 0, VK_WHOLE_SIZE, 0);
         VkMemoryBarrier2 memBarrier = {
             .sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2,
             .srcStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT,
@@ -521,7 +523,7 @@ private:
         };
 
         vkCmdPushConstants(cmd, this->_voxelRasterPipeline.layout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(GraphicsPushConstants), &pc);
-        vkCmdBindIndexBuffer(cmd, this->_testMeshes[Constants::MeshIdx].indexBuffer.buffer, 0, VK_INDEX_TYPE_UINT32);
+        vkCmdBindIndexBuffer(cmd, this->_testMeshes[Constants::MeshIdx].indexBuffer.bufferHandle, 0, VK_INDEX_TYPE_UINT32);
         vkCmdDrawIndexed(cmd, this->_testMeshes[Constants::MeshIdx].numIndices, 1, 0, 0, 0);
         vkCmdEndRendering(cmd);
         VkBufferMemoryBarrier bufferBarriers[] = {
@@ -529,7 +531,7 @@ private:
                 .sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER,
                 .srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT,
                 .dstAccessMask = VK_ACCESS_SHADER_READ_BIT,
-                .buffer = this->_voxelVolume.buffer,
+                .buffer = this->_voxelVolume.bufferHandle,
                 .offset = 0,
                 .size = VK_WHOLE_SIZE,
             },
@@ -537,7 +539,7 @@ private:
                 .sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER,
                 .srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT,
                 .dstAccessMask = VK_ACCESS_SHADER_READ_BIT,
-                .buffer = this->_voxelFragmentCounter.buffer,
+                .buffer = this->_voxelFragmentCounter.bufferHandle,
                 .offset = 0,
                 .size = VK_WHOLE_SIZE
             }
@@ -599,13 +601,13 @@ private:
         };
         vkCmdPushConstants(cmd, this->_treeLineGenerator.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(TreeRendererPushConstants), &pc);
         // vkCmdDispatch(cmd, Constants::NodeChildren, 1, 1);
-        vkCmdDispatchIndirect(cmd, this->_treeIndirectDispatchBuffer.buffer, 0);
+        vkCmdDispatchIndirect(cmd, this->_treeIndirectDispatchBuffer.bufferHandle, 0);
         VkBufferMemoryBarrier bufferBarriers[] = {
             {
                 .sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER,
                 .srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT,
                 .dstAccessMask = VK_ACCESS_SHADER_READ_BIT,
-                .buffer = this->_treeIndices.buffer,
+                .buffer = this->_treeIndices.bufferHandle,
                 .offset = 0,
                 .size = VK_WHOLE_SIZE,
             },
@@ -613,12 +615,12 @@ private:
                 .sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER,
                 .srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT,
                 .dstAccessMask = VK_ACCESS_SHADER_READ_BIT,
-                .buffer = this->_treeVertices.buffer,
+                .buffer = this->_treeVertices.bufferHandle,
                 .offset = 0,
                 .size = VK_WHOLE_SIZE,
             },
         };
-        vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_ALL_GRAPHICS_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, nullptr, 2, bufferBarriers, 0, nullptr);
+        vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_ALL_GRAPHICS_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, nullptr, ARRLEN(bufferBarriers), bufferBarriers, 0, nullptr);
     }
 
     void generateTreeIndirectCommands(VkCommandBuffer cmd)
@@ -627,76 +629,34 @@ private:
         vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, this->_treeIndirectCmdGenerator.layout, 0, 1, this->_treeIndirectCmdGenerator.descriptorSets.data(), 0, nullptr);
         vkCmdDispatch(cmd, 1, 1, 1);
         VkBufferMemoryBarrier bufferBarriers[] = {
-            {
-                .sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER,
-                .srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT,
-                .dstAccessMask = VK_ACCESS_SHADER_READ_BIT,
-                .buffer = this->_treeIndirectDispatchBuffer.buffer,
-                .offset = 0,
-                .size = VK_WHOLE_SIZE,
-            },
-            {
-                .sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER,
-                .srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT,
-                .dstAccessMask = VK_ACCESS_SHADER_READ_BIT,
-                .buffer = this->_treeFlaggerIndirectDispatchBuffer.buffer,
-                .offset = 0,
-                .size = VK_WHOLE_SIZE,
-            },
-            {
-                .sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER,
-                .srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT,
-                .dstAccessMask = VK_ACCESS_SHADER_READ_BIT,
-                .buffer = this->_treeIndirectDrawBuffer.buffer,
-                .offset = 0,
-                .size = VK_WHOLE_SIZE,
-            }
+			this->_treeIndirectDispatchBuffer.CreateBarrier(),
+			this->_treeFlaggerIndirectDispatchBuffer.CreateBarrier(),
+			this->_treeIndirectDrawBuffer.CreateBarrier()
         };
-        vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_ALL_GRAPHICS_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, nullptr, 2, bufferBarriers, 0, nullptr);
+        vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_ALL_GRAPHICS_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, nullptr, ARRLEN(bufferBarriers), bufferBarriers, 0, nullptr);
     }
 
     void subdivideTree(VkCommandBuffer cmd)
     {
         vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, this->_treeSubdivider.pipeline);
         vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, this->_treeSubdivider.layout, 0, 1, this->_treeSubdivider.descriptorSets.data(), 0, nullptr);
-        vkCmdDispatchIndirect(cmd, this->_treeIndirectDispatchBuffer.buffer, 0); // TODO: rethink this indirect buffer
+        vkCmdDispatchIndirect(cmd, this->_treeIndirectDispatchBuffer.bufferHandle, 0); // TODO: rethink this indirect buffer
         VkBufferMemoryBarrier bufferBarriers[] = {
-            {
-                .sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER,
-                .srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT,
-                .dstAccessMask = VK_ACCESS_SHADER_READ_BIT,
-                .buffer = this->_treeInfoBuffer.buffer,
-                .offset = 0,
-                .size = VK_WHOLE_SIZE,
-            },
-            {
-                .sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER,
-                .srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT,
-                .dstAccessMask = VK_ACCESS_SHADER_READ_BIT,
-                .buffer = this->_voxelNodes.buffer,
-                .offset = 0,
-                .size = VK_WHOLE_SIZE,
-            },
+                this->_treeInfoBuffer.CreateBarrier(),
+                this->_voxelNodes.CreateBarrier()
         };
-        vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_ALL_GRAPHICS_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, nullptr, 2, bufferBarriers, 0, nullptr);
+        vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_ALL_GRAPHICS_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, nullptr, ARRLEN(bufferBarriers), bufferBarriers, 0, nullptr);
     }
 
     void flagNodesForSubdivision(VkCommandBuffer cmd)
     {
         vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, this->_treeFlagger.pipeline);
         vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, this->_treeFlagger.layout, 0, 1, this->_treeFlagger.descriptorSets.data(), 0, nullptr);
-        vkCmdDispatchIndirect(cmd, this->_treeFlaggerIndirectDispatchBuffer.buffer, 0); // TODO: rethink this indirect buffer
+        vkCmdDispatchIndirect(cmd, this->_treeFlaggerIndirectDispatchBuffer.bufferHandle, 0); // TODO: rethink this indirect buffer
         VkBufferMemoryBarrier bufferBarriers[] = {
-            {
-                .sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER,
-                .srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT,
-                .dstAccessMask = VK_ACCESS_SHADER_READ_BIT,
-                .buffer = this->_voxelNodes.buffer,
-                .offset = 0,
-                .size = VK_WHOLE_SIZE,
-            },
+                this->_voxelNodes.CreateBarrier()
         };
-        vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_ALL_GRAPHICS_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, nullptr, 1, bufferBarriers, 0, nullptr);
+        vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_ALL_GRAPHICS_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, nullptr, ARRLEN(bufferBarriers), bufferBarriers, 0, nullptr);
     }
 
     bool draw(double dt)
@@ -729,14 +689,14 @@ private:
 
         clearImage(cmd, this->_drawImage);
 
-        // updateVoxelVolume(cmd);
+        // updateVoxelVolume(cmd); // fill voxels with sample noise
+		this->_voxelImage.Transition(cmd, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
         voxelRasterizeGeometry(cmd);
 
         generateTreeIndirectCommands(cmd);
         generateTreeGeometry(cmd);
-        vkutil::transition_image(cmd, this->_drawImage.image, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+		this->_drawImage.Transition(cmd, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
         drawLines(cmd);
-        vkutil::transition_image(cmd, this->_drawImage.image, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_GENERAL);
         if(this->_shouldSubdivide) {
             flagNodesForSubdivision(cmd);
             subdivideTree(cmd);
@@ -744,33 +704,33 @@ private:
         }
 
         if(this->_shouldRenderGeometry) {
-            vkutil::transition_image(cmd, this->_drawImage.image, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+			this->_drawImage.Transition(cmd, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
             drawGeometry(cmd, dt);
-            vkutil::transition_image(cmd, this->_drawImage.image, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_GENERAL);
+			this->_drawImage.Transition(cmd, VK_IMAGE_LAYOUT_GENERAL);
         }
 
         if(this->_shouldRenderVoxels) {
+			this->_drawImage.Transition(cmd, VK_IMAGE_LAYOUT_GENERAL);
             rayCastVoxelVolume(cmd);
         }
 
         // prepare drawImage to swapchainImage copy
-        AllocatedImage& drawImage = this->_drawImage;
+        Image& drawImage = this->_drawImage;
         VkImage& swapchainImage = this->_swapchainImages[swapchainImageIndex];
 
-        vkutil::transition_image(cmd, drawImage.image, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+        drawImage.Transition(cmd, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
         vkutil::transition_image(cmd, swapchainImage, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
         vkutil::copy_image_to_image(cmd, drawImage.image, swapchainImage, this->_windowExtent, VkExtent3D{.width = this->_swapchainExtent.width, .height = this->_swapchainExtent.height, .depth = 1});
 
 
-        vkutil::transition_image(cmd, this->_voxelImage.image, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+        // this->_voxelImage.Transition(cmd, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
         // vkutil::copy_image_to_image(cmd, this->_voxelImage.image, swapchainImage, this->_voxelImage.imageExtent, VkExtent3D{.width = this->_swapchainExtent.width, .height = this->_swapchainExtent.height, .depth = 1});
-        vkutil::transition_image(cmd, this->_voxelImage.image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_GENERAL);
+
         clearImage(cmd, this->_voxelImage);
-        vkutil::transition_image(cmd, this->_voxelImage.image, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
 
         // transition to present format
         vkutil::transition_image(cmd, swapchainImage, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
-        vkutil::transition_image(cmd, drawImage.image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_GENERAL);
+        drawImage.Transition(cmd, VK_IMAGE_LAYOUT_GENERAL);
 
         VK_ASSERT(vkEndCommandBuffer(cmd)); //commands recorded
 
@@ -827,15 +787,15 @@ private:
     bool preProcess()
     {
         immediateSubmit([&](VkCommandBuffer cmd) {
-            vkutil::transition_image(cmd, this->_drawImage.image, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+            this->_drawImage.Transition(cmd, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
             voxelRasterizeGeometry(cmd);
             VkBufferCopy copy = {
                 .srcOffset = 0,
                 .dstOffset = 0,
                 .size = sizeof(VoxelFragmentCounter)
             };
-            vkCmdCopyBuffer(cmd, this->_voxelFragmentCounter.buffer, this->_stagingBuffer.buffer, 1, &copy);
-            vkutil::transition_image(cmd, this->_drawImage.image, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_GENERAL);
+            vkCmdCopyBuffer(cmd, this->_voxelFragmentCounter.bufferHandle, this->_stagingBuffer.bufferHandle, 1, &copy);
+            // this->_drawImage.Transition(cmd, VK_IMAGE_LAYOUT_GENERAL);
         });
         VoxelFragmentCounter fragCounter;
         std::memcpy(&fragCounter, this->_voxelFragmentCounter.allocation->GetMappedData(), this->_voxelFragmentCounter.allocation->GetSize());
@@ -1033,24 +993,12 @@ private:
         vmaDestroyBuffer(this->_allocator, buf.buffer, buf.allocation);
     }
 
-    AllocatedBuffer createBuffer(uint64_t allocSize, VkBufferUsageFlags usage, VmaMemoryUsage memoryUsage, bool autoCleanup = true)
+    Buffer CreateBuffer(Buffer &newBuffer, uint64_t allocSize, VkBufferUsageFlags usage, VmaMemoryUsage memoryUsage, bool autoCleanup = true)
     {
-        // allocate buffer
-        VkBufferCreateInfo bufferInfo = {
-            .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
-            .size = allocSize,
-            .usage = usage
-        };
-        VmaAllocationCreateInfo vmaallocInfo = {
-            .flags = VMA_ALLOCATION_CREATE_MAPPED_BIT, // ignored if not host-visible
-            .usage = memoryUsage,
-        };
-
-        AllocatedBuffer newBuffer;
-        VK_CHECK(vmaCreateBuffer(this->_allocator, &bufferInfo, &vmaallocInfo, &newBuffer.buffer, &newBuffer.allocation, &newBuffer.info));
+		newBuffer.Allocate(this->_allocator, allocSize, usage, memoryUsage);
         if(autoCleanup) {
-            this->_deletionQueue.push([this, newBuffer]() {
-                destroyBuffer(newBuffer);
+            this->_deletionQueue.push([this, &newBuffer]() {
+                newBuffer.Destroy(this->_allocator);
                 // vmaDestroyBuffer(this->_allocator, newBuffer.buffer, newBuffer.allocation);
             });
         }
@@ -1062,9 +1010,9 @@ private:
         return true;
     }
 
-    AllocatedImage createImage(VkExtent3D extent, VkImageUsageFlags usageFlags, VkImageAspectFlags aspectFlags, VkFormat format, bool autoCleanup = true)
+    void
+	CreateImage(Image &newImg, VkExtent3D extent, VkImageUsageFlags usageFlags, VkImageAspectFlags aspectFlags, VkFormat format, bool autoCleanup = true)
     {
-        AllocatedImage newImg {};
         newImg.imageExtent = extent;
         newImg.imageFormat = format;
         VkImageCreateInfo imgCreateInfo = {
@@ -1105,13 +1053,12 @@ private:
                 vkDestroyImageView(this->_device, newImg.imageView, nullptr);
             });
         }
-        return newImg;
     }
 
-    bool copyBufferToImage(AllocatedBuffer buffer, AllocatedImage image, VkImageLayout finalLayout = VK_IMAGE_LAYOUT_GENERAL)
+    bool copyBufferToImage(Buffer buffer, Image image, VkImageLayout finalLayout = VK_IMAGE_LAYOUT_GENERAL)
     {
-        immediateSubmit([buffer, image, finalLayout](VkCommandBuffer cmd) {
-            vkutil::transition_image(cmd, image.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+        immediateSubmit([buffer, &image, finalLayout](VkCommandBuffer cmd) {
+            image.Transition(cmd, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
             VkBufferImageCopy copyRegion = {};
             copyRegion.bufferOffset = 0;
             copyRegion.bufferRowLength = 0;
@@ -1123,34 +1070,34 @@ private:
             copyRegion.imageSubresource.layerCount = 1;
             copyRegion.imageExtent = image.imageExtent;
 
-            vkCmdCopyBufferToImage(cmd, buffer.buffer, image.image,
+            vkCmdCopyBufferToImage(cmd, buffer.bufferHandle, image.image,
                                    VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &copyRegion);
 
-            vkutil::transition_image(cmd, image.image, 
-                                     VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, finalLayout);
+            // vkutil::transition_image(cmd, image.image, 
+            //                          VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, finalLayout);
         });
         return true;
     }
 
-    GPUMeshBuffers uploadMesh(std::span<Vertex> vertices, std::span<uint32_t> indices)
+    GPUMesh uploadMesh(std::span<Vertex> vertices, std::span<uint32_t> indices)
     {
         // Initialize GPU buffers to store mesh data (vertex attributes + triangle indices)
         const size_t vertexBufferSize = vertices.size() * sizeof(Vertex);
         const size_t indexBufferSize = indices.size() * sizeof(uint32_t);
-        GPUMeshBuffers mesh;
-        mesh.vertexBuffer = createBuffer(
+        GPUMesh mesh;
+        mesh.vertexBuffer.Allocate(this->_allocator,
             vertexBufferSize, 
             VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
-            VMA_MEMORY_USAGE_GPU_ONLY,
-            false
+            VMA_MEMORY_USAGE_GPU_ONLY
         );
         VkBufferDeviceAddressInfo deviceAddressInfo = {
             .sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO,
-            .buffer = mesh.vertexBuffer.buffer
+            .buffer = mesh.vertexBuffer.bufferHandle
         };
         mesh.vertexBufferAddress = vkGetBufferDeviceAddress(this->_device, &deviceAddressInfo);
 
-        mesh.indexBuffer = createBuffer(
+        CreateBuffer(
+			mesh.indexBuffer,
             indexBufferSize, 
             VK_BUFFER_USAGE_INDEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
             VMA_MEMORY_USAGE_GPU_ONLY,
@@ -1158,13 +1105,15 @@ private:
         );
         
         // Copy mesh data to cpu staging buffer (host visible and memory coherent)
-        AllocatedBuffer stagingBuffer = createBuffer(
+		Buffer meshStagingBuffer;
+        CreateBuffer(
+			meshStagingBuffer,
             vertexBufferSize + indexBufferSize,
             VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
             VMA_MEMORY_USAGE_CPU_ONLY,
             false
         );
-        void* stagingData = stagingBuffer.allocation->GetMappedData();
+        void* stagingData = meshStagingBuffer.allocation->GetMappedData();
         
         std::memcpy(stagingData, vertices.data(), vertexBufferSize);
         std::memcpy((char *)stagingData + vertexBufferSize, indices.data(), indexBufferSize);
@@ -1176,16 +1125,16 @@ private:
                     .dstOffset = 0,
                     .size = vertexBufferSize
                 };
-                vkCmdCopyBuffer(cmd, stagingBuffer.buffer, mesh.vertexBuffer.buffer, 1, &vertexCopy);
+                vkCmdCopyBuffer(cmd, meshStagingBuffer.bufferHandle, mesh.vertexBuffer.bufferHandle, 1, &vertexCopy);
 
                 VkBufferCopy indexCopy = {
                     .srcOffset = vertexBufferSize,
                     .dstOffset = 0,
                     .size = indexBufferSize
                 };
-                vkCmdCopyBuffer(cmd, stagingBuffer.buffer, mesh.indexBuffer.buffer, 1, &indexCopy);
+                vkCmdCopyBuffer(cmd, meshStagingBuffer.bufferHandle, mesh.indexBuffer.bufferHandle, 1, &indexCopy);
         });
-        destroyBuffer(stagingBuffer);
+        meshStagingBuffer.Destroy(this->_allocator);
         mesh.numIndices = indices.size();
         mesh.numVertices = vertices.size();
         return mesh;
@@ -1194,33 +1143,33 @@ private:
     bool initAssets()
     {
         // IMAGES
-        this->_drawImage = createImage(
+        CreateImage(this->_drawImage,
             Constants::DrawImageResolution,
             VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT,
             VK_IMAGE_ASPECT_COLOR_BIT,
             VK_FORMAT_R32G32B32A32_SFLOAT
         );
         immediateSubmit([&](VkCommandBuffer cmd) {
-            vkutil::transition_image(cmd, this->_drawImage.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL);
+            this->_drawImage.Transition(cmd, VK_IMAGE_LAYOUT_GENERAL);
         });
 
-        this->_voxelImage = createImage(
+        CreateImage(this->_voxelImage,
             VkExtent3D{Constants::VoxelGridResolution, Constants::VoxelGridResolution, 1},
             VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT,
             VK_IMAGE_ASPECT_COLOR_BIT,
             VK_FORMAT_R32G32B32A32_SFLOAT
         );
         immediateSubmit([&](VkCommandBuffer cmd) {
-            vkutil::transition_image(cmd, this->_voxelImage.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+            this->_voxelImage.Transition(cmd, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
         });
 
         // BUFFERS
-        this->_stagingBuffer = createBuffer(Constants::StagingBufferSize, VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VMA_MEMORY_USAGE_CPU_ONLY);
-        this->_voxelVolume = createBuffer(Constants::VoxelGridSize, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
+        CreateBuffer(this->_stagingBuffer, Constants::StagingBufferSize, VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VMA_MEMORY_USAGE_CPU_ONLY);
+        CreateBuffer(this->_voxelVolume, Constants::VoxelGridSize, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
         immediateSubmit([&](VkCommandBuffer cmd) {
-            vkCmdFillBuffer(cmd, this->_voxelVolume.buffer, 0, VK_WHOLE_SIZE, 0);
+            vkCmdFillBuffer(cmd, this->_voxelVolume.bufferHandle, 0, VK_WHOLE_SIZE, 0);
         });
-        this->_voxelInfoBuffer = createBuffer(sizeof(VoxelInfo), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
+        CreateBuffer(this->_voxelInfoBuffer, sizeof(VoxelInfo), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
         VoxelInfo voxInfo = {
             .gridDimensions = glm::vec3(Constants::VoxelGridResolution),
             .gridScale = Constants::VoxelGridScale
@@ -1233,60 +1182,65 @@ private:
                 .dstOffset = 0,
                 .size = sizeof(VoxelInfo)
             };
-            vkCmdCopyBuffer(cmd, this->_stagingBuffer.buffer, this->_voxelInfoBuffer.buffer, 1, &copy);
+            vkCmdCopyBuffer(cmd, this->_stagingBuffer.bufferHandle, this->_voxelInfoBuffer.bufferHandle, 1, &copy);
         });
         std::cout << "VOXBUFFMEM: " << this->_voxelVolume.info.size << std::endl;
 
-        this->_voxelFragmentCounter = createBuffer(
+        CreateBuffer(
+			this->_voxelFragmentCounter,
             sizeof(VoxelFragmentCounter),
             VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
             VMA_MEMORY_USAGE_CPU_ONLY
         );
 
-        this->_voxelFragmentList = createBuffer(
+        CreateBuffer(
+			this->_voxelFragmentList,
             Constants::NumAllocatedVoxelFragments * sizeof(VoxelFragment),
             VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
             VMA_MEMORY_USAGE_GPU_ONLY
         );
 
-        this->_treeVertices = createBuffer(
+        CreateBuffer(
+			this->_treeVertices,
             Constants::NumAllocatedNodes * 8 * sizeof(glm::vec3), // 8 vertices per cube
             VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
             VMA_MEMORY_USAGE_GPU_ONLY
         );
         VkBufferDeviceAddressInfo deviceAddressInfo = {
             .sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO,
-            .buffer = this->_treeVertices.buffer
+            .buffer = this->_treeVertices.bufferHandle
         };
         this->_treeMesh.vertexBufferAddress = vkGetBufferDeviceAddress(this->_device, &deviceAddressInfo);
 
-        this->_treeIndices = createBuffer(
+        CreateBuffer(
+			this->_treeIndices,
             Constants::NumAllocatedNodes * 12 * 2 * sizeof(uint32_t), // 12 lines per cube, 2 indices per line
             VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
             VMA_MEMORY_USAGE_GPU_ONLY
         );
-        deviceAddressInfo.buffer = this->_treeIndices.buffer;
+        deviceAddressInfo.buffer = this->_treeIndices.bufferHandle;
         this->_treeMesh.indexBufferAddress = vkGetBufferDeviceAddress(this->_device, &deviceAddressInfo);
 
-        this->_treeIndirectDrawBuffer = createBuffer(
+        CreateBuffer(
+			this->_treeIndirectDrawBuffer,
             sizeof(VkDrawIndexedIndirectCommand),
             VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
             VMA_MEMORY_USAGE_GPU_ONLY
         );
 
-        this->_treeIndirectDispatchBuffer = createBuffer(
+        CreateBuffer(this->_treeIndirectDispatchBuffer,
             sizeof(VkDispatchIndirectCommand),
             VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
             VMA_MEMORY_USAGE_GPU_ONLY
         );
 
-        this->_treeFlaggerIndirectDispatchBuffer = createBuffer(
+        CreateBuffer(this->_treeFlaggerIndirectDispatchBuffer,
             sizeof(VkDispatchIndirectCommand),
             VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
             VMA_MEMORY_USAGE_GPU_ONLY
         );
 
-        this->_treeInfoBuffer = createBuffer(
+        CreateBuffer(this->_treeInfoBuffer,
             sizeof(TreeInfo),
             VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT |VK_BUFFER_USAGE_TRANSFER_SRC_BIT, 
             VMA_MEMORY_USAGE_CPU_ONLY
@@ -1295,11 +1249,11 @@ private:
         std::memcpy(this->_stagingBuffer.allocation->GetMappedData(), &treeInfo, sizeof(TreeInfo));
         immediateSubmit([&](VkCommandBuffer cmd) {
             VkBufferCopy copy = {.size = sizeof(TreeInfo)};
-            vkCmdCopyBuffer(cmd, this->_stagingBuffer.buffer, this->_treeInfoBuffer.buffer, 1, &copy);
+            vkCmdCopyBuffer(cmd, this->_stagingBuffer.bufferHandle, this->_treeInfoBuffer.bufferHandle, 1, &copy);
         });
 
         // voxel nodes
-        this->_voxelNodes = createBuffer(
+        CreateBuffer(this->_voxelNodes,
             Constants::NumAllocatedNodes * sizeof(VoxelNode),
             VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
             VMA_MEMORY_USAGE_GPU_ONLY
@@ -1328,7 +1282,7 @@ private:
         }
         immediateSubmit([&](VkCommandBuffer cmd) {
             VkBufferCopy copy = {.srcOffset = 0, .dstOffset = 0, .size = sizeof(VoxelNode) * Constants::NodeChildren};
-            vkCmdCopyBuffer(cmd, this->_stagingBuffer.buffer, this->_voxelNodes.buffer, 1, &copy);
+            vkCmdCopyBuffer(cmd, this->_stagingBuffer.bufferHandle, this->_voxelNodes.bufferHandle, 1, &copy);
         });
 
         // MESHES
@@ -1376,7 +1330,7 @@ private:
         this->_voxelizerPipeline.descriptorSets.push_back(this->_descriptorPool.allocateSet(this->_device, this->_voxelizerPipeline.descriptorLayout));
         this->_descriptorWriter
             .clear()
-            .write_buffer(0, this->_voxelVolume.buffer, Constants::VoxelGridSize, 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER)
+            .write_buffer(0, this->_voxelVolume.bufferHandle, Constants::VoxelGridSize, 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER)
             .update_set(this->_device, this->_voxelizerPipeline.descriptorSets[0]);
 
         // VOXEL RASTERIZER
@@ -1389,10 +1343,10 @@ private:
         this->_voxelRasterPipeline.descriptorSets.push_back(this->_descriptorPool.allocateSet(this->_device, this->_voxelRasterPipeline.descriptorLayout));
         this->_descriptorWriter
             .clear()
-            .write_buffer(0, this->_voxelVolume.buffer, this->_voxelVolume.info.size, 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER)
-            .write_buffer(1, this->_voxelInfoBuffer.buffer, sizeof(VoxelInfo), 0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER)
-            .write_buffer(2, this->_voxelFragmentCounter.buffer, sizeof(VoxelFragmentCounter), 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER)
-            .write_buffer(3, this->_voxelFragmentList.buffer, this->_voxelFragmentList.allocation->GetSize(), 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER)
+            .write_buffer(0, this->_voxelVolume.bufferHandle, this->_voxelVolume.info.size, 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER)
+            .write_buffer(1, this->_voxelInfoBuffer.bufferHandle, sizeof(VoxelInfo), 0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER)
+            .write_buffer(2, this->_voxelFragmentCounter.bufferHandle, sizeof(VoxelFragmentCounter), 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER)
+            .write_buffer(3, this->_voxelFragmentList.bufferHandle, this->_voxelFragmentList.allocation->GetSize(), 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER)
             .update_set(this->_device, this->_voxelRasterPipeline.descriptorSets[0]);
         
         // VOXEL RENDERER
@@ -1403,7 +1357,7 @@ private:
         this->_raytracerPipeline.descriptorSets.push_back(this->_descriptorPool.allocateSet(this->_device, this->_raytracerPipeline.descriptorLayout));
         this->_descriptorWriter
             .clear()
-            .write_buffer(0, this->_voxelVolume.buffer, Constants::VoxelGridSize, 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER)
+            .write_buffer(0, this->_voxelVolume.bufferHandle, Constants::VoxelGridSize, 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER)
             .write_image(1, this->_drawImage.imageView, 0, VK_IMAGE_LAYOUT_GENERAL, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE)
             .update_set(this->_device, this->_raytracerPipeline.descriptorSets[0]);
 
@@ -1415,8 +1369,8 @@ private:
         this->_treeLineGenerator.descriptorSets.push_back(this->_descriptorPool.allocateSet(this->_device, this->_treeLineGenerator.descriptorLayout));
         this->_descriptorWriter
             .clear()
-            .write_buffer(0, this->_voxelNodes.buffer, this->_voxelNodes.allocation->GetSize(), 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER)
-            .write_buffer(1, this->_treeIndirectDrawBuffer.buffer, sizeof(VkDrawIndexedIndirectCommand), 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER)
+            .write_buffer(0, this->_voxelNodes.bufferHandle, this->_voxelNodes.allocation->GetSize(), 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER)
+            .write_buffer(1, this->_treeIndirectDrawBuffer.bufferHandle, sizeof(VkDrawIndexedIndirectCommand), 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER)
             .update_set(this->_device, this->_treeLineGenerator.descriptorSets[0]);
 
         // GENERATE INDIRECT COMMAND BUFFERS
@@ -1430,11 +1384,11 @@ private:
         this->_treeIndirectCmdGenerator.descriptorSets.push_back(this->_descriptorPool.allocateSet(this->_device, this->_treeIndirectCmdGenerator.descriptorLayout));
         this->_descriptorWriter
             .clear()
-            .write_buffer(0, this->_treeIndirectDispatchBuffer.buffer, sizeof(VkDispatchIndirectCommand), 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER)
-            .write_buffer(1, this->_treeFlaggerIndirectDispatchBuffer.buffer, sizeof(VkDispatchIndirectCommand), 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER)
-            .write_buffer(2, this->_treeIndirectDrawBuffer.buffer, sizeof(VkDrawIndexedIndirectCommand), 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER)
-            .write_buffer(3, this->_treeInfoBuffer.buffer, sizeof(TreeInfo), 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER)
-            .write_buffer(4, this->_voxelFragmentCounter.buffer, sizeof(VoxelFragmentCounter), 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER)
+            .write_buffer(0, this->_treeIndirectDispatchBuffer.bufferHandle, sizeof(VkDispatchIndirectCommand), 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER)
+            .write_buffer(1, this->_treeFlaggerIndirectDispatchBuffer.bufferHandle, sizeof(VkDispatchIndirectCommand), 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER)
+            .write_buffer(2, this->_treeIndirectDrawBuffer.bufferHandle, sizeof(VkDrawIndexedIndirectCommand), 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER)
+            .write_buffer(3, this->_treeInfoBuffer.bufferHandle, sizeof(TreeInfo), 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER)
+            .write_buffer(4, this->_voxelFragmentCounter.bufferHandle, sizeof(VoxelFragmentCounter), 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER)
             .update_set(this->_device, this->_treeIndirectCmdGenerator.descriptorSets[0]);
         
         // TREE SUBDIVISION
@@ -1445,8 +1399,8 @@ private:
         this->_treeSubdivider.descriptorSets.push_back(this->_descriptorPool.allocateSet(this->_device, this->_treeSubdivider.descriptorLayout));
         this->_descriptorWriter
             .clear()
-            .write_buffer(0, this->_treeInfoBuffer.buffer, sizeof(TreeInfo), 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER)
-            .write_buffer(1, this->_voxelNodes.buffer, this->_voxelNodes.allocation->GetSize(), 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER)
+            .write_buffer(0, this->_treeInfoBuffer.bufferHandle, sizeof(TreeInfo), 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER)
+            .write_buffer(1, this->_voxelNodes.bufferHandle, this->_voxelNodes.allocation->GetSize(), 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER)
             .update_set(this->_device, this->_treeSubdivider.descriptorSets[0]);
 
         // TREE DESCENT AND FLAGGING FROM FRAGMENT LIST
@@ -1458,9 +1412,9 @@ private:
         this->_treeFlagger.descriptorSets.push_back(this->_descriptorPool.allocateSet(this->_device, this->_treeFlagger.descriptorLayout));
         this->_descriptorWriter
             .clear()
-            .write_buffer(0, this->_voxelFragmentList.buffer, this->_voxelFragmentList.allocation->GetSize(), 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER)
-            .write_buffer(1, this->_voxelFragmentCounter.buffer, sizeof(VoxelFragmentCounter), 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER)
-            .write_buffer(2, this->_voxelNodes.buffer, this->_voxelNodes.allocation->GetSize(), 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER)
+            .write_buffer(0, this->_voxelFragmentList.bufferHandle, this->_voxelFragmentList.allocation->GetSize(), 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER)
+            .write_buffer(1, this->_voxelFragmentCounter.bufferHandle, sizeof(VoxelFragmentCounter), 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER)
+            .write_buffer(2, this->_voxelNodes.bufferHandle, this->_voxelNodes.allocation->GetSize(), 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER)
             .update_set(this->_device, this->_treeFlagger.descriptorSets[0]);
 
         this->_deletionQueue.push([&]() {
@@ -1840,29 +1794,29 @@ private:
     GraphicsPipeline _linePipeline;
 
     // Shader Resources
-    AllocatedImage _drawImage;
-    AllocatedImage _voxelImage;
-    AllocatedBuffer _stagingBuffer;
-    AllocatedBuffer _voxelVolume;
-    AllocatedBuffer _voxelInfoBuffer;
-    AllocatedBuffer _voxelFragmentCounter;
-    AllocatedBuffer _voxelFragmentList;
-    AllocatedBuffer _voxelNodes;
-    AllocatedBuffer _voxelNodesToSubdivide;
-    AllocatedBuffer _treeIndirectDrawBuffer;
-    AllocatedBuffer _treeIndirectDispatchBuffer;
-    AllocatedBuffer _treeFlaggerIndirectDispatchBuffer;
-    AllocatedBuffer _treeInfoBuffer;
+    Image _drawImage;
+    Image _voxelImage;
+    Buffer _stagingBuffer;
+    Buffer _voxelVolume;
+    Buffer _voxelInfoBuffer;
+    Buffer _voxelFragmentCounter;
+    Buffer _voxelFragmentList;
+    Buffer _voxelNodes;
+    Buffer _voxelNodesToSubdivide;
+    Buffer _treeIndirectDrawBuffer;
+    Buffer _treeIndirectDispatchBuffer;
+    Buffer _treeFlaggerIndirectDispatchBuffer;
+    Buffer _treeInfoBuffer;
     VkSampler _simpleSampler {};
 
     uint32_t _fragmentListCount = 0;
 
     // Meshes
-    std::vector<GPUMeshBuffers> _testMeshes;
+    std::vector<GPUMesh> _testMeshes;
 
-    GPUMeshBuffers _treeMesh;
-    AllocatedBuffer _treeVertices;
-    AllocatedBuffer _treeIndices;
+    GPUMesh _treeMesh;
+    Buffer _treeVertices;
+    Buffer _treeIndices;
 
 };
 

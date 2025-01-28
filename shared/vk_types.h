@@ -86,15 +86,15 @@ struct Vertex {
 };
 
 // holds the resources needed for a mesh
-struct GPUMeshBuffers {
+// struct GPUMeshBuffers {
 
-    AllocatedBuffer indexBuffer;
-    AllocatedBuffer vertexBuffer;
-    VkDeviceAddress vertexBufferAddress;
-    VkDeviceAddress indexBufferAddress {};
-    size_t numIndices;
-    size_t numVertices;
-};
+//     AllocatedBuffer indexBuffer;
+//     AllocatedBuffer vertexBuffer;
+//     VkDeviceAddress vertexBufferAddress;
+//     VkDeviceAddress indexBufferAddress {};
+//     size_t numIndices;
+//     size_t numVertices;
+// };
 
 // push constants for our mesh object draws
 struct GPUDrawPushConstants {

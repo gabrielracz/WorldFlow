@@ -6,6 +6,7 @@
 #include <vk_types.h>
 #include <unordered_map>
 #include <filesystem>
+#include "buffer.hpp"
 
 class VulkanEngine;
 
@@ -18,7 +19,7 @@ struct MeshAsset {
     std::string name;
    
     std::vector<GeoSurface> surfaces;
-    GPUMeshBuffers meshBuffers;
+    GPUMesh meshBuffers;
 };
 
 

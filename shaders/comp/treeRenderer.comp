@@ -92,11 +92,9 @@ void main()
         nodeIndices[i] += vtxBufDst;
     }
 
-    // Then in your code:
     VertexBuffer vertexBuffer = VertexBuffer(pc.vertexBufferAddress);
     IndexBuffer indexBuffer = IndexBuffer(pc.indexBufferAddress);
 
-    // upload
     for(int v = 0; v < 8; v++) {
         vertexBuffer.vertices[vtxBufDst + v] = nodeVertices[v];
     }
