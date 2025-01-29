@@ -62,7 +62,7 @@ static bool VulkanCheckErrorStatus(VkResult x, const char* file, int line)
 {
     if(x != VK_SUCCESS)
     {
-        std::cerr << "\033[1;31;49m[VULKAN ERROR] \033[0m" << ErrorDescriptions[x] << " \033[2;90;49m " << file << ":" << line << "" "\033[0m" << std::endl;
+        // std::cerr << "\033[1;31;49m[VULKAN ERROR] \033[0m" << ErrorDescriptions[x] << " \033[2;90;49m " << file << ":" << line << "" "\033[0m" << std::endl;
         return false;
     }
     else return true;
