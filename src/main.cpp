@@ -25,6 +25,8 @@
 #include "transform.hpp"
 #include "buffer.hpp"
 #include "image.hpp"
+#include "renderer.hpp"
+#include "renderer_structs.hpp"
 
 #include "shared/vk_types.h"
 #include "shared/vk_images.h"
@@ -47,7 +49,7 @@
 #include <unordered_map>
 #include <unordered_set>
 
-namespace Constants
+namespace OldConstants
 {
 // #ifdef NDEBUG
 // constexpr bool IsValidationLayersEnabled = false;
@@ -94,44 +96,7 @@ constexpr uint32_t NodeChildren = NodeDivisions * NodeDivisions * NodeDivisions;
 */
 
 // LIFO stack
-struct alignas(16) alignas(16) DeletionQueue
-{
-    void push(std::function<void()>&& function) { deletors.push_front(function); }
-    void flush()
-    {
-        for(auto func : deletors) {
-            func();
-        }
-        deletors.clear();
-    }
-    std::deque<std::function<void()>> deletors;
-};
 
-struct alignas(16) FrameData
-{
-    VkCommandPool commandPool {};
-    VkCommandBuffer commandBuffer {};
-    VkSemaphore swapchainSemaphore {};
-    VkSemaphore renderSemaphore {};
-    VkFence renderFence {};
-    DeletionQueue deletionQueue;
-};
-
-struct alignas(16) ComputePipeline
-{
-    VkPipeline pipeline {};
-    VkPipelineLayout layout {};
-    std::vector<VkDescriptorSet> descriptorSets {};
-    VkDescriptorSetLayout descriptorLayout {};
-};
-
-struct alignas(16) GraphicsPipeline
-{
-    VkPipeline pipeline {};
-    VkPipelineLayout layout {};
-    std::vector<VkDescriptorSet> descriptorSets {};
-    VkDescriptorSetLayout descriptorLayout {};
-};
 
 struct alignas(16) VoxelizerPushConstants
 {
@@ -204,14 +169,7 @@ struct alignas(16) TreeRendererPushConstants
     VkDeviceAddress indexBuffer;
 };
 
-typedef std::unordered_map<int, bool> MouseMap;
-struct alignas(16) Mouse 
-{
-    bool first_captured = false;
-    bool captured = true;
-    glm::vec2 prev;
-    glm::vec2 move;
-};
+
 
 static inline void
 printDeviceProperties(vkb::PhysicalDevice& dev)
@@ -224,13 +182,13 @@ printDeviceProperties(vkb::PhysicalDevice& dev)
 }
 
 //TODO change all return bool members that VK_ASSERT to return Result code
-class Renderer
+class RendererOld
 {
 public:
-    Renderer(const std::string& name, uint32_t width, uint32_t height)
+    RendererOld(const std::string& name, uint32_t width, uint32_t height)
     :   _name(name), _windowExtent{.width = width, .height = height} {}
 
-    ~Renderer()
+    ~RendererOld()
     {
         if(!this->_isInitialized) {
             return;
@@ -296,10 +254,10 @@ public:
 private:
     void updatePerformanceCounters(double dt)
     {
-        if(this->_frameNumber > 0 && this->_frameNumber % Constants::FPSMeasurePeriod == 0) {
+        if(this->_frameNumber > 0 && this->_frameNumber % OldConstants::FPSMeasurePeriod == 0) {
             const double delta = (this->_elapsed - this->_lastFpsMeasurementTime);
-            const double averageFrameTime =  delta / Constants::FPSMeasurePeriod;
-            const double fps = Constants::FPSMeasurePeriod / delta;
+            const double averageFrameTime =  delta / OldConstants::FPSMeasurePeriod;
+            const double fps = OldConstants::FPSMeasurePeriod / delta;
             std::cout << std::fixed << std::setprecision(3) << "FPS: " << fps  << std::setprecision(5) << "  (" << averageFrameTime << ") ";
             this->_lastFpsMeasurementTime = this->_elapsed;
 
@@ -424,7 +382,7 @@ private:
         vkCmdSetScissor(cmd, 0, 1, &scissor);
 
         GraphicsPushConstants pc = {
-            .worldMatrix = this->_camera.GetProjectionMatrix() * this->_camera.GetViewMatrix() * glm::scale(glm::vec3(Constants::VoxelGridScale)),
+            .worldMatrix = this->_camera.GetProjectionMatrix() * this->_camera.GetViewMatrix() * glm::scale(glm::vec3(OldConstants::VoxelGridScale)),
             .vertexBuffer = this->_treeMesh.vertexBufferAddress
         };
 
@@ -462,13 +420,13 @@ private:
         vkCmdSetScissor(cmd, 0, 1, &scissor);
 
         GraphicsPushConstants pc = {
-            .worldMatrix = this->_camera.GetProjectionMatrix() * this->_camera.GetViewMatrix() * Constants::MeshTransform,
-            .vertexBuffer = this->_testMeshes[Constants::MeshIdx].vertexBufferAddress
+            .worldMatrix = this->_camera.GetProjectionMatrix() * this->_camera.GetViewMatrix() * OldConstants::MeshTransform,
+            .vertexBuffer = this->_testMeshes[OldConstants::MeshIdx].vertexBufferAddress
         };
 
         vkCmdPushConstants(cmd, this->_meshPipeline.layout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(GraphicsPushConstants), &pc);
-        vkCmdBindIndexBuffer(cmd, this->_testMeshes[Constants::MeshIdx].indexBuffer.bufferHandle, 0, VK_INDEX_TYPE_UINT32);
-        vkCmdDrawIndexed(cmd, this->_testMeshes[Constants::MeshIdx].numIndices, 1, 0, 0, 0);
+        vkCmdBindIndexBuffer(cmd, this->_testMeshes[OldConstants::MeshIdx].indexBuffer.bufferHandle, 0, VK_INDEX_TYPE_UINT32);
+        vkCmdDrawIndexed(cmd, this->_testMeshes[OldConstants::MeshIdx].numIndices, 1, 0, 0, 0);
         vkCmdEndRendering(cmd);
     }
 
@@ -493,7 +451,7 @@ private:
 
         vkCmdPipelineBarrier2(cmd, &dependencyInfo);
         VkRenderingAttachmentInfo colorAttachmentInfo = vkinit::attachment_info(this->_voxelImage.imageView, nullptr, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
-        VkRenderingInfo renderInfo = vkinit::rendering_info(VkExtent2D{Constants::VoxelGridResolution, Constants::VoxelGridResolution}, &colorAttachmentInfo, nullptr);
+        VkRenderingInfo renderInfo = vkinit::rendering_info(VkExtent2D{OldConstants::VoxelGridResolution, OldConstants::VoxelGridResolution}, &colorAttachmentInfo, nullptr);
         vkCmdBeginRendering(cmd, &renderInfo);
         vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, this->_voxelRasterPipeline.pipeline);
         vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, this->_voxelRasterPipeline.layout, 0, 1, this->_voxelRasterPipeline.descriptorSets.data(), 0, nullptr);
@@ -501,8 +459,8 @@ private:
         VkViewport viewport = {
             .x = 0,
             .y = 0,
-            .width = (float)Constants::VoxelGridResolution,
-            .height = (float)Constants::VoxelGridResolution,
+            .width = (float)OldConstants::VoxelGridResolution,
+            .height = (float)OldConstants::VoxelGridResolution,
             .minDepth = 0.0,
             .maxDepth = 1.0
         };
@@ -510,19 +468,19 @@ private:
 
         VkRect2D scissor = {
             .offset = { .x = 0, .y = 0 },
-            .extent = { .width = Constants::VoxelGridResolution, .height = Constants::VoxelGridResolution}
+            .extent = { .width = OldConstants::VoxelGridResolution, .height = OldConstants::VoxelGridResolution}
         };
         vkCmdSetScissor(cmd, 0, 1, &scissor);
 
 
         GraphicsPushConstants pc = {
-            .worldMatrix = glm::mat4(1.0) * Constants::MeshTransform,
-            .vertexBuffer = this->_testMeshes[Constants::MeshIdx].vertexBufferAddress
+            .worldMatrix = glm::mat4(1.0) * OldConstants::MeshTransform,
+            .vertexBuffer = this->_testMeshes[OldConstants::MeshIdx].vertexBufferAddress
         };
 
         vkCmdPushConstants(cmd, this->_voxelRasterPipeline.layout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(GraphicsPushConstants), &pc);
-        vkCmdBindIndexBuffer(cmd, this->_testMeshes[Constants::MeshIdx].indexBuffer.bufferHandle, 0, VK_INDEX_TYPE_UINT32);
-        vkCmdDrawIndexed(cmd, this->_testMeshes[Constants::MeshIdx].numIndices, 1, 0, 0, 0);
+        vkCmdBindIndexBuffer(cmd, this->_testMeshes[OldConstants::MeshIdx].indexBuffer.bufferHandle, 0, VK_INDEX_TYPE_UINT32);
+        vkCmdDrawIndexed(cmd, this->_testMeshes[OldConstants::MeshIdx].numIndices, 1, 0, 0, 0);
         vkCmdEndRendering(cmd);
         VkBufferMemoryBarrier bufferBarriers[] = {
             {
@@ -550,14 +508,14 @@ private:
         vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, this->_voxelizerPipeline.pipeline);
         vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, this->_voxelizerPipeline.layout, 0, 1, this->_voxelizerPipeline.descriptorSets.data(), 0, nullptr);
         VoxelizerPushConstants pc = {
-            .gridSize = glm::vec3(Constants::VoxelGridResolution),
-            .gridScale = 1.0f/Constants::VoxelGridResolution,
+            .gridSize = glm::vec3(OldConstants::VoxelGridResolution),
+            .gridScale = 1.0f/OldConstants::VoxelGridResolution,
             .time = static_cast<float>(this->_elapsed)
         };
         vkCmdPushConstants(cmd, this->_voxelizerPipeline.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(VoxelizerPushConstants), &pc);
 
         constexpr uint32_t localWorkgroupSize = 8;
-        constexpr uint32_t groupCount = Constants::VoxelGridResolution / localWorkgroupSize;
+        constexpr uint32_t groupCount = OldConstants::VoxelGridResolution / localWorkgroupSize;
         vkCmdDispatch(cmd, groupCount, groupCount, groupCount);
     }
 
@@ -578,8 +536,8 @@ private:
             .screenSize = glm::vec2(this->_windowExtent.width, this->_windowExtent.height),
             .maxDistance = 2000.0f,
             .stepSize = 0.1,
-            .gridSize = glm::vec3(Constants::VoxelGridResolution),
-            .gridScale = Constants::VoxelGridScale,
+            .gridSize = glm::vec3(OldConstants::VoxelGridResolution),
+            .gridScale = OldConstants::VoxelGridScale,
             .lightSource = glm::vec4(30.0, 50.0, 20.0, 1.0),
             // .baseColor = glm::vec4(HEXCOLOR(0xFFBF00))
             // .baseColor = glm::vec4(HEXCOLOR(0x675CFF))
@@ -599,7 +557,7 @@ private:
             .indexBuffer = this->_treeMesh.indexBufferAddress
         };
         vkCmdPushConstants(cmd, this->_treeLineGenerator.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(TreeRendererPushConstants), &pc);
-        // vkCmdDispatch(cmd, Constants::NodeChildren, 1, 1);
+        // vkCmdDispatch(cmd, OldConstants::NodeChildren, 1, 1);
         vkCmdDispatchIndirect(cmd, this->_treeIndirectDispatchBuffer.bufferHandle, 0);
         VkBufferMemoryBarrier bufferBarriers[] = {
             {
@@ -661,14 +619,14 @@ private:
     bool draw(double dt)
     {
         // wait for gpu to be done with last frame and clean
-        VK_ASSERT(vkWaitForFences(this->_device, 1, &getCurrentFrame().renderFence, true, Constants::TimeoutNs));
+        VK_ASSERT(vkWaitForFences(this->_device, 1, &getCurrentFrame().renderFence, true, OldConstants::TimeoutNs));
         VK_ASSERT(vkResetFences(this->_device, 1, &getCurrentFrame().renderFence));
         getCurrentFrame().deletionQueue.flush(); // delete per-frame objects
 
         // register the semaphore to be signalled once the next frame (result of this call) is ready. does not block
         VkResult res;
         uint32_t swapchainImageIndex;
-        res = vkAcquireNextImageKHR(this->_device, this->_swapchain, Constants::TimeoutNs, getCurrentFrame().swapchainSemaphore, nullptr, &swapchainImageIndex);
+        res = vkAcquireNextImageKHR(this->_device, this->_swapchain, OldConstants::TimeoutNs, getCurrentFrame().swapchainSemaphore, nullptr, &swapchainImageIndex);
         if(res == VK_ERROR_OUT_OF_DATE_KHR) {
             this->_resizeRequested = true;
             return false;
@@ -689,8 +647,8 @@ private:
         this->_drawImage.Clear(cmd);
 
 		/* BEGIN USER COMMANDS */
-        // updateVoxelVolume(cmd); // fill voxels with sample noise
-        voxelRasterizeGeometry(cmd);
+        updateVoxelVolume(cmd); // fill voxels with sample noise
+        // voxelRasterizeGeometry(cmd);
 
         generateTreeIndirectCommands(cmd);
         generateTreeGeometry(cmd);
@@ -823,7 +781,7 @@ private:
         vkb::InstanceBuilder builder;
         vkb::Result<vkb::Instance> instanceRet = builder
             .set_app_name(this->_name.c_str())
-            .request_validation_layers(Constants::IsValidationLayersEnabled)
+            .request_validation_layers(OldConstants::IsValidationLayersEnabled)
             .use_default_debug_messenger()
             .require_api_version(1, 3, 0)
             .build();
@@ -910,7 +868,7 @@ private:
         this->_swapchainImageFormat = VK_FORMAT_B8G8R8A8_UNORM;
         vkb::Swapchain vkbSwapchain = swapchainBuilder
             .set_desired_format(VkSurfaceFormatKHR{.format = this->_swapchainImageFormat, .colorSpace = VK_COLOR_SPACE_SRGB_NONLINEAR_KHR})
-            .set_desired_present_mode(Constants::VSYNCEnabled ? VK_PRESENT_MODE_FIFO_RELAXED_KHR : VK_PRESENT_MODE_MAILBOX_KHR)
+            .set_desired_present_mode(OldConstants::VSYNCEnabled ? VK_PRESENT_MODE_FIFO_RELAXED_KHR : VK_PRESENT_MODE_MAILBOX_KHR)
             .set_desired_extent(width, height)
             .add_image_usage_flags(VK_IMAGE_USAGE_TRANSFER_DST_BIT)
             .build()
@@ -990,7 +948,7 @@ private:
         vmaDestroyBuffer(this->_allocator, buf.buffer, buf.allocation);
     }
 
-    Buffer CreateBuffer(Buffer &newBuffer, uint64_t allocSize, VkBufferUsageFlags usage, VmaMemoryUsage memoryUsage, bool autoCleanup = true)
+    void CreateBuffer(Buffer &newBuffer, uint64_t allocSize, VkBufferUsageFlags usage, VmaMemoryUsage memoryUsage, bool autoCleanup = true)
     {
 		newBuffer.Allocate(this->_allocator, allocSize, usage, memoryUsage);
         if(autoCleanup) {
@@ -999,7 +957,6 @@ private:
                 // vmaDestroyBuffer(this->_allocator, newBuffer.buffer, newBuffer.allocation);
             });
         }
-        return newBuffer;
     }
 
     bool initBuffers()
@@ -1141,7 +1098,7 @@ private:
     {
         // IMAGES
         CreateImage(this->_drawImage,
-            Constants::DrawImageResolution,
+            OldConstants::DrawImageResolution,
             VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT,
             VK_IMAGE_ASPECT_COLOR_BIT,
             VK_FORMAT_R32G32B32A32_SFLOAT
@@ -1151,7 +1108,7 @@ private:
         });
 
         CreateImage(this->_voxelImage,
-            VkExtent3D{Constants::VoxelGridResolution, Constants::VoxelGridResolution, 1},
+            VkExtent3D{OldConstants::VoxelGridResolution, OldConstants::VoxelGridResolution, 1},
             VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT,
             VK_IMAGE_ASPECT_COLOR_BIT,
             VK_FORMAT_R32G32B32A32_SFLOAT
@@ -1161,15 +1118,15 @@ private:
         });
 
         // BUFFERS
-        CreateBuffer(this->_stagingBuffer, Constants::StagingBufferSize, VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VMA_MEMORY_USAGE_CPU_ONLY);
-        CreateBuffer(this->_voxelVolume, Constants::VoxelGridSize, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
+        CreateBuffer(this->_stagingBuffer, OldConstants::StagingBufferSize, VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VMA_MEMORY_USAGE_CPU_ONLY);
+        CreateBuffer(this->_voxelVolume, OldConstants::VoxelGridSize, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
         immediateSubmit([&](VkCommandBuffer cmd) {
             vkCmdFillBuffer(cmd, this->_voxelVolume.bufferHandle, 0, VK_WHOLE_SIZE, 0);
         });
         CreateBuffer(this->_voxelInfoBuffer, sizeof(VoxelInfo), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
         VoxelInfo voxInfo = {
-            .gridDimensions = glm::vec3(Constants::VoxelGridResolution),
-            .gridScale = Constants::VoxelGridScale
+            .gridDimensions = glm::vec3(OldConstants::VoxelGridResolution),
+            .gridScale = OldConstants::VoxelGridScale
         };
         void* data = this->_stagingBuffer.allocation->GetMappedData();
         std::memcpy(data, &voxInfo, sizeof(voxInfo));
@@ -1192,14 +1149,14 @@ private:
 
         CreateBuffer(
 			this->_voxelFragmentList,
-            Constants::NumAllocatedVoxelFragments * sizeof(VoxelFragment),
+            OldConstants::NumAllocatedVoxelFragments * sizeof(VoxelFragment),
             VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
             VMA_MEMORY_USAGE_GPU_ONLY
         );
 
         CreateBuffer(
 			this->_treeVertices,
-            Constants::NumAllocatedNodes * 8 * sizeof(glm::vec3), // 8 vertices per cube
+            OldConstants::NumAllocatedNodes * 8 * sizeof(glm::vec3), // 8 vertices per cube
             VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
             VMA_MEMORY_USAGE_GPU_ONLY
         );
@@ -1211,7 +1168,7 @@ private:
 
         CreateBuffer(
 			this->_treeIndices,
-            Constants::NumAllocatedNodes * 12 * 2 * sizeof(uint32_t), // 12 lines per cube, 2 indices per line
+            OldConstants::NumAllocatedNodes * 12 * 2 * sizeof(uint32_t), // 12 lines per cube, 2 indices per line
             VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
             VMA_MEMORY_USAGE_GPU_ONLY
         );
@@ -1242,7 +1199,7 @@ private:
             VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT |VK_BUFFER_USAGE_TRANSFER_SRC_BIT, 
             VMA_MEMORY_USAGE_CPU_ONLY
         );
-        TreeInfo treeInfo = {.nodeCounter = Constants::NodeChildren}; // init base level
+        TreeInfo treeInfo = {.nodeCounter = OldConstants::NodeChildren}; // init base level
         std::memcpy(this->_stagingBuffer.allocation->GetMappedData(), &treeInfo, sizeof(TreeInfo));
         immediateSubmit([&](VkCommandBuffer cmd) {
             VkBufferCopy copy = {.size = sizeof(TreeInfo)};
@@ -1251,18 +1208,18 @@ private:
 
         // voxel nodes
         CreateBuffer(this->_voxelNodes,
-            Constants::NumAllocatedNodes * sizeof(VoxelNode),
+            OldConstants::NumAllocatedNodes * sizeof(VoxelNode),
             VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
             VMA_MEMORY_USAGE_GPU_ONLY
         );
 
-        const uint32_t width = Constants::NodeDivisions;
-        const float s = 1.0 / (Constants::NodeDivisions);
+        const uint32_t width = OldConstants::NodeDivisions;
+        const float s = 1.0 / (OldConstants::NodeDivisions);
         const float m = -0.5 + s/2.0;
-        VoxelNode nodes[Constants::NodeChildren];
-        for(int z = 0; z < Constants::NodeDivisions; z++) {
-            for(int y = 0; y < Constants::NodeDivisions; y++) {
-                for(int x = 0; x < Constants::NodeDivisions; x++) {
+        VoxelNode nodes[OldConstants::NodeChildren];
+        for(int z = 0; z < OldConstants::NodeDivisions; z++) {
+            for(int y = 0; y < OldConstants::NodeDivisions; y++) {
+                for(int x = 0; x < OldConstants::NodeDivisions; x++) {
                     uint32_t index = x + width*y + width*width*z;
                     VoxelNode* data = (VoxelNode*)this->_stagingBuffer.allocation->GetMappedData();
                     data[index] = VoxelNode{
@@ -1278,14 +1235,14 @@ private:
             }
         }
         immediateSubmit([&](VkCommandBuffer cmd) {
-            VkBufferCopy copy = {.srcOffset = 0, .dstOffset = 0, .size = sizeof(VoxelNode) * Constants::NodeChildren};
+            VkBufferCopy copy = {.srcOffset = 0, .dstOffset = 0, .size = sizeof(VoxelNode) * OldConstants::NodeChildren};
             vkCmdCopyBuffer(cmd, this->_stagingBuffer.bufferHandle, this->_voxelNodes.bufferHandle, 1, &copy);
         });
 
         // MESHES
         std::vector<std::vector<Vertex>> vertexBuffers;
         std::vector<std::vector<uint32_t>> indexBuffers;
-        if(!loadGltfMeshes(Constants::MeshFile, vertexBuffers, indexBuffers)) {
+        if(!loadGltfMeshes(OldConstants::MeshFile, vertexBuffers, indexBuffers)) {
             std::cout << "[ERROR] Failed to load meshes" << std::endl;
         }
         for(int m = 0; m < vertexBuffers.size(); m++) {
@@ -1296,29 +1253,6 @@ private:
     }
 
 
-	struct BufferDescriptor
-	{
-		unsigned int set;
-		unsigned int binding;
-		VkDescriptorType type;
-		VkBuffer handle;
-		size_t size;
-		unsigned int offset;
-		BufferDescriptor(unsigned int set, unsigned int binding, VkDescriptorType type, VkBuffer handle, size_t size, unsigned int offset = 0)
-			: set(set), binding(binding), type(type), handle(handle), size(size), offset(offset) {}
-	};
-
-	struct ImageDescriptor
-	{
-		unsigned int set;
-		unsigned int binding;
-		VkDescriptorType type;
-		VkImageView imageView;
-		VkSampler sampler;
-		VkImageLayout layout;
-		ImageDescriptor(unsigned int set, unsigned int binding, VkDescriptorType type, VkImageView view, VkSampler sampler, VkImageLayout layout)
-			: set(set), binding(binding), type(type), imageView(view), sampler(sampler), layout(layout) {}
-	};
 
 
 	// IMPORTANT descriptors should be passed with their sets in ascending sorted order
@@ -1398,7 +1332,7 @@ private:
         this->_voxelizerPipeline.descriptorSets.push_back(this->_descriptorPool.allocateSet(this->_device, this->_voxelizerPipeline.descriptorLayout));
         this->_descriptorWriter
             .clear()
-            .write_buffer(0, this->_voxelVolume.bufferHandle, Constants::VoxelGridSize, 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER)
+            .write_buffer(0, this->_voxelVolume.bufferHandle, OldConstants::VoxelGridSize, 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER)
             .update_set(this->_device, this->_voxelizerPipeline.descriptorSets[0]);
 
         // VOXEL RASTERIZER
@@ -1413,7 +1347,7 @@ private:
         // VOXEL RENDERER
 		createPipelineDescriptors(
 			this->_raytracerPipeline, VK_SHADER_STAGE_COMPUTE_BIT, {
-			BufferDescriptor(0, 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, this->_voxelVolume.bufferHandle, Constants::VoxelGridSize),
+			BufferDescriptor(0, 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, this->_voxelVolume.bufferHandle, OldConstants::VoxelGridSize),
 			ImageDescriptor(0, 1, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, this->_drawImage.imageView, VK_NULL_HANDLE, VK_IMAGE_LAYOUT_GENERAL)
 		});
 
@@ -1535,28 +1469,6 @@ private:
                createComputePipeline<std::nullopt_t>(SHADER_DIRECTORY"/treeFlagger.comp.spv", this->_treeFlagger) &&
                true;
     }
-
-	enum class BlendMode {
-		NONE,
-		ADDITIVE,
-		ALPHABLEND
-	};
-
-	struct GraphicsPipelineOptions
-	{
-		VkPrimitiveTopology inputTopology         = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
-		VkPolygonMode       polygonMode           = VK_POLYGON_MODE_FILL;
-		VkCullModeFlags     cullMode              = VK_CULL_MODE_NONE;
-		VkFrontFace         frontFace             = VK_FRONT_FACE_COUNTER_CLOCKWISE;
-		BlendMode           blendMode             = BlendMode::ALPHABLEND;
-		VkCompareOp         depthTestOp           = VK_COMPARE_OP_LESS;
-		VkFormat            colorAttachmentFormat = VK_FORMAT_R32G32B32A32_SFLOAT;
-		VkFormat            depthFormat           = VK_FORMAT_D32_SFLOAT;
-		VkShaderStageFlags  pushConstantsStages   = VK_SHADER_STAGE_VERTEX_BIT;
-		float               lineWidth             = 1.0;
-		bool depthTestEnabled 					  = false;
-	};
-
 	template <typename GraphicsPushConstantsType>
 	bool initGraphicsPipeline(GraphicsPipeline &pipeline, const std::string &vertexShaderFile, const std::string &fragmentShaderFile, const std::string &geometryShaderFile = "", GraphicsPipelineOptions options = {})
 	{
@@ -1613,10 +1525,10 @@ private:
             .set_color_attachment_format(options.colorAttachmentFormat)
             .set_depth_format(options.depthFormat);
 		switch(options.blendMode) {
-			case BlendMode::ADDITIVE:
+			case BlendMode::Additive:
 				builder.enable_blending_additive();
 				break;
-			case BlendMode::ALPHABLEND:
+			case BlendMode::AlphaBlend:
 				builder.enable_blending_alphablend();
 				break;
 			default:
@@ -1647,7 +1559,7 @@ private:
             return false;
         }
 
-        if(!initGraphicsPipeline<GraphicsPushConstants>(this->_meshPipeline, SHADER_DIRECTORY"/mesh.vert.spv", SHADER_DIRECTORY"/mesh.frag.spv", "", {.blendMode = BlendMode::ADDITIVE})) {
+        if(!initGraphicsPipeline<GraphicsPushConstants>(this->_meshPipeline, SHADER_DIRECTORY"/mesh.vert.spv", SHADER_DIRECTORY"/mesh.frag.spv", "", {.blendMode = BlendMode::Additive})) {
             std::cout << "[ERROR] Failed to init mesh graphics pipeline" << std::endl;
             return false;
         }
@@ -1670,10 +1582,10 @@ private:
     {
         this->_camera.SetPerspective(glm::perspective(glm::radians(70.f), (float)this->_windowExtent.width / (float)_windowExtent.height, 0.01f, 1000.0f));
         if(this->_resizeRequested) return true;
-        this->_origin.SetPosition(glm::vec3(0.0, Constants::CameraPosition.y, 0.0));
+        this->_origin.SetPosition(glm::vec3(0.0, OldConstants::CameraPosition.y, 0.0));
         this->_origin.Update();
 
-        this->_camera.SetView(Constants::CameraPosition, glm::vec3(0.0, 0.0, 0.0), glm::vec3(0.0, 1.0, 0.0));
+        this->_camera.SetView(OldConstants::CameraPosition, glm::vec3(0.0, 0.0, 0.0), glm::vec3(0.0, 1.0, 0.0));
         this->_camera.Attach(&this->_origin);
         this->_camera.SetupViewMatrix();
 
@@ -1699,7 +1611,7 @@ private:
 
     FrameData& getCurrentFrame()
     { 
-        return this->_frames[this->_frameNumber % Constants::FrameOverlap];
+        return this->_frames[this->_frameNumber % OldConstants::FrameOverlap];
     }
 
 
@@ -1748,7 +1660,7 @@ private:
     DescriptorPool _descriptorPool;
     
     // frame storage
-    FrameData _frames[Constants::FrameOverlap] {};
+    FrameData _frames[OldConstants::FrameOverlap] {};
     uint32_t _frameNumber = 0;
 
     /* RENDER DATA */
@@ -1787,28 +1699,12 @@ private:
     VkSampler _simpleSampler {};
 
     uint32_t _fragmentListCount = 0;
-void createPipeline(std::vector<std::variant<BufferDescriptor, ImageDescriptor>> descriptors)
-{
-	for(const auto& desc : descriptors) {
-		if(std::holds_alternative<BufferDescriptor>(desc)) {
-			const auto& buf = std::get<BufferDescriptor>(desc);
-			std::cout << buf.size << std::endl;
-		}
-		else if(std::holds_alternative<ImageDescriptor>(desc)) {
-			const auto& img = std::get<ImageDescriptor>(desc);
-			std::cout << img.layout << std::endl;
-		}
-	}
-
-}
-
     // Meshes
     std::vector<GPUMesh> _testMeshes;
 
     GPUMesh _treeMesh;
     Buffer _treeVertices;
     Buffer _treeIndices;
-
 };
 
 int main(int argc, char* argv[])
@@ -1817,8 +1713,12 @@ int main(int argc, char* argv[])
 	// 	{BufferDescriptor{0, 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_NULL_HANDLE, 64}},
 	// 	{ImageDescriptor{0, 1, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, VK_NULL_HANDLE, VK_NULL_HANDLE, VK_IMAGE_LAYOUT_GENERAL}}
 	// });
+    Renderer r2("New Renderer", 900, 900);
+    r2.Init();
+    std::this_thread::sleep_for(std::chrono::seconds(5));
+    exit(0);
 
-    Renderer renderer("VoxelFlow", 900, 900);
+    RendererOld renderer("VoxelFlow", 900, 900);
     if(!renderer.Init()) {
         std::cout << "[ERROR] Failed to initialize renderer" << std::endl;
         return EXIT_FAILURE;
