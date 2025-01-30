@@ -2,7 +2,8 @@
 #define IMAGE_HPP_
 
 #include <vulkan/vulkan_core.h>
-#include "vk_mem_alloc.h"
+// #include "vk_mem_alloc.h"
+#include "vma.hpp"
 
 class Image
 {

@@ -1,0 +1,1764 @@
+#include <SDL2/SDL.h>
+#include <SDL_vulkan.h>
+
+#include <chrono>
+#include <iomanip>
+#include <stdexcept>
+#include <system_error>
+#include <variant>
+#include <vulkan/vulkan.h>
+#include <VkBootstrap.h>
+
+#define VMA_IMPLEMENTATION
+#include <vk_mem_alloc.h>
+
+#define GLM_FORCE_RADIANS
+#include <stb_image.h>
+#include <glm/glm.hpp>
+#include <glm/gtc/matrix_transform.hpp>
+#include <glm/gtx/transform.hpp>
+#include <glm/gtx/string_cast.hpp>
+
+#include "path_config.hpp"
+#include "defines.hpp"
+#include "camera.hpp"
+#include "transform.hpp"
+#include "buffer.hpp"
+#include "image.hpp"
+#include "renderer.hpp"
+#include "renderer_structs.hpp"
+#include "fluid_engine.hpp"
+
+#include "shared/vk_types.h"
+#include "shared/vk_images.h"
+#include "shared/vk_initializers.h"
+#include "shared/vk_descriptors.h"
+#include "shared/vk_pipelines.h"
+#include "shared/vk_loader.h"
+
+#include <iostream>
+#include <fstream>
+#include <cstdlib>
+#include <cstdint>
+#include <atomic>
+#include <thread>
+#include <functional>
+#include <vulkan/vulkan_core.h>
+#include <cstddef>
+#include <deque>
+#include <csignal>
+#include <unordered_map>
+#include <unordered_set>
+
+namespace OldConstants
+{
+// #ifdef NDEBUG
+// constexpr bool IsValidationLayersEnabled = false;
+// #else
+// constexpr bool IsValidationLayersEnabled = true;
+// #endif
+constexpr bool IsValidationLayersEnabled = true;
+constexpr bool VSYNCEnabled = true;
+
+constexpr uint32_t FPSMeasurePeriod = 60;
+constexpr uint32_t FrameOverlap = 2;
+constexpr uint64_t TimeoutNs = 1000000000;
+constexpr uint32_t MaxDescriptorSets = 10;
+constexpr uint64_t StagingBufferSize = 1024ul * 1024ul * 8ul;
+constexpr VkExtent3D DrawImageResolution {2560, 1440, 1};
+
+constexpr size_t VoxelGridResolution = 256;
+constexpr size_t VoxelGridSize = VoxelGridResolution * VoxelGridResolution * VoxelGridResolution * sizeof(float);
+constexpr float VoxelGridScale = 2.0f;
+
+constexpr uint32_t MeshIdx = 2;
+// constexpr float MeshScale = 0.01;
+// constexpr float MeshScale = 0.0007;
+constexpr float MeshScale = 0.60;
+constexpr glm::vec3 MeshTranslation = glm::vec3(0.0, 0.0, 0.0);
+const glm::mat4 MeshTransform = glm::translate(MeshTranslation) * glm::scale(glm::vec3(MeshScale));
+const std::string MeshFile = ASSETS_DIRECTORY"/basicmesh.glb";
+
+// constexpr glm::vec3 CameraPosition = glm::vec3(0.1, -0.15, -0.1);
+constexpr glm::vec3 CameraPosition = glm::vec3(0.0, 0.0, -3.0);
+constexpr glm::vec3 LightPosition = glm::vec4(10.0, 10.0, 10.0, 1.0);
+
+constexpr uint32_t NumAllocatedVoxelFragments = 1024 * 1024;
+constexpr uint32_t NumAllocatedNodes = 256 * 256 * 256 * 2;
+constexpr uint32_t MaxTreeDepth = 2;
+constexpr uint32_t NodeDivisions = 2;
+constexpr uint32_t NodeChildren = NodeDivisions * NodeDivisions * NodeDivisions;
+}
+
+
+/* TODO:
+- Make image class to handle transitions statefully
+
+*/
+
+// LIFO stack
+
+
+struct alignas(16) VoxelizerPushConstants
+{
+    glm::uvec3 gridSize;
+    float gridScale;
+    float time;
+};
+
+struct alignas(16) VoxelInfo
+{
+    glm::vec3 gridDimensions;
+    float gridScale;
+};
+
+struct alignas(16) VoxelFragmentCounter
+{
+    uint32_t fragCount;
+};
+
+struct alignas(16) TreeInfo
+{
+    uint32_t nodeCounter;
+};
+
+
+struct alignas(16) VoxelFragment
+{
+    glm::vec3 position;
+    uint32_t index;
+};
+
+struct alignas(16) alignas(16) VoxelNode
+{
+    glm::vec4 pos; // w component = depth
+    uint32_t childPtr; 
+};
+
+struct alignas(16) RayTracerPushConstants
+{
+    glm::mat4 inverseProjection;  // Inverse projection matrix
+    glm::mat4 inverseView;        // Inverse view matrix
+    glm::vec3 cameraPos;         // Camera position in world space
+    float nearPlane;        // Near plane distance
+    glm::vec2 screenSize;        // Width and height of output image
+    float maxDistance;      // Maximum ray travel distance
+    float stepSize;         // Base color accumulation per step
+    glm::vec3 gridSize;          // Size of the voxel grid in each dimension
+    float gridScale;          // Size of the voxel grid in each dimension
+    glm::vec4 lightSource;
+    glm::vec4 baseColor;
+};
+
+// push constants for our mesh object draws
+struct alignas(16) GraphicsPushConstants
+{
+    glm::mat4 worldMatrix;
+    VkDeviceAddress vertexBuffer;
+    uint32_t padding[2];
+};
+
+struct alignas(16) TreeBuilderPushConstants
+{
+    VkDeviceAddress vertexBuffer;
+    VkDeviceAddress indexBuffer;
+};
+
+struct alignas(16) TreeRendererPushConstants
+{
+    VkDeviceAddress vertexBuffer;
+    VkDeviceAddress indexBuffer;
+};
+
+
+
+static inline void
+printDeviceProperties(vkb::PhysicalDevice& dev)
+{
+    const uint32_t* wgs = dev.properties.limits.maxComputeWorkGroupCount;
+    std::cout << dev.properties.deviceName << "\n" <<
+    "WorkGroups:      " << wgs[0] << " x " << wgs[1] << " x " << wgs[2] << ") \n" << 
+    "PushConstants:   " << dev.properties.limits.maxPushConstantsSize << "\n" <<
+    "Uniform Buffers: " << dev.properties.limits.maxUniformBufferRange << std::endl;
+}
+
+//TODO change all return bool members that VK_ASSERT to return Result code
+class RendererOld
+{
+public:
+    RendererOld(const std::string& name, uint32_t width, uint32_t height)
+    :   _name(name), _windowExtent{.width = width, .height = height} {}
+
+    ~RendererOld()
+    {
+        if(!this->_isInitialized) {
+            return;
+        }
+
+        vkDeviceWaitIdle(this->_device);
+        for(FrameData &frame : this->_frames) {
+            vkDestroyCommandPool(this->_device, frame.commandPool, nullptr);
+            vkDestroyFence(this->_device, frame.renderFence, nullptr);
+            vkDestroySemaphore(this->_device, frame.swapchainSemaphore, nullptr);
+            vkDestroySemaphore(this->_device, frame.renderSemaphore, nullptr);
+            frame.deletionQueue.flush();
+        }
+
+        for(GPUMesh& mesh : this->_testMeshes) {
+			mesh.Destroy(this->_allocator);
+        }
+
+        this->_deletionQueue.flush();
+        destroySwapchain();
+        destroyVulkan();
+        SDL_DestroyWindow(this->_window);
+        SDL_Quit();
+    }
+
+    bool Init()
+    {
+        this->_isInitialized =  initWindow() &&
+                                initVulkan() &&
+                                initSwapchain() &&
+                                initCommands() &&
+                                initSyncStructures() &&
+                                initBuffers() &&
+                                initAssets() &&
+                                initDescriptors() &&
+                                initPipelines() &&
+                                initCamera() &&
+                                preProcess()
+                                ;
+        return this->_isInitialized;
+    }
+
+    void Render(double dt)
+    {
+        this->_elapsed += dt;
+        updatePerformanceCounters(dt);
+        pollEvents();
+        if(this->_resizeRequested) {
+            resizeSwapchain();
+            initCamera();
+            this->_mouse.first_captured = true;
+            this->_resizeRequested = false;
+        }
+        // this->_camera.OrbitYaw(glm::radians(30.0) * dt);
+        this->_camera.Update();
+        draw(dt);
+        this->_frameNumber++;
+    }
+    
+    bool ShouldClose() const { return this->_shouldClose; }
+    void Close() { this->_shouldClose = true; }
+
+private:
+    void updatePerformanceCounters(double dt)
+    {
+        if(this->_frameNumber > 0 && this->_frameNumber % OldConstants::FPSMeasurePeriod == 0) {
+            const double delta = (this->_elapsed - this->_lastFpsMeasurementTime);
+            const double averageFrameTime =  delta / OldConstants::FPSMeasurePeriod;
+            const double fps = OldConstants::FPSMeasurePeriod / delta;
+            std::cout << std::fixed << std::setprecision(3) << "FPS: " << fps  << std::setprecision(5) << "  (" << averageFrameTime << ") ";
+            this->_lastFpsMeasurementTime = this->_elapsed;
+
+            TreeInfo treeInfo;
+            std::memcpy(&treeInfo, this->_treeInfoBuffer.allocation->GetMappedData(), sizeof(TreeInfo));
+            std::cout << "\tVoxel Nodes: " << treeInfo.nodeCounter << " Nodes VRAM: " << treeInfo.nodeCounter * sizeof(VoxelNode) << std::endl;
+        }
+    }
+
+    void pollEvents()
+    {
+        SDL_Event event;
+        while(SDL_PollEvent(&event)) {
+            if(event.type == SDL_QUIT) {
+                this->_shouldClose = true;
+            } 
+            
+            else if(event.type == SDL_MOUSEBUTTONDOWN) {
+                this->_mouseButtons[event.button.button] = true;
+            } else if(event.type == SDL_MOUSEBUTTONUP) {
+                this->_mouseButtons[event.button.button] = false;
+            }
+            
+            else if(event.type == SDL_MOUSEMOTION) {
+                Mouse& mouse = this->_mouse;
+                if (mouse.first_captured) {
+                    mouse.prev = {event.motion.x, event.motion.y};
+                    mouse.first_captured = false;
+                }
+                mouse.move = glm::vec2(event.motion.x, event.motion.y) - mouse.prev;
+                mouse.prev = {event.motion.x, event.motion.y};
+
+                float mouse_sens = -0.003f;
+                glm::vec2 look = mouse.move * mouse_sens;
+                if(this->_mouseButtons[SDL_BUTTON_LEFT]) {
+                    this->_camera.OrbitYaw(-look.x);
+                    this->_camera.OrbitPitch(-look.y);
+                }
+            }
+
+            else if(event.type == SDL_MOUSEWHEEL) {
+                float delta = -event.wheel.preciseY * 0.1f;
+                this->_camera.distance += delta;
+            }
+
+            else if(event.type == SDL_KEYUP) {
+                switch(event.key.keysym.sym) {
+                    case SDL_KeyCode::SDLK_q:
+                        this->_shouldRenderGeometry = !this->_shouldRenderGeometry;
+                        break;
+                    case SDL_KeyCode::SDLK_w:
+                        this->_shouldRenderVoxels = !this->_shouldRenderVoxels;
+                        break;
+                    case SDL_KeyCode::SDLK_e:
+                        this->_shouldSubdivide = true;
+                        break;
+                    default:
+                        break;
+                }
+            }
+        }
+    }
+
+    // NOT SAFE TO RUN AFTER RENDER LOOP STARTED:
+    // TODO: update to use different queue so concurrent immediate operations are safe
+    bool immediateSubmit(std::function<void(VkCommandBuffer cmd)>&& immediateFunction)
+    {
+        VK_ASSERT(vkResetFences(this->_device, 1, &this->_immFence));
+        VK_ASSERT(vkResetCommandBuffer(this->_immCommandBuffer, 0));
+
+        // record the command buffer using user function
+        VkCommandBuffer cmd = this->_immCommandBuffer;
+        VkCommandBufferBeginInfo cmdBeginInfo = vkinit::command_buffer_begin_info(VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT);
+        VK_ASSERT(vkBeginCommandBuffer(cmd, &cmdBeginInfo));
+
+        immediateFunction(cmd);
+
+        VK_ASSERT(vkEndCommandBuffer(cmd));
+
+        // submit gpu commands
+        VkCommandBufferSubmitInfo cmdInfo = vkinit::command_buffer_submit_info(cmd);
+        VkSubmitInfo2 submit = vkinit::submit_info(&cmdInfo, nullptr, nullptr);
+        VK_ASSERT(vkQueueSubmit2(this->_graphicsQueue, 1, &submit, this->_immFence));
+
+        VK_ASSERT(vkWaitForFences(this->_device, 1, &this->_immFence, true, 9999999999));
+        return true;
+    }
+
+    VkExtent3D getWorkgroupCounts(uint32_t localGroupSize = 16)
+    {
+        return VkExtent3D {
+            .width = static_cast<uint32_t>(std::ceil(this->_drawImage.imageExtent.width/(float)localGroupSize)),
+            .height = static_cast<uint32_t>(std::ceil(this->_drawImage.imageExtent.height/(float)localGroupSize)),
+            .depth = 1
+        };
+    }
+    
+    void drawLines(VkCommandBuffer cmd)
+    {
+		this->_drawImage.Transition(cmd, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+        VkRenderingAttachmentInfo colorAttachmentInfo = vkinit::attachment_info(this->_drawImage.imageView, nullptr, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+        VkRenderingInfo renderInfo = vkinit::rendering_info(VkExtent2D{this->_windowExtent.width, this->_windowExtent.height}, &colorAttachmentInfo, nullptr);
+        vkCmdBeginRendering(cmd, &renderInfo);
+        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, this->_linePipeline.pipeline);
+
+        VkViewport viewport = {
+            .x = 0,
+            .y = (float)this->_windowExtent.height,
+            .width = (float)this->_windowExtent.width,
+            .height = -(float)this->_windowExtent.height,
+            .minDepth = 0.0,
+            .maxDepth = 1.0
+        };
+
+        vkCmdSetViewport(cmd, 0, 1, &viewport);
+
+        VkRect2D scissor = {
+            .offset = { .x = 0, .y = 0 },
+            .extent = { .width = this->_windowExtent.width, .height = this->_windowExtent.height }
+        };
+
+        vkCmdSetScissor(cmd, 0, 1, &scissor);
+
+        GraphicsPushConstants pc = {
+            .worldMatrix = this->_camera.GetProjectionMatrix() * this->_camera.GetViewMatrix() * glm::scale(glm::vec3(OldConstants::VoxelGridScale)),
+            .vertexBuffer = this->_treeMesh.vertexBufferAddress
+        };
+
+        vkCmdPushConstants(cmd, this->_linePipeline.layout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(GraphicsPushConstants), &pc);
+        vkCmdBindIndexBuffer(cmd, this->_treeIndices.bufferHandle, 0, VK_INDEX_TYPE_UINT32);
+        vkCmdDrawIndexedIndirect(cmd, this->_treeIndirectDrawBuffer.bufferHandle, 0, 1, sizeof(VkDrawIndexedIndirectCommand));
+        vkCmdEndRendering(cmd);
+    }
+
+    void drawGeometry(VkCommandBuffer cmd, double dt)
+    {
+		this->_drawImage.Transition(cmd, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+        VkRenderingAttachmentInfo colorAttachmentInfo = vkinit::attachment_info(this->_drawImage.imageView, nullptr, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+        VkRenderingInfo renderInfo = vkinit::rendering_info(VkExtent2D{this->_windowExtent.width, this->_windowExtent.height}, &colorAttachmentInfo, nullptr);
+        vkCmdBeginRendering(cmd, &renderInfo);
+
+        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, this->_meshPipeline.pipeline);
+
+        VkViewport viewport = {
+            .x = 0,
+            .y = (float)this->_windowExtent.height,
+            .width = (float)this->_windowExtent.width,
+            .height = -(float)this->_windowExtent.height,
+            .minDepth = 0.0,
+            .maxDepth = 1.0
+        };
+
+        vkCmdSetViewport(cmd, 0, 1, &viewport);
+
+        VkRect2D scissor = {
+            .offset = { .x = 0, .y = 0 },
+            .extent = { .width = this->_windowExtent.width, .height = this->_windowExtent.height }
+        };
+
+        vkCmdSetScissor(cmd, 0, 1, &scissor);
+
+        GraphicsPushConstants pc = {
+            .worldMatrix = this->_camera.GetProjectionMatrix() * this->_camera.GetViewMatrix() * OldConstants::MeshTransform,
+            .vertexBuffer = this->_testMeshes[OldConstants::MeshIdx].vertexBufferAddress
+        };
+
+        vkCmdPushConstants(cmd, this->_meshPipeline.layout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(GraphicsPushConstants), &pc);
+        vkCmdBindIndexBuffer(cmd, this->_testMeshes[OldConstants::MeshIdx].indexBuffer.bufferHandle, 0, VK_INDEX_TYPE_UINT32);
+        vkCmdDrawIndexed(cmd, this->_testMeshes[OldConstants::MeshIdx].numIndices, 1, 0, 0, 0);
+        vkCmdEndRendering(cmd);
+    }
+
+    void voxelRasterizeGeometry(VkCommandBuffer cmd)
+    {
+		this->_voxelImage.Transition(cmd, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+        // Zero the counter
+        vkCmdFillBuffer(cmd, this->_voxelFragmentCounter.bufferHandle, 0, VK_WHOLE_SIZE, 0);
+        VkMemoryBarrier2 memBarrier = {
+            .sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2,
+            .srcStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT,
+            .srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT,
+            .dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+            .dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT,
+        };
+
+        VkDependencyInfo dependencyInfo = {
+            .sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO,
+            .memoryBarrierCount = 1,
+            .pMemoryBarriers = &memBarrier
+        };
+
+        vkCmdPipelineBarrier2(cmd, &dependencyInfo);
+        VkRenderingAttachmentInfo colorAttachmentInfo = vkinit::attachment_info(this->_voxelImage.imageView, nullptr, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+        VkRenderingInfo renderInfo = vkinit::rendering_info(VkExtent2D{OldConstants::VoxelGridResolution, OldConstants::VoxelGridResolution}, &colorAttachmentInfo, nullptr);
+        vkCmdBeginRendering(cmd, &renderInfo);
+        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, this->_voxelRasterPipeline.pipeline);
+        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, this->_voxelRasterPipeline.layout, 0, 1, this->_voxelRasterPipeline.descriptorSets.data(), 0, nullptr);
+
+        VkViewport viewport = {
+            .x = 0,
+            .y = 0,
+            .width = (float)OldConstants::VoxelGridResolution,
+            .height = (float)OldConstants::VoxelGridResolution,
+            .minDepth = 0.0,
+            .maxDepth = 1.0
+        };
+        vkCmdSetViewport(cmd, 0, 1, &viewport);
+
+        VkRect2D scissor = {
+            .offset = { .x = 0, .y = 0 },
+            .extent = { .width = OldConstants::VoxelGridResolution, .height = OldConstants::VoxelGridResolution}
+        };
+        vkCmdSetScissor(cmd, 0, 1, &scissor);
+
+
+        GraphicsPushConstants pc = {
+            .worldMatrix = glm::mat4(1.0) * OldConstants::MeshTransform,
+            .vertexBuffer = this->_testMeshes[OldConstants::MeshIdx].vertexBufferAddress
+        };
+
+        vkCmdPushConstants(cmd, this->_voxelRasterPipeline.layout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(GraphicsPushConstants), &pc);
+        vkCmdBindIndexBuffer(cmd, this->_testMeshes[OldConstants::MeshIdx].indexBuffer.bufferHandle, 0, VK_INDEX_TYPE_UINT32);
+        vkCmdDrawIndexed(cmd, this->_testMeshes[OldConstants::MeshIdx].numIndices, 1, 0, 0, 0);
+        vkCmdEndRendering(cmd);
+        VkBufferMemoryBarrier bufferBarriers[] = {
+            {
+                .sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER,
+                .srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT,
+                .dstAccessMask = VK_ACCESS_SHADER_READ_BIT,
+                .buffer = this->_voxelVolume.bufferHandle,
+                .offset = 0,
+                .size = VK_WHOLE_SIZE,
+            },
+            {
+                .sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER,
+                .srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT,
+                .dstAccessMask = VK_ACCESS_SHADER_READ_BIT,
+                .buffer = this->_voxelFragmentCounter.bufferHandle,
+                .offset = 0,
+                .size = VK_WHOLE_SIZE
+            }
+        };
+        vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_ALL_GRAPHICS_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, nullptr, 2, bufferBarriers, 0, nullptr);
+    }
+
+    void updateVoxelVolume(VkCommandBuffer cmd)
+    {
+        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, this->_voxelizerPipeline.pipeline);
+        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, this->_voxelizerPipeline.layout, 0, 1, this->_voxelizerPipeline.descriptorSets.data(), 0, nullptr);
+        VoxelizerPushConstants pc = {
+            .gridSize = glm::vec3(OldConstants::VoxelGridResolution),
+            .gridScale = 1.0f/OldConstants::VoxelGridResolution,
+            .time = static_cast<float>(this->_elapsed)
+        };
+        vkCmdPushConstants(cmd, this->_voxelizerPipeline.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(VoxelizerPushConstants), &pc);
+
+        constexpr uint32_t localWorkgroupSize = 8;
+        constexpr uint32_t groupCount = OldConstants::VoxelGridResolution / localWorkgroupSize;
+        vkCmdDispatch(cmd, groupCount, groupCount, groupCount);
+    }
+
+    void rayCastVoxelVolume(VkCommandBuffer cmd)
+    {
+		this->_drawImage.Transition(cmd, VK_IMAGE_LAYOUT_GENERAL);
+        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, this->_raytracerPipeline.pipeline);
+        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, this->_raytracerPipeline.layout, 0, 1, this->_raytracerPipeline.descriptorSets.data(), 0, nullptr);
+
+        glm::mat4 view = this->_camera.GetViewMatrix();
+        glm::mat4 projection = this->_camera.GetProjectionMatrix();
+        projection[1][1] *= -1;
+        RayTracerPushConstants rtpc = {
+            .inverseProjection = glm::inverse(projection),
+            .inverseView = glm::inverse(view),
+            .cameraPos = glm::inverse(this->_camera.GetViewMatrix()) * glm::vec4(0.0, 0.0, 0.0, 1.0),
+            .nearPlane = 0.1f,
+            .screenSize = glm::vec2(this->_windowExtent.width, this->_windowExtent.height),
+            .maxDistance = 2000.0f,
+            .stepSize = 0.1,
+            .gridSize = glm::vec3(OldConstants::VoxelGridResolution),
+            .gridScale = OldConstants::VoxelGridScale,
+            .lightSource = glm::vec4(30.0, 50.0, 20.0, 1.0),
+            // .baseColor = glm::vec4(HEXCOLOR(0xFFBF00))
+            // .baseColor = glm::vec4(HEXCOLOR(0x675CFF))
+            .baseColor = glm::vec4(0.8, 0.8, 0.8, 1.0)
+        };
+        vkCmdPushConstants(cmd, this->_raytracerPipeline.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(RayTracerPushConstants), &rtpc);
+        VkExtent3D groupCounts = getWorkgroupCounts(8);
+        vkCmdDispatch(cmd, groupCounts.width, groupCounts.height, groupCounts.depth);
+    }
+
+    void generateTreeGeometry(VkCommandBuffer cmd)
+    {
+        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, this->_treeLineGenerator.pipeline);
+        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, this->_treeLineGenerator.layout, 0, 1, this->_treeLineGenerator.descriptorSets.data(), 0, nullptr);
+        TreeRendererPushConstants pc = {
+            .vertexBuffer = this->_treeMesh.vertexBufferAddress,
+            .indexBuffer = this->_treeMesh.indexBufferAddress
+        };
+        vkCmdPushConstants(cmd, this->_treeLineGenerator.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(TreeRendererPushConstants), &pc);
+        // vkCmdDispatch(cmd, OldConstants::NodeChildren, 1, 1);
+        vkCmdDispatchIndirect(cmd, this->_treeIndirectDispatchBuffer.bufferHandle, 0);
+        VkBufferMemoryBarrier bufferBarriers[] = {
+            {
+                .sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER,
+                .srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT,
+                .dstAccessMask = VK_ACCESS_SHADER_READ_BIT,
+                .buffer = this->_treeIndices.bufferHandle,
+                .offset = 0,
+                .size = VK_WHOLE_SIZE,
+            },
+            {
+                .sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER,
+                .srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT,
+                .dstAccessMask = VK_ACCESS_SHADER_READ_BIT,
+                .buffer = this->_treeVertices.bufferHandle,
+                .offset = 0,
+                .size = VK_WHOLE_SIZE,
+            },
+        };
+        vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_ALL_GRAPHICS_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, nullptr, ARRLEN(bufferBarriers), bufferBarriers, 0, nullptr);
+    }
+
+    void generateTreeIndirectCommands(VkCommandBuffer cmd)
+    {
+        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, this->_treeIndirectCmdGenerator.pipeline);
+        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, this->_treeIndirectCmdGenerator.layout, 0, 1, this->_treeIndirectCmdGenerator.descriptorSets.data(), 0, nullptr);
+        vkCmdDispatch(cmd, 1, 1, 1);
+        VkBufferMemoryBarrier bufferBarriers[] = {
+			this->_treeIndirectDispatchBuffer.CreateBarrier(),
+			this->_treeFlaggerIndirectDispatchBuffer.CreateBarrier(),
+			this->_treeIndirectDrawBuffer.CreateBarrier()
+        };
+        vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_ALL_GRAPHICS_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, nullptr, ARRLEN(bufferBarriers), bufferBarriers, 0, nullptr);
+    }
+
+    void subdivideTree(VkCommandBuffer cmd)
+    {
+        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, this->_treeSubdivider.pipeline);
+        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, this->_treeSubdivider.layout, 0, 1, this->_treeSubdivider.descriptorSets.data(), 0, nullptr);
+        vkCmdDispatchIndirect(cmd, this->_treeIndirectDispatchBuffer.bufferHandle, 0); // TODO: rethink this indirect buffer
+        VkBufferMemoryBarrier bufferBarriers[] = {
+                this->_treeInfoBuffer.CreateBarrier(),
+                this->_voxelNodes.CreateBarrier()
+        };
+        vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_ALL_GRAPHICS_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, nullptr, ARRLEN(bufferBarriers), bufferBarriers, 0, nullptr);
+    }
+
+    void flagNodesForSubdivision(VkCommandBuffer cmd)
+    {
+        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, this->_treeFlagger.pipeline);
+        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, this->_treeFlagger.layout, 0, 1, this->_treeFlagger.descriptorSets.data(), 0, nullptr);
+        vkCmdDispatchIndirect(cmd, this->_treeFlaggerIndirectDispatchBuffer.bufferHandle, 0); // TODO: rethink this indirect buffer
+        VkBufferMemoryBarrier bufferBarriers[] = {
+                this->_voxelNodes.CreateBarrier()
+        };
+        vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_ALL_GRAPHICS_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, nullptr, ARRLEN(bufferBarriers), bufferBarriers, 0, nullptr);
+    }
+
+    bool draw(double dt)
+    {
+        // wait for gpu to be done with last frame and clean
+        VK_ASSERT(vkWaitForFences(this->_device, 1, &getCurrentFrame().renderFence, true, OldConstants::TimeoutNs));
+        VK_ASSERT(vkResetFences(this->_device, 1, &getCurrentFrame().renderFence));
+        getCurrentFrame().deletionQueue.flush(); // delete per-frame objects
+
+        // register the semaphore to be signalled once the next frame (result of this call) is ready. does not block
+        VkResult res;
+        uint32_t swapchainImageIndex;
+        res = vkAcquireNextImageKHR(this->_device, this->_swapchain, OldConstants::TimeoutNs, getCurrentFrame().swapchainSemaphore, nullptr, &swapchainImageIndex);
+        if(res == VK_ERROR_OUT_OF_DATE_KHR) {
+            this->_resizeRequested = true;
+            return false;
+        }
+        VkImage frameImage = this->_swapchainImages[swapchainImageIndex];
+
+        VkCommandBuffer cmd = getCurrentFrame().commandBuffer;
+        VK_ASSERT(vkResetCommandBuffer(cmd, 0)); // we can safely reset as we waited on the fence
+
+
+        // begin recording commands
+        VkCommandBufferBeginInfo cmdBeginInfo {
+            .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
+            .flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT
+        };
+        VK_ASSERT(vkBeginCommandBuffer(cmd, &cmdBeginInfo));
+
+        this->_drawImage.Clear(cmd);
+
+		/* BEGIN USER COMMANDS */
+        updateVoxelVolume(cmd); // fill voxels with sample noise
+        // voxelRasterizeGeometry(cmd);
+
+        generateTreeIndirectCommands(cmd);
+        generateTreeGeometry(cmd);
+        drawLines(cmd);
+        if(this->_shouldSubdivide) {
+            flagNodesForSubdivision(cmd);
+            subdivideTree(cmd);
+            this->_shouldSubdivide = false;
+        }
+
+        if(this->_shouldRenderGeometry) {
+            drawGeometry(cmd, dt);
+        }
+
+        if(this->_shouldRenderVoxels) {
+            rayCastVoxelVolume(cmd);
+        }
+
+		/* END USER COMMANDS */
+
+        // prepare drawImage to swapchainImage copy
+        Image& drawImage = this->_drawImage;
+        VkImage& swapchainImage = this->_swapchainImages[swapchainImageIndex];
+
+        drawImage.Transition(cmd, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+        vkutil::transition_image(cmd, swapchainImage, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+        vkutil::copy_image_to_image(cmd, drawImage.image, swapchainImage, this->_windowExtent, VkExtent3D{.width = this->_swapchainExtent.width, .height = this->_swapchainExtent.height, .depth = 1});
+
+
+        // this->_voxelImage.Transition(cmd, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+        // vkutil::copy_image_to_image(cmd, this->_voxelImage.image, swapchainImage, this->_voxelImage.imageExtent, VkExtent3D{.width = this->_swapchainExtent.width, .height = this->_swapchainExtent.height, .depth = 1});
+
+        this->_voxelImage.Clear(cmd);
+
+        // transition to present format
+        vkutil::transition_image(cmd, swapchainImage, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
+        drawImage.Transition(cmd, VK_IMAGE_LAYOUT_GENERAL);
+
+        VK_ASSERT(vkEndCommandBuffer(cmd)); //commands recorded
+
+        // prepare queue submission
+        VkCommandBufferSubmitInfo cmdInfo {
+            .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO,
+            .commandBuffer = cmd
+        };
+        VkSemaphoreSubmitInfo waitSwapchainInfo { // use pre-registered swapchain here wait semaphore to wait until swapchain is ready
+            .sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO,
+            .semaphore = getCurrentFrame().swapchainSemaphore,
+            .value = 1,
+            .stageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT_KHR
+        };
+        VkSemaphoreSubmitInfo signalRenderedInfo {
+            .sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO,
+            .semaphore = getCurrentFrame().renderSemaphore,
+            .value = 1,
+            // .stageMask = VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT | VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT
+            .stageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT
+        };
+        VkSubmitInfo2 queueSubmitInfo = {
+            .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO_2,
+            .waitSemaphoreInfoCount = 1,
+            .pWaitSemaphoreInfos = &waitSwapchainInfo,
+            
+            .commandBufferInfoCount = 1,
+            .pCommandBufferInfos = &cmdInfo,
+
+            .signalSemaphoreInfoCount = 1,
+            .pSignalSemaphoreInfos = &signalRenderedInfo
+        };
+
+        // renderFence would now block until rendering is done (frame.renderSemaphore will also signal at this time)
+        VK_ASSERT(vkQueueSubmit2(this->_graphicsQueue, 1, &queueSubmitInfo, getCurrentFrame().renderFence));
+
+        // present rendered image:
+        VkPresentInfoKHR presentInfo {
+            .sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR,
+            .waitSemaphoreCount = 1,
+            .pWaitSemaphores = &getCurrentFrame().renderSemaphore, //wait for render complete signal
+
+            .swapchainCount = 1,
+            .pSwapchains = &this->_swapchain,
+            .pImageIndices = &swapchainImageIndex,
+        };
+        res = vkQueuePresentKHR(this->_graphicsQueue, &presentInfo);
+        if(res == VK_ERROR_OUT_OF_DATE_KHR) {
+            this->_resizeRequested = true;
+        }
+        return true;
+    }
+
+    bool preProcess()
+    {
+        immediateSubmit([&](VkCommandBuffer cmd) {
+            this->_drawImage.Transition(cmd, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+            voxelRasterizeGeometry(cmd);
+            VkBufferCopy copy = {
+                .srcOffset = 0,
+                .dstOffset = 0,
+                .size = sizeof(VoxelFragmentCounter)
+            };
+            vkCmdCopyBuffer(cmd, this->_voxelFragmentCounter.bufferHandle, this->_stagingBuffer.bufferHandle, 1, &copy);
+            // this->_drawImage.Transition(cmd, VK_IMAGE_LAYOUT_GENERAL);
+        });
+        VoxelFragmentCounter fragCounter;
+        std::memcpy(&fragCounter, this->_voxelFragmentCounter.allocation->GetMappedData(), this->_voxelFragmentCounter.allocation->GetSize());
+        this->_fragmentListCount = fragCounter.fragCount;
+        std::cout << "Voxel Fragment Count: " << fragCounter.fragCount << std::endl;
+
+        return true;
+    }
+
+    bool initWindow()
+    {
+        SDL_SetHint(SDL_HINT_NO_SIGNAL_HANDLERS, "1");
+        SDL_Init(SDL_INIT_VIDEO);
+        SDL_WindowFlags windowFlags = (SDL_WindowFlags)(SDL_WINDOW_VULKAN | SDL_WINDOW_RESIZABLE);
+        this->_window = SDL_CreateWindow(
+            this->_name.c_str(),
+            SDL_WINDOWPOS_UNDEFINED,
+            SDL_WINDOWPOS_UNDEFINED,
+            this->_windowExtent.width,
+            this->_windowExtent.height,
+            windowFlags
+        );
+        return this->_window != nullptr;
+    }
+
+    bool initVulkan()
+    {
+        vkb::InstanceBuilder builder;
+        vkb::Result<vkb::Instance> instanceRet = builder
+            .set_app_name(this->_name.c_str())
+            .request_validation_layers(OldConstants::IsValidationLayersEnabled)
+            .use_default_debug_messenger()
+            .require_api_version(1, 3, 0)
+            .build();
+        
+        if(!instanceRet.has_value()) {
+            std::cout << "[ERROR] Failed to build the vulkan instance" << std::endl;
+            return false;
+        }
+
+        vkb::Instance vkbInstance =  instanceRet.value();
+        this->_instance = vkbInstance.instance;
+        this->_debugMessenger = vkbInstance.debug_messenger;
+
+
+        SDL_Vulkan_CreateSurface(this->_window, this->_instance, &this->_surface);
+        VkPhysicalDeviceVulkan13Features features {
+            .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES,
+            .synchronization2 = true,
+            .dynamicRendering = true
+        };
+
+        VkPhysicalDeviceVulkan12Features features12 {
+            .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES,
+            .descriptorIndexing = true,
+            .bufferDeviceAddress = true
+        };
+
+        VkPhysicalDeviceFeatures featuresBase {
+            .geometryShader = true,
+            .wideLines = true,
+            .fragmentStoresAndAtomics = true,
+            .shaderInt64 = true
+        };
+
+        vkb::PhysicalDeviceSelector selector {vkbInstance};
+        vkb::PhysicalDevice physDevice = selector
+            .set_minimum_version(1, 3)
+            .set_required_features_13(features)
+            .set_required_features_12(features12)
+            .set_required_features(featuresBase)
+            .set_surface(this->_surface)
+            .select()
+            .value();
+        
+        vkb::DeviceBuilder deviceBuilder {physDevice};
+        vkb::Device vkbDevice = deviceBuilder.build().value();
+        this->_device = vkbDevice.device;
+        this->_gpu = physDevice.physical_device;
+        // print gpu properties
+        printDeviceProperties(physDevice);
+
+        this->_graphicsQueue = vkbDevice.get_queue(vkb::QueueType::graphics).value();
+        this->_graphicsQueueFamily = vkbDevice.get_queue_index(vkb::QueueType::graphics).value();
+
+        // initialize allocator
+        VmaAllocatorCreateInfo allocatorInfo = {
+            .flags = VMA_ALLOCATOR_CREATE_BUFFER_DEVICE_ADDRESS_BIT,
+            .physicalDevice = this->_gpu,
+            .device = this->_device,
+            .instance = this->_instance, 
+        };
+        vmaCreateAllocator(&allocatorInfo, &this->_allocator);
+        this->_deletionQueue.push([&](){vmaDestroyAllocator(this->_allocator);});
+
+        return true;
+    }
+
+    void resizeSwapchain()
+    {
+        vkDeviceWaitIdle(this->_device);
+        destroySwapchain();
+
+        int w, h;
+        SDL_GetWindowSize(this->_window, &w, &h);
+        this->_windowExtent.width = w;
+        this->_windowExtent.height = h;
+
+        createSwapchain(this->_windowExtent.width, this->_windowExtent.height);
+    }
+
+    bool createSwapchain(uint32_t width, uint32_t height)
+    {
+        vkb::SwapchainBuilder swapchainBuilder {this->_gpu, this->_device, this->_surface};
+        this->_swapchainImageFormat = VK_FORMAT_B8G8R8A8_UNORM;
+        vkb::Swapchain vkbSwapchain = swapchainBuilder
+            .set_desired_format(VkSurfaceFormatKHR{.format = this->_swapchainImageFormat, .colorSpace = VK_COLOR_SPACE_SRGB_NONLINEAR_KHR})
+            .set_desired_present_mode(OldConstants::VSYNCEnabled ? VK_PRESENT_MODE_FIFO_RELAXED_KHR : VK_PRESENT_MODE_MAILBOX_KHR)
+            .set_desired_extent(width, height)
+            .add_image_usage_flags(VK_IMAGE_USAGE_TRANSFER_DST_BIT)
+            .build()
+            .value();
+
+        this->_swapchainExtent     = vkbSwapchain.extent;
+        this->_swapchainImages     = vkbSwapchain.get_images().value();
+        this->_swapchainImageViews = vkbSwapchain.get_image_views().value();
+        this->_swapchain           = vkbSwapchain.swapchain;
+        return true;
+    }
+
+    bool initSwapchain()
+    {
+        if(!createSwapchain(this->_windowExtent.width, this->_windowExtent.height)) {
+            std::cout << "[ERROR] Failed to create swapchain" << std::endl;
+            return false;
+        }
+        return true;
+    }
+
+    bool initCommands()
+    {
+        const VkCommandPoolCreateInfo cmdPoolInfo {
+            .sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO,
+            .flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT,
+            .queueFamilyIndex = this->_graphicsQueueFamily
+        };
+
+        for(FrameData &frame : this->_frames) {
+            VK_ASSERT(vkCreateCommandPool(this->_device, &cmdPoolInfo, nullptr, &frame.commandPool));
+
+            const VkCommandBufferAllocateInfo cmdAllocInfo {
+                .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
+                .commandPool = frame.commandPool,
+                .level = VK_COMMAND_BUFFER_LEVEL_PRIMARY,
+                .commandBufferCount = 1,
+            };
+            VK_ASSERT(vkAllocateCommandBuffers(this->_device, &cmdAllocInfo, &frame.commandBuffer));
+        }
+
+        // immediate mode
+        VK_ASSERT(vkCreateCommandPool(this->_device, &cmdPoolInfo, nullptr, &this->_immCommandPool));
+        VkCommandBufferAllocateInfo immCmdAllocInfo = vkinit::command_buffer_allocate_info(this->_immCommandPool, 1);
+        VK_ASSERT(vkAllocateCommandBuffers(this->_device, &immCmdAllocInfo, &this->_immCommandBuffer));
+        this->_deletionQueue.push([&]() {
+            vkDestroyCommandPool(this->_device, this->_immCommandPool, nullptr);
+        });
+
+        return true;
+
+    }
+    bool initSyncStructures()
+    {
+        const VkFenceCreateInfo fenceInfo {
+            .sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO,
+            .flags = VK_FENCE_CREATE_SIGNALED_BIT // don't block on first wait
+        };
+
+        const VkSemaphoreCreateInfo semaphoreInfo = {
+            .sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO,
+        };
+
+        for(FrameData &frame : this->_frames) {
+            VK_ASSERT(vkCreateFence(this->_device, &fenceInfo, nullptr, &frame.renderFence));
+            VK_ASSERT(vkCreateSemaphore(this->_device, &semaphoreInfo, nullptr, &frame.swapchainSemaphore));
+            VK_ASSERT(vkCreateSemaphore(this->_device, &semaphoreInfo, nullptr, &frame.renderSemaphore));
+        }
+
+        VK_ASSERT(vkCreateFence(this->_device, &fenceInfo, nullptr, &this->_immFence));
+        this->_deletionQueue.push([&](){ vkDestroyFence(this->_device, this->_immFence, nullptr); });
+        return true;
+    }
+
+    void destroyBuffer(AllocatedBuffer buf)
+    {
+        vmaDestroyBuffer(this->_allocator, buf.buffer, buf.allocation);
+    }
+
+    void CreateBuffer(Buffer &newBuffer, uint64_t allocSize, VkBufferUsageFlags usage, VmaMemoryUsage memoryUsage, bool autoCleanup = true)
+    {
+		newBuffer.Allocate(this->_allocator, allocSize, usage, memoryUsage);
+        if(autoCleanup) {
+            this->_deletionQueue.push([this, &newBuffer]() {
+                newBuffer.Destroy(this->_allocator);
+                // vmaDestroyBuffer(this->_allocator, newBuffer.buffer, newBuffer.allocation);
+            });
+        }
+    }
+
+    bool initBuffers()
+    {
+        return true;
+    }
+
+    void
+	CreateImage(Image &newImg, VkExtent3D extent, VkImageUsageFlags usageFlags, VkImageAspectFlags aspectFlags, VkFormat format, bool autoCleanup = true)
+    {
+        newImg.imageExtent = extent;
+        newImg.imageFormat = format;
+        VkImageCreateInfo imgCreateInfo = {
+            .sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
+            .imageType = (extent.depth > 1) ? VK_IMAGE_TYPE_3D : VK_IMAGE_TYPE_2D,
+            .format = newImg.imageFormat,
+            .extent = newImg.imageExtent,
+            .mipLevels = 1,
+            .arrayLayers = 1,
+            .samples = VK_SAMPLE_COUNT_1_BIT, //MSAA samples, 1 = disabled
+            .tiling = VK_IMAGE_TILING_OPTIMAL,
+            .usage = usageFlags
+        };
+        VmaAllocationCreateInfo imgAllocCreateInfo = {
+            .usage = VMA_MEMORY_USAGE_GPU_ONLY,
+            .requiredFlags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT
+        };
+        VK_CHECK(vmaCreateImage(this->_allocator, &imgCreateInfo, &imgAllocCreateInfo, &newImg.image, &newImg.allocation, &newImg.info));
+
+        VkImageViewCreateInfo imgViewCreateInfo = {
+            .sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
+            .image = newImg.image,
+            .viewType = VK_IMAGE_VIEW_TYPE_2D,
+            .format = newImg.imageFormat,
+            .subresourceRange = {
+                .aspectMask = aspectFlags,
+                .baseMipLevel = 0,
+                .levelCount = 1,
+                .baseArrayLayer = 0,
+                .layerCount = 1,
+            }
+        };
+        VK_CHECK(vkCreateImageView(this->_device, &imgViewCreateInfo, nullptr, &newImg.imageView));
+
+        if(autoCleanup) {
+            this->_deletionQueue.push([this, newImg]() {
+                vmaDestroyImage(this->_allocator, newImg.image, newImg.allocation);
+                vkDestroyImageView(this->_device, newImg.imageView, nullptr);
+            });
+        }
+    }
+
+    bool copyBufferToImage(Buffer buffer, Image image, VkImageLayout finalLayout = VK_IMAGE_LAYOUT_GENERAL)
+    {
+        immediateSubmit([buffer, &image, finalLayout](VkCommandBuffer cmd) {
+            image.Transition(cmd, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+            VkBufferImageCopy copyRegion = {};
+            copyRegion.bufferOffset = 0;
+            copyRegion.bufferRowLength = 0;
+            copyRegion.bufferImageHeight = 0;
+
+            copyRegion.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+            copyRegion.imageSubresource.mipLevel = 0;
+            copyRegion.imageSubresource.baseArrayLayer = 0;
+            copyRegion.imageSubresource.layerCount = 1;
+            copyRegion.imageExtent = image.imageExtent;
+
+            vkCmdCopyBufferToImage(cmd, buffer.bufferHandle, image.image,
+                                   VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &copyRegion);
+
+            // vkutil::transition_image(cmd, image.image, 
+            //                          VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, finalLayout);
+        });
+        return true;
+    }
+
+    GPUMesh uploadMesh(std::span<Vertex> vertices, std::span<uint32_t> indices)
+    {
+        // Initialize GPU buffers to store mesh data (vertex attributes + triangle indices)
+        const size_t vertexBufferSize = vertices.size() * sizeof(Vertex);
+        const size_t indexBufferSize = indices.size() * sizeof(uint32_t);
+        GPUMesh mesh;
+        mesh.vertexBuffer.Allocate(this->_allocator,
+            vertexBufferSize, 
+            VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
+            VMA_MEMORY_USAGE_GPU_ONLY
+        );
+        VkBufferDeviceAddressInfo deviceAddressInfo = {
+            .sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO,
+            .buffer = mesh.vertexBuffer.bufferHandle
+        };
+        mesh.vertexBufferAddress = vkGetBufferDeviceAddress(this->_device, &deviceAddressInfo);
+
+        CreateBuffer(
+			mesh.indexBuffer,
+            indexBufferSize, 
+            VK_BUFFER_USAGE_INDEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+            VMA_MEMORY_USAGE_GPU_ONLY,
+            false
+        );
+        
+        // Copy mesh data to cpu staging buffer (host visible and memory coherent)
+		Buffer meshStagingBuffer;
+        CreateBuffer(
+			meshStagingBuffer,
+            vertexBufferSize + indexBufferSize,
+            VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+            VMA_MEMORY_USAGE_CPU_ONLY,
+            false
+        );
+        void* stagingData = meshStagingBuffer.allocation->GetMappedData();
+        
+        std::memcpy(stagingData, vertices.data(), vertexBufferSize);
+        std::memcpy((char *)stagingData + vertexBufferSize, indices.data(), indexBufferSize);
+
+        // Copy mesh data from CPU to GPU
+        immediateSubmit([&](VkCommandBuffer cmd) {
+                VkBufferCopy vertexCopy = {
+                    .srcOffset = 0,
+                    .dstOffset = 0,
+                    .size = vertexBufferSize
+                };
+                vkCmdCopyBuffer(cmd, meshStagingBuffer.bufferHandle, mesh.vertexBuffer.bufferHandle, 1, &vertexCopy);
+
+                VkBufferCopy indexCopy = {
+                    .srcOffset = vertexBufferSize,
+                    .dstOffset = 0,
+                    .size = indexBufferSize
+                };
+                vkCmdCopyBuffer(cmd, meshStagingBuffer.bufferHandle, mesh.indexBuffer.bufferHandle, 1, &indexCopy);
+        });
+        meshStagingBuffer.Destroy(this->_allocator);
+        mesh.numIndices = indices.size();
+        mesh.numVertices = vertices.size();
+        return mesh;
+    }
+
+    bool initAssets()
+    {
+        // IMAGES
+        CreateImage(this->_drawImage,
+            OldConstants::DrawImageResolution,
+            VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT,
+            VK_IMAGE_ASPECT_COLOR_BIT,
+            VK_FORMAT_R32G32B32A32_SFLOAT
+        );
+        immediateSubmit([&](VkCommandBuffer cmd) {
+            this->_drawImage.Transition(cmd, VK_IMAGE_LAYOUT_GENERAL);
+        });
+
+        CreateImage(this->_voxelImage,
+            VkExtent3D{OldConstants::VoxelGridResolution, OldConstants::VoxelGridResolution, 1},
+            VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT,
+            VK_IMAGE_ASPECT_COLOR_BIT,
+            VK_FORMAT_R32G32B32A32_SFLOAT
+        );
+        immediateSubmit([&](VkCommandBuffer cmd) {
+            this->_voxelImage.Transition(cmd, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+        });
+
+        // BUFFERS
+        CreateBuffer(this->_stagingBuffer, OldConstants::StagingBufferSize, VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VMA_MEMORY_USAGE_CPU_ONLY);
+        CreateBuffer(this->_voxelVolume, OldConstants::VoxelGridSize, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
+        immediateSubmit([&](VkCommandBuffer cmd) {
+            vkCmdFillBuffer(cmd, this->_voxelVolume.bufferHandle, 0, VK_WHOLE_SIZE, 0);
+        });
+        CreateBuffer(this->_voxelInfoBuffer, sizeof(VoxelInfo), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
+        VoxelInfo voxInfo = {
+            .gridDimensions = glm::vec3(OldConstants::VoxelGridResolution),
+            .gridScale = OldConstants::VoxelGridScale
+        };
+        void* data = this->_stagingBuffer.allocation->GetMappedData();
+        std::memcpy(data, &voxInfo, sizeof(voxInfo));
+        immediateSubmit([&](VkCommandBuffer cmd) {
+            VkBufferCopy copy = {
+                .srcOffset = 0,
+                .dstOffset = 0,
+                .size = sizeof(VoxelInfo)
+            };
+            vkCmdCopyBuffer(cmd, this->_stagingBuffer.bufferHandle, this->_voxelInfoBuffer.bufferHandle, 1, &copy);
+        });
+        std::cout << "VOXBUFFMEM: " << this->_voxelVolume.info.size << std::endl;
+
+        CreateBuffer(
+			this->_voxelFragmentCounter,
+            sizeof(VoxelFragmentCounter),
+            VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+            VMA_MEMORY_USAGE_CPU_ONLY
+        );
+
+        CreateBuffer(
+			this->_voxelFragmentList,
+            OldConstants::NumAllocatedVoxelFragments * sizeof(VoxelFragment),
+            VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+            VMA_MEMORY_USAGE_GPU_ONLY
+        );
+
+        CreateBuffer(
+			this->_treeVertices,
+            OldConstants::NumAllocatedNodes * 8 * sizeof(glm::vec3), // 8 vertices per cube
+            VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
+            VMA_MEMORY_USAGE_GPU_ONLY
+        );
+        VkBufferDeviceAddressInfo deviceAddressInfo = {
+            .sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO,
+            .buffer = this->_treeVertices.bufferHandle
+        };
+        this->_treeMesh.vertexBufferAddress = vkGetBufferDeviceAddress(this->_device, &deviceAddressInfo);
+
+        CreateBuffer(
+			this->_treeIndices,
+            OldConstants::NumAllocatedNodes * 12 * 2 * sizeof(uint32_t), // 12 lines per cube, 2 indices per line
+            VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+            VMA_MEMORY_USAGE_GPU_ONLY
+        );
+        deviceAddressInfo.buffer = this->_treeIndices.bufferHandle;
+        this->_treeMesh.indexBufferAddress = vkGetBufferDeviceAddress(this->_device, &deviceAddressInfo);
+
+        CreateBuffer(
+			this->_treeIndirectDrawBuffer,
+            sizeof(VkDrawIndexedIndirectCommand),
+            VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+            VMA_MEMORY_USAGE_GPU_ONLY
+        );
+
+        CreateBuffer(this->_treeIndirectDispatchBuffer,
+            sizeof(VkDispatchIndirectCommand),
+            VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+            VMA_MEMORY_USAGE_GPU_ONLY
+        );
+
+        CreateBuffer(this->_treeFlaggerIndirectDispatchBuffer,
+            sizeof(VkDispatchIndirectCommand),
+            VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+            VMA_MEMORY_USAGE_GPU_ONLY
+        );
+
+        CreateBuffer(this->_treeInfoBuffer,
+            sizeof(TreeInfo),
+            VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT |VK_BUFFER_USAGE_TRANSFER_SRC_BIT, 
+            VMA_MEMORY_USAGE_CPU_ONLY
+        );
+        TreeInfo treeInfo = {.nodeCounter = OldConstants::NodeChildren}; // init base level
+        std::memcpy(this->_stagingBuffer.allocation->GetMappedData(), &treeInfo, sizeof(TreeInfo));
+        immediateSubmit([&](VkCommandBuffer cmd) {
+            VkBufferCopy copy = {.size = sizeof(TreeInfo)};
+            vkCmdCopyBuffer(cmd, this->_stagingBuffer.bufferHandle, this->_treeInfoBuffer.bufferHandle, 1, &copy);
+        });
+
+        // voxel nodes
+        CreateBuffer(this->_voxelNodes,
+            OldConstants::NumAllocatedNodes * sizeof(VoxelNode),
+            VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+            VMA_MEMORY_USAGE_GPU_ONLY
+        );
+
+        const uint32_t width = OldConstants::NodeDivisions;
+        const float s = 1.0 / (OldConstants::NodeDivisions);
+        const float m = -0.5 + s/2.0;
+        VoxelNode nodes[OldConstants::NodeChildren];
+        for(int z = 0; z < OldConstants::NodeDivisions; z++) {
+            for(int y = 0; y < OldConstants::NodeDivisions; y++) {
+                for(int x = 0; x < OldConstants::NodeDivisions; x++) {
+                    uint32_t index = x + width*y + width*width*z;
+                    VoxelNode* data = (VoxelNode*)this->_stagingBuffer.allocation->GetMappedData();
+                    data[index] = VoxelNode{
+                        .pos = glm::vec4(
+                            m + s*(x),
+                            m + s*(y),
+                            m + s*(z),
+                            1.0
+                        ),
+                        .childPtr = 0,
+                    };
+                }
+            }
+        }
+        immediateSubmit([&](VkCommandBuffer cmd) {
+            VkBufferCopy copy = {.srcOffset = 0, .dstOffset = 0, .size = sizeof(VoxelNode) * OldConstants::NodeChildren};
+            vkCmdCopyBuffer(cmd, this->_stagingBuffer.bufferHandle, this->_voxelNodes.bufferHandle, 1, &copy);
+        });
+
+        // MESHES
+        std::vector<std::vector<Vertex>> vertexBuffers;
+        std::vector<std::vector<uint32_t>> indexBuffers;
+        if(!loadGltfMeshes(OldConstants::MeshFile, vertexBuffers, indexBuffers)) {
+            std::cout << "[ERROR] Failed to load meshes" << std::endl;
+        }
+        for(int m = 0; m < vertexBuffers.size(); m++) {
+            this->_testMeshes.emplace_back(uploadMesh(vertexBuffers[m], indexBuffers[m]));
+            std::cout << "Mesh Triangles: " << indexBuffers[m].size() / 3 << std::endl;
+        }
+        return true;
+    }
+
+
+
+
+	// IMPORTANT descriptors should be passed with their sets in ascending sorted order
+	template <typename PipelineType>
+	void createPipelineDescriptors(PipelineType& pipeline, VkShaderStageFlags shaderStages, std::vector<std::variant<BufferDescriptor, ImageDescriptor>> descriptors)
+	{
+		// create the layout based on the first descriptor set (we assume all sets have the same layout)
+		std::unordered_map<unsigned int, unsigned int> descriptorSetCounts;
+		DescriptorLayoutBuilder layoutBuilder = DescriptorLayoutBuilder::newLayout();
+		for(const auto& desc : descriptors) {
+			std::visit([&descriptorSetCounts, &layoutBuilder](const auto& d) {
+				descriptorSetCounts[d.set] += 1;
+				if(d.set != 0) { return; }
+				layoutBuilder.add_binding(d.binding, d.type);
+			}, desc);
+		}
+		pipeline.descriptorLayout = layoutBuilder.build(this->_device, shaderStages);
+
+		// allocate number of implicitely requested sets
+		for(int i = 0; i < descriptorSetCounts.size(); i++) {
+			pipeline.descriptorSets.push_back(this->_descriptorPool.allocateSet(this->_device, pipeline.descriptorLayout));
+		}
+
+		unsigned int currentSet = 0;
+		this->_descriptorWriter.clear();
+		for(const auto& desc : descriptors) {
+			unsigned int set = std::visit([](const auto& d){return d.set;}, desc);
+			if(currentSet != set) {
+				// moved onto new set description, finalize old one
+				this->_descriptorWriter.update_set(this->_device, pipeline.descriptorSets[currentSet]);
+				currentSet = set;
+			}
+
+			if(std::holds_alternative<BufferDescriptor>(desc)) {
+				const auto& buf = std::get<BufferDescriptor>(desc);
+				this->_descriptorWriter.write_buffer(buf.binding, buf.handle, buf.size, buf.offset, buf.type);
+			}
+			else if(std::holds_alternative<ImageDescriptor>(desc)) {
+				const auto& img = std::get<ImageDescriptor>(desc);
+				this->_descriptorWriter.write_image(img.binding, img.imageView, img.sampler, img.layout, img.type);
+			}
+		}
+
+		// update last set
+		this->_descriptorWriter.update_set(this->_device, pipeline.descriptorSets[currentSet]);
+	}
+
+    bool initDescriptors()
+    {
+        std::vector<DescriptorPool::DescriptorQuantity> sizes = {
+            {VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 5},
+            {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 20}
+        };
+        this->_descriptorPool.init(this->_device, 10, sizes);
+
+        VkSamplerCreateInfo samplerCreateInfo = {
+            .sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO,
+        };
+        VK_ASSERT(vkCreateSampler(this->_device, &samplerCreateInfo, nullptr, &this->_simpleSampler));
+        this->_deletionQueue.push([&]() { vkDestroySampler(this->_device, this->_simpleSampler, nullptr); });
+
+        // Draw Image
+        this->_drawImagePipeline.descriptorLayout = DescriptorLayoutBuilder::newLayout()
+            .add_binding(0, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE)
+            .add_binding(1, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE)
+            .build(this->_device, VK_SHADER_STAGE_COMPUTE_BIT);
+        this->_drawImagePipeline.descriptorSets.push_back(this->_descriptorPool.allocateSet(this->_device, this->_drawImagePipeline.descriptorLayout));
+        this->_descriptorWriter
+            .clear()
+            .write_image(0, this->_drawImage.imageView, 0, VK_IMAGE_LAYOUT_GENERAL, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE)
+            .update_set(this->_device, this->_drawImagePipeline.descriptorSets[0]);
+
+        // MANUAL VOXELIZER
+        this->_voxelizerPipeline.descriptorLayout = DescriptorLayoutBuilder::newLayout()
+            .add_binding(0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER)
+            .build(this->_device, VK_SHADER_STAGE_COMPUTE_BIT);
+        this->_voxelizerPipeline.descriptorSets.push_back(this->_descriptorPool.allocateSet(this->_device, this->_voxelizerPipeline.descriptorLayout));
+        this->_descriptorWriter
+            .clear()
+            .write_buffer(0, this->_voxelVolume.bufferHandle, OldConstants::VoxelGridSize, 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER)
+            .update_set(this->_device, this->_voxelizerPipeline.descriptorSets[0]);
+
+        // VOXEL RASTERIZER
+		createPipelineDescriptors(
+			this->_voxelRasterPipeline, VK_SHADER_STAGE_FRAGMENT_BIT, {
+			BufferDescriptor(0, 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, this->_voxelVolume.bufferHandle, this->_voxelVolume.info.size),
+			BufferDescriptor(0, 1, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, this->_voxelInfoBuffer.bufferHandle, sizeof(VoxelInfo)),
+			BufferDescriptor(0, 2, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, this->_voxelFragmentCounter.bufferHandle, sizeof(VoxelFragmentCounter)),
+			BufferDescriptor(0, 3, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, this->_voxelFragmentList.bufferHandle, this->_voxelFragmentList.allocation->GetSize())
+		});
+        
+        // VOXEL RENDERER
+		createPipelineDescriptors(
+			this->_raytracerPipeline, VK_SHADER_STAGE_COMPUTE_BIT, {
+			BufferDescriptor(0, 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, this->_voxelVolume.bufferHandle, OldConstants::VoxelGridSize),
+			ImageDescriptor(0, 1, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, this->_drawImage.imageView, VK_NULL_HANDLE, VK_IMAGE_LAYOUT_GENERAL)
+		});
+
+        // TREE MESH GENERATOR
+		createPipelineDescriptors(
+			this->_treeLineGenerator, VK_SHADER_STAGE_COMPUTE_BIT, {
+			BufferDescriptor(0, 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, this->_voxelNodes.bufferHandle, this->_voxelNodes.allocation->GetSize()),
+			BufferDescriptor(0, 1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, this->_treeIndirectDrawBuffer.bufferHandle, sizeof(VkDrawIndexedIndirectCommand)),
+		});
+
+		createPipelineDescriptors(
+			this->_treeIndirectCmdGenerator, VK_SHADER_STAGE_COMPUTE_BIT, {
+			BufferDescriptor(0, 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, this->_treeIndirectDispatchBuffer.bufferHandle, sizeof(VkDispatchIndirectCommand)),
+			BufferDescriptor(0, 1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, this->_treeFlaggerIndirectDispatchBuffer.bufferHandle, sizeof(VkDispatchIndirectCommand)),
+			BufferDescriptor(0, 2, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, this->_treeIndirectDrawBuffer.bufferHandle, sizeof(VkDrawIndexedIndirectCommand)),
+			BufferDescriptor(0, 3, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, this->_treeInfoBuffer.bufferHandle, sizeof(TreeInfo)),
+			BufferDescriptor(0, 4, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, this->_voxelFragmentCounter.bufferHandle, sizeof(VoxelFragmentCounter))
+		});
+        
+        // TREE SUBDIVISION
+        this->_treeSubdivider.descriptorLayout = DescriptorLayoutBuilder::newLayout()
+            .add_binding(0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER)
+            .add_binding(1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER)
+            .build(this->_device, VK_SHADER_STAGE_COMPUTE_BIT);
+        this->_treeSubdivider.descriptorSets.push_back(this->_descriptorPool.allocateSet(this->_device, this->_treeSubdivider.descriptorLayout));
+        this->_descriptorWriter
+            .clear()
+            .write_buffer(0, this->_treeInfoBuffer.bufferHandle, sizeof(TreeInfo), 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER)
+            .write_buffer(1, this->_voxelNodes.bufferHandle, this->_voxelNodes.allocation->GetSize(), 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER)
+            .update_set(this->_device, this->_treeSubdivider.descriptorSets[0]);
+
+        // TREE DESCENT AND FLAGGING FROM FRAGMENT LIST
+        this->_treeFlagger.descriptorLayout = DescriptorLayoutBuilder::newLayout()
+            .add_binding(0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER)
+            .add_binding(1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER)
+            .add_binding(2, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER)
+            .build(this->_device, VK_SHADER_STAGE_COMPUTE_BIT);
+        this->_treeFlagger.descriptorSets.push_back(this->_descriptorPool.allocateSet(this->_device, this->_treeFlagger.descriptorLayout));
+        this->_descriptorWriter
+            .clear()
+            .write_buffer(0, this->_voxelFragmentList.bufferHandle, this->_voxelFragmentList.allocation->GetSize(), 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER)
+            .write_buffer(1, this->_voxelFragmentCounter.bufferHandle, sizeof(VoxelFragmentCounter), 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER)
+            .write_buffer(2, this->_voxelNodes.bufferHandle, this->_voxelNodes.allocation->GetSize(), 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER)
+            .update_set(this->_device, this->_treeFlagger.descriptorSets[0]);
+
+        this->_deletionQueue.push([&]() {
+            this->_descriptorPool.destroy(this->_device);
+            vkDestroyDescriptorSetLayout(this->_device, this->_drawImagePipeline.descriptorLayout, nullptr);
+            vkDestroyDescriptorSetLayout(this->_device, this->_voxelizerPipeline.descriptorLayout, nullptr);
+            vkDestroyDescriptorSetLayout(this->_device, this->_voxelRasterPipeline.descriptorLayout, nullptr);
+            vkDestroyDescriptorSetLayout(this->_device, this->_raytracerPipeline.descriptorLayout, nullptr);
+            vkDestroyDescriptorSetLayout(this->_device, this->_treeLineGenerator.descriptorLayout, nullptr);
+            vkDestroyDescriptorSetLayout(this->_device, this->_treeIndirectCmdGenerator.descriptorLayout, nullptr);
+            vkDestroyDescriptorSetLayout(this->_device, this->_treeSubdivider.descriptorLayout, nullptr);
+            vkDestroyDescriptorSetLayout(this->_device, this->_treeFlagger.descriptorLayout, nullptr);
+        });
+        return true;
+    }
+	
+    template <typename PushConstants>
+    bool createComputePipeline(const std::string& shaderFilename, ComputePipeline& newPipeline, bool autoCleanup = true)
+    {
+        const VkPushConstantRange pushConstants = {
+            .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT,
+            .offset = 0,
+            .size = sizeof(PushConstants),
+        };
+
+        VkPipelineLayoutCreateInfo pipelineLayout = {
+            .sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
+            .setLayoutCount = 1,
+            .pSetLayouts = &newPipeline.descriptorLayout,
+
+            .pushConstantRangeCount = std::is_same_v<PushConstants, std::nullopt_t> ?  0 : 1,
+            .pPushConstantRanges = &pushConstants
+        };
+
+        VK_CHECK(vkCreatePipelineLayout(this->_device, &pipelineLayout, nullptr, &newPipeline.layout));
+
+        VkShaderModule computeDrawShader;
+        if(!vkutil::load_shader_module(shaderFilename, this->_device, &computeDrawShader)) {
+            std::cerr << "[ERROR] Failed to load compute shader " << shaderFilename << std::endl;
+            return false;
+        }
+
+        VkPipelineShaderStageCreateInfo stageInfo = {
+            .sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
+            .stage = VK_SHADER_STAGE_COMPUTE_BIT,
+            .module = computeDrawShader,
+            .pName = "main"
+        };
+
+        VkComputePipelineCreateInfo computePipelineCreateInfo = {
+            .sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO,
+            .stage = stageInfo,
+            .layout = newPipeline.layout
+        };
+
+        VK_CHECK(vkCreateComputePipelines(this->_device, VK_NULL_HANDLE, 1, &computePipelineCreateInfo, nullptr, &newPipeline.pipeline));
+
+        if(autoCleanup) {
+            vkDestroyShaderModule(this->_device, computeDrawShader, nullptr);
+            this->_deletionQueue.push([this, newPipeline]() {
+                vkDestroyPipelineLayout(this->_device, newPipeline.layout, nullptr);
+                vkDestroyPipeline(this->_device, newPipeline.pipeline, nullptr);
+            });
+        }
+        return true;
+    }
+
+    bool initComputePipelines()
+    {
+        //TODO: these need pipeline.descriptorLayout set previously to work
+        return createComputePipeline<VoxelizerPushConstants>(SHADER_DIRECTORY"/voxelizer.comp.spv", this->_voxelizerPipeline) &&
+               createComputePipeline<RayTracerPushConstants>(SHADER_DIRECTORY"/voxelTracer.comp.spv", this->_raytracerPipeline) &&
+               createComputePipeline<TreeRendererPushConstants>(SHADER_DIRECTORY"/treeRenderer.comp.spv", this->_treeLineGenerator) &&
+               createComputePipeline<std::nullopt_t>(SHADER_DIRECTORY"/treePopulateIndirectCmds.comp.spv", this->_treeIndirectCmdGenerator) &&
+               createComputePipeline<std::nullopt_t>(SHADER_DIRECTORY"/treeSubdivider.comp.spv", this->_treeSubdivider) &&
+               createComputePipeline<std::nullopt_t>(SHADER_DIRECTORY"/treeFlagger.comp.spv", this->_treeFlagger) &&
+               true;
+    }
+	template <typename GraphicsPushConstantsType>
+	bool initGraphicsPipeline(GraphicsPipeline &pipeline, const std::string &vertexShaderFile, const std::string &fragmentShaderFile, const std::string &geometryShaderFile = "", GraphicsPipelineOptions options = {})
+	{
+        const VkPushConstantRange pushConstantsRange = {
+            .stageFlags = options.pushConstantsStages,
+            .offset = 0,
+            .size = sizeof(GraphicsPushConstantsType),
+        };
+
+        // No descriptors
+        VkPipelineLayoutCreateInfo pipelineLayoutInfo = {
+            .sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
+            .setLayoutCount = pipeline.descriptorLayout != VK_NULL_HANDLE,
+            .pSetLayouts = &pipeline.descriptorLayout,
+            .pushConstantRangeCount = 1,
+            .pPushConstantRanges = &pushConstantsRange
+        };
+        VK_CHECK(vkCreatePipelineLayout(this->_device, &pipelineLayoutInfo, nullptr, &pipeline.layout));
+
+        VkShaderModule vertShader;
+        if(!vkutil::load_shader_module(vertexShaderFile, this->_device, &vertShader)) {
+            std::cout << "[ERROR] Failed to load vertex shader" << std::endl;
+            return false;
+        }
+
+        VkShaderModule fragShader;
+        if(!vkutil::load_shader_module(fragmentShaderFile, this->_device, &fragShader)) {
+            std::cout << "[ERROR] Failed to load fragment shader" << std::endl;
+            return false;
+        }
+
+        VkShaderModule geomShader;
+		if(!geometryShaderFile.empty()) {
+			if(!vkutil::load_shader_module(geometryShaderFile, this->_device, &geomShader)) {
+				std::cout << "[ERROR] Failed to load geometry shader" << std::endl;
+				return false;
+			}
+		}
+
+        PipelineBuilder builder;
+        builder._pipelineLayout = pipeline.layout;
+
+		if(geometryShaderFile.empty()) {
+			builder.set_shaders(vertShader, fragShader);
+		} else {
+			builder.set_shaders(vertShader, fragShader, geomShader);
+		}
+        builder
+            .set_input_topology(options.inputTopology)
+            .set_polygon_mode(options.polygonMode)
+            .set_cull_mode(options.cullMode, options.frontFace)
+            .set_multisampling_none()
+            .enable_depthtest(options.depthTestEnabled , options.depthTestOp)
+            .set_color_attachment_format(options.colorAttachmentFormat)
+            .set_depth_format(options.depthFormat);
+		switch(options.blendMode) {
+			case BlendMode::Additive:
+				builder.enable_blending_additive();
+				break;
+			case BlendMode::AlphaBlend:
+				builder.enable_blending_alphablend();
+				break;
+			default:
+				builder.disable_blending();
+				break;
+		}
+
+        pipeline.pipeline = builder.build_pipeline(this->_device);
+
+        vkDestroyShaderModule(this->_device, fragShader, nullptr);
+        vkDestroyShaderModule(this->_device, vertShader, nullptr);
+		if(!geometryShaderFile.empty()) {
+			vkDestroyShaderModule(this->_device, geomShader, nullptr);
+		}
+
+        this->_deletionQueue.push([this, &pipeline]() {
+            vkDestroyPipelineLayout(this->_device, pipeline.layout, nullptr);
+            vkDestroyPipeline(this->_device, pipeline.pipeline, nullptr);
+        });
+
+        return true;
+	}
+
+    bool initPipelines()
+    {
+        if(!initComputePipelines()) {
+            std::cout << "[ERROR] Failed to init compute pipelines" << std::endl;
+            return false;
+        }
+
+        if(!initGraphicsPipeline<GraphicsPushConstants>(this->_meshPipeline, SHADER_DIRECTORY"/mesh.vert.spv", SHADER_DIRECTORY"/mesh.frag.spv", "", {.blendMode = BlendMode::Additive})) {
+            std::cout << "[ERROR] Failed to init mesh graphics pipeline" << std::endl;
+            return false;
+        }
+
+        if(!initGraphicsPipeline<GraphicsPushConstants>(this->_linePipeline, SHADER_DIRECTORY"/line.vert.spv", SHADER_DIRECTORY"/line.frag.spv", "", {.inputTopology = VK_PRIMITIVE_TOPOLOGY_LINE_LIST})) {
+            std::cout << "[ERROR] Failed to init line graphics pipeline" << std::endl;
+            return false;
+        }
+
+        // if(!initVoxelRasterPipeline()) {
+        if(!initGraphicsPipeline<GraphicsPushConstants>(this->_voxelRasterPipeline, SHADER_DIRECTORY"/voxelRaster.vert.spv", SHADER_DIRECTORY"/voxelRaster.frag.spv", SHADER_DIRECTORY"/voxelRaster.geom.spv")) {
+            std::cout << "[ERROR] Failed to init voxel raster graphics pipeline" << std::endl;
+            return false;
+        }
+
+        return true;
+    }
+
+    bool initCamera()
+    {
+        this->_camera.SetPerspective(glm::perspective(glm::radians(70.f), (float)this->_windowExtent.width / (float)_windowExtent.height, 0.01f, 1000.0f));
+        if(this->_resizeRequested) return true;
+        this->_origin.SetPosition(glm::vec3(0.0, OldConstants::CameraPosition.y, 0.0));
+        this->_origin.Update();
+
+        this->_camera.SetView(OldConstants::CameraPosition, glm::vec3(0.0, 0.0, 0.0), glm::vec3(0.0, 1.0, 0.0));
+        this->_camera.Attach(&this->_origin);
+        this->_camera.SetupViewMatrix();
+
+        return true;
+    }
+
+    void destroySwapchain()
+    {
+        vkDestroySwapchainKHR(this->_device, this->_swapchain, nullptr);
+        for(const VkImageView& view : this->_swapchainImageViews)
+        {
+            vkDestroyImageView(this->_device, view, nullptr);
+        }
+    }
+
+    void destroyVulkan()
+    {
+        vkDestroySurfaceKHR(this->_instance, this->_surface, nullptr);
+        vkDestroyDevice(this->_device, nullptr);
+        vkb::destroy_debug_utils_messenger(this->_instance, this->_debugMessenger);
+        vkDestroyInstance(this->_instance, nullptr);
+    }
+
+    FrameData& getCurrentFrame()
+    { 
+        return this->_frames[this->_frameNumber % OldConstants::FrameOverlap];
+    }
+
+
+private:
+    /* ENGINE */
+    SDL_Window* _window {};
+    VkExtent3D _windowExtent {}; 
+    VkExtent2D _drawExtent;
+    bool _isInitialized {};
+    bool _resizeRequested {false};
+    DeletionQueue _deletionQueue;
+    std::string _name {};
+    std::atomic<bool> _shouldClose {false};
+    double _elapsed {};
+    double _lastFpsMeasurementTime {};
+    Mouse _mouse;
+    MouseMap _mouseButtons;
+    bool _shouldRenderGeometry = false;
+    bool _shouldRenderVoxels = true;
+    bool _shouldSubdivide = false;
+
+    /* VULKAN */
+    VkInstance _instance {};
+    VkDebugUtilsMessengerEXT _debugMessenger {};
+    VkPhysicalDevice _gpu {};
+    VkDevice _device {};
+    VkSurfaceKHR _surface {};
+    VkQueue _graphicsQueue {};
+    uint32_t _graphicsQueueFamily {};
+
+    VmaAllocator _allocator {};
+
+    // swapchain
+    VkSwapchainKHR _swapchain;
+    VkFormat _swapchainImageFormat;
+    std::vector<VkImage> _swapchainImages;
+    std::vector<VkImageView> _swapchainImageViews;
+    VkExtent2D _swapchainExtent;
+
+    //immediate submit structures
+    VkFence _immFence;
+    VkCommandBuffer _immCommandBuffer;
+    VkCommandPool _immCommandPool;
+
+    DescriptorWriter _descriptorWriter {};
+    DescriptorPool _descriptorPool;
+    
+    // frame storage
+    FrameData _frames[OldConstants::FrameOverlap] {};
+    uint32_t _frameNumber = 0;
+
+    /* RENDER DATA */
+    Camera _camera;
+    Transform _origin;
+
+    // Compute Shaders
+    ComputePipeline _drawImagePipeline;
+    ComputePipeline _voxelizerPipeline;
+    ComputePipeline _raytracerPipeline;
+    ComputePipeline _treeFragmentProcessor;
+    ComputePipeline _treeLineGenerator;
+    ComputePipeline _treeIndirectCmdGenerator;
+    ComputePipeline _treeSubdivider;
+    ComputePipeline _treeFlagger;
+
+    // Triangle Rasterization 
+    GraphicsPipeline _meshPipeline;
+    GraphicsPipeline _voxelRasterPipeline;
+    GraphicsPipeline _linePipeline;
+
+    // Shader Resources
+    Image _drawImage;
+    Image _voxelImage;
+    Buffer _stagingBuffer;
+    Buffer _voxelVolume;
+    Buffer _voxelInfoBuffer;
+    Buffer _voxelFragmentCounter;
+    Buffer _voxelFragmentList;
+    Buffer _voxelNodes;
+    Buffer _voxelNodesToSubdivide;
+    Buffer _treeIndirectDrawBuffer;
+    Buffer _treeIndirectDispatchBuffer;
+    Buffer _treeFlaggerIndirectDispatchBuffer;
+    Buffer _treeInfoBuffer;
+    VkSampler _simpleSampler {};
+
+    uint32_t _fragmentListCount = 0;
+    // Meshes
+    std::vector<GPUMesh> _testMeshes;
+
+    GPUMesh _treeMesh;
+    Buffer _treeVertices;
+    Buffer _treeIndices;
+};
+
+int oldMain(int argc, char* argv[])
+{
+	// createPipeline({
+	// 	{BufferDescriptor{0, 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_NULL_HANDLE, 64}},
+	// 	{ImageDescriptor{0, 1, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, VK_NULL_HANDLE, VK_NULL_HANDLE, VK_IMAGE_LAYOUT_GENERAL}}
+	// });
+    Renderer r2("New Renderer", 900, 900);
+    r2.Init();
+    std::this_thread::sleep_for(std::chrono::seconds(5));
+    exit(0);
+
+    RendererOld renderer("VoxelFlow", 900, 900);
+    if(!renderer.Init()) {
+        std::cout << "[ERROR] Failed to initialize renderer" << std::endl;
+        return EXIT_FAILURE;
+    }
+
+    const double startTime = GetTimestamp();
+    double lastFrameTime = startTime;
+    while(!renderer.ShouldClose()) {
+        const double currentFrameTime = GetTimestamp();
+        const double dt = currentFrameTime - lastFrameTime;
+        lastFrameTime = currentFrameTime;
+        
+        renderer.Render(dt);
+    }
+
+    std::cout << "Closed" << std::endl;
+    return EXIT_SUCCESS;
+}
+
+int main(int argc, char *argv[])
+{
+    Renderer renderer("Aether", 900, 900);
+    if(!renderer.Init()) {
+        std::cout << "[ERROR] Failed to initialize renderer" << std::endl;
+        return EXIT_FAILURE;
+    }
+
+	FluidEngine fluidEngine(renderer);
+
+    const double startTime = GetTimestamp();
+    double lastFrameTime = startTime;
+    while(!renderer.ShouldClose()) {
+        const double currentFrameTime = GetTimestamp();
+        const double dt = currentFrameTime - lastFrameTime;
+        lastFrameTime = currentFrameTime;
+        
+        renderer.Render(dt);
+    }
+
+    std::cout << "Closed" << std::endl;
+    return EXIT_SUCCESS;
+}

@@ -2,7 +2,8 @@
 #define BUFFER_HPP_
 
 #include <vulkan/vulkan.h>
-#include <vk_mem_alloc.h>
+// #include "vk_mem_alloc.h"
+#include "vma.hpp"
 #include <vulkan/vulkan_core.h>
 
 class Buffer

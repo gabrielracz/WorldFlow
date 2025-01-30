@@ -1,9 +1,9 @@
 // #define VMA_IMPLEMENTATION
 #include "renderer.hpp"
 #include "vk_initializers.h"
-#include "vk_loader.h"
 #include "vk_pipelines.h"
 #include "vk_images.h"
+#include "defines.hpp"
 
 static inline void
 printDeviceProperties(vkb::PhysicalDevice& dev)
@@ -99,7 +99,6 @@ Renderer::render(float dt)
 
     VkCommandBuffer cmd = getCurrentFrame().commandBuffer;
     VK_ASSERT(vkResetCommandBuffer(cmd, 0)); // we can safely reset as we waited on the fence
-
 
     // begin recording commands
     VkCommandBufferBeginInfo cmdBeginInfo {
@@ -453,6 +452,66 @@ void Renderer::createPipelineDescriptors(PipelineType& pipeline, VkShaderStageFl
     this->_descriptorWriter.update_set(this->_device, pipeline.descriptorSets[currentSet]);
 }
 
+void
+Renderer::UploadMesh(GPUMesh& mesh, std::span<Vertex> vertices, std::span<uint32_t> indices)
+{
+	// Initialize GPU buffers to store mesh data (vertex attributes + triangle indices)
+	const size_t vertexBufferSize = vertices.size() * sizeof(Vertex);
+	const size_t indexBufferSize = indices.size() * sizeof(uint32_t);
+	mesh.vertexBuffer.Allocate(this->_allocator,
+		vertexBufferSize, 
+		VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
+		VMA_MEMORY_USAGE_GPU_ONLY
+	);
+	VkBufferDeviceAddressInfo deviceAddressInfo = {
+		.sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO,
+		.buffer = mesh.vertexBuffer.bufferHandle
+	};
+	mesh.vertexBufferAddress = vkGetBufferDeviceAddress(this->_device, &deviceAddressInfo);
+
+	CreateBuffer(
+		mesh.indexBuffer,
+		indexBufferSize, 
+		VK_BUFFER_USAGE_INDEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+		VMA_MEMORY_USAGE_GPU_ONLY,
+		false
+	);
+	
+	// Copy mesh data to cpu staging buffer (host visible and memory coherent)
+	Buffer meshStagingBuffer;
+	CreateBuffer(
+		meshStagingBuffer,
+		vertexBufferSize + indexBufferSize,
+		VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+		VMA_MEMORY_USAGE_CPU_ONLY,
+		false
+	);
+	void* stagingData = meshStagingBuffer.allocation->GetMappedData();
+	
+	std::memcpy(stagingData, vertices.data(), vertexBufferSize);
+	std::memcpy((char *)stagingData + vertexBufferSize, indices.data(), indexBufferSize);
+
+	// Copy mesh data from CPU to GPU
+	ImmediateSubmit([&](VkCommandBuffer cmd) {
+			VkBufferCopy vertexCopy = {
+				.srcOffset = 0,
+				.dstOffset = 0,
+				.size = vertexBufferSize
+			};
+			vkCmdCopyBuffer(cmd, meshStagingBuffer.bufferHandle, mesh.vertexBuffer.bufferHandle, 1, &vertexCopy);
+
+			VkBufferCopy indexCopy = {
+				.srcOffset = vertexBufferSize,
+				.dstOffset = 0,
+				.size = indexBufferSize
+			};
+			vkCmdCopyBuffer(cmd, meshStagingBuffer.bufferHandle, mesh.indexBuffer.bufferHandle, 1, &indexCopy);
+	});
+	meshStagingBuffer.Destroy(this->_allocator);
+	mesh.numIndices = indices.size();
+	mesh.numVertices = vertices.size();
+}
+
 bool
 Renderer::initWindow()
 {
@@ -577,7 +636,7 @@ Renderer::createSwapchain(uint32_t width, uint32_t height)
         this->_swapchainImages.push_back(Image{
             .image = vkbSwapchain.get_images().value()[i],
             .imageView = vkbSwapchain.get_image_views().value()[i],
-            .imageExtent = VkExtent3D(this->_swapchainExtent.width, this->_swapchainExtent.height, 1),
+            .imageExtent = VkExtent3D{this->_swapchainExtent.width, this->_swapchainExtent.height, 1},
             .imageFormat = this->_swapchainImageFormat
 
         });
@@ -762,6 +821,12 @@ void Renderer::pollEvents()
             // }
         }
     }
+}
+
+VkDevice
+Renderer::GetDevice()
+{
+	return this->_device;
 }
 
 VkExtent3D

@@ -3,10 +3,12 @@
 
 #include <vulkan/vulkan.h>
 #include <VkBootstrap.h>
-#include <vk_mem_alloc.h>
 
 #include <SDL2/SDL.h>
 #include <SDL_vulkan.h>
+
+// #include "vk_mem_alloc.h"
+#include "vma.hpp"
 
 #define GLM_FORCE_RADIANS
 #include <glm/glm.hpp>
@@ -15,10 +17,10 @@
 #include "camera.hpp"
 #include "buffer.hpp"
 #include "image.hpp"
-#include "defines.hpp"
 #include "vk_descriptors.h"
 
 #include <variant>
+#include <atomic>
 
 namespace Constants
 {
@@ -55,7 +57,9 @@ public:
                                VkShaderStageFlags descriptorShaderStages, uint32_t pushConstantsSize, bool autoCleanup = true);
     bool CreateGraphicsPipeline(GraphicsPipeline &pipeline, const std::string &vertexShaderFile, const std::string &fragmentShaderFile, const std::string &geometryShaderFile, 
                                 std::vector<std::variant<BufferDescriptor, ImageDescriptor>> descriptors, VkShaderStageFlags descriptorShaderStages, uint32_t pushConstantsSize, GraphicsPipelineOptions options = {}, bool autoCleanup = true);
+	void UploadMesh(GPUMesh& mesh, std::span<Vertex> vertices, std::span<uint32_t> indices);
 
+	VkDevice GetDevice();
     VkExtent3D GetWorkgroupCounts(uint32_t localGroupSize = 16);
 private:
     bool render(float dt);
