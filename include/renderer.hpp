@@ -51,14 +51,15 @@ public:
     void Update(float dt);
     bool ImmediateSubmit(std::function<void(VkCommandBuffer)>&& immediateFunction);
 
-    void CreateImage(Image &newImg, VkExtent3D extent, VkImageUsageFlags usageFlags, VkImageAspectFlags aspectFlags, VkFormat format, bool autoCleanup = true);
+    void CreateImage(Image &newImg, VkExtent3D extent, VkImageUsageFlags usageFlags, VkImageAspectFlags aspectFlags, VkFormat format, VkImageLayout layout, bool autoCleanup = true);
     void CreateBuffer(Buffer &newBuffer, uint64_t allocSize, VkBufferUsageFlags usage, VmaMemoryUsage memoryUsage, bool autoCleanup = true);
     bool CreateComputePipeline(ComputePipeline& newPipeline, const std::string& shaderFilename, std::vector<std::variant<BufferDescriptor, ImageDescriptor>> descriptors,
-                               VkShaderStageFlags descriptorShaderStages, uint32_t pushConstantsSize, bool autoCleanup = true);
-    bool CreateGraphicsPipeline(GraphicsPipeline &pipeline, const std::string &vertexShaderFile, const std::string &fragmentShaderFile, const std::string &geometryShaderFile, 
-                                std::vector<std::variant<BufferDescriptor, ImageDescriptor>> descriptors, VkShaderStageFlags descriptorShaderStages, uint32_t pushConstantsSize, GraphicsPipelineOptions options = {}, bool autoCleanup = true);
+                               uint32_t pushConstantsSize = 0, bool autoCleanup = true);
+    bool CreateGraphicsPipeline(GraphicsPipeline &pipeline, const std::string &vertexShaderFile, const std::string &fragmentShaderFile, const std::string &geometryShaderFile = "", 
+                                std::vector<std::variant<BufferDescriptor, ImageDescriptor>> descriptors = {}, VkShaderStageFlags descriptorShaderStages = VK_SHADER_STAGE_ALL_GRAPHICS, uint32_t pushConstantsSize = 0, GraphicsPipelineOptions options = {}, bool autoCleanup = true);
 	void UploadMesh(GPUMesh& mesh, std::span<Vertex> vertices, std::span<uint32_t> indices);
 
+    Image GetDrawImage();
 	VkDevice GetDevice();
     VkExtent3D GetWorkgroupCounts(uint32_t localGroupSize = 16);
 private:

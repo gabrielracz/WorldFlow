@@ -17,7 +17,7 @@ public:
     VkExtent3D imageExtent {};
     VkFormat imageFormat {};
     VmaAllocationInfo info {};
-	VkImageLayout currentLayout {};
+	VkImageLayout layout {};
 };
 
 #endif

@@ -4,7 +4,7 @@
 void
 Image::Transition(VkCommandBuffer cmd, VkImageLayout newLayout)
 {
-	if(newLayout == currentLayout) {
+	if(newLayout == layout) {
 		return;
 	}
 
@@ -16,7 +16,7 @@ Image::Transition(VkCommandBuffer cmd, VkImageLayout newLayout)
     imageBarrier.dstStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
     imageBarrier.dstAccessMask = VK_ACCESS_2_MEMORY_WRITE_BIT | VK_ACCESS_2_MEMORY_READ_BIT;
 
-    imageBarrier.oldLayout = this->currentLayout;
+    imageBarrier.oldLayout = this->layout;
     imageBarrier.newLayout = newLayout;
 
     VkImageAspectFlags aspectMask = (newLayout == VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL) ? VK_IMAGE_ASPECT_DEPTH_BIT : VK_IMAGE_ASPECT_COLOR_BIT;
@@ -30,7 +30,7 @@ Image::Transition(VkCommandBuffer cmd, VkImageLayout newLayout)
     depInfo.imageMemoryBarrierCount = 1;
     depInfo.pImageMemoryBarriers = &imageBarrier;
     vkCmdPipelineBarrier2(cmd, &depInfo);
-	this->currentLayout = newLayout;
+	this->layout = newLayout;
 }
 
 void 
@@ -38,5 +38,5 @@ Image::Clear(VkCommandBuffer cmd, VkClearColorValue color)
 {
 	VkImageSubresourceRange clearRange = vkinit::image_subresource_range(VK_IMAGE_ASPECT_COLOR_BIT);
 	Transition(cmd, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
-	vkCmdClearColorImage(cmd, this->image, this->currentLayout, &color, 1, &clearRange);
+	vkCmdClearColorImage(cmd, this->image, this->layout, &color, 1, &clearRange);
 }

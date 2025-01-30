@@ -1,2 +1,2 @@
-#define ASSETS_DIRECTORY "/home/gabi/Projects/Athena/Thesis/WorldFlow/assets"
-#define SHADER_DIRECTORY "/home/gabi/Projects/Athena/Thesis/WorldFlow/shaders/bin"
+#define ASSETS_DIRECTORY "C:/Users/Gabi/Projects/WorldFlow/assets"
+#define SHADER_DIRECTORY "C:/Users/Gabi/Projects/WorldFlow/shaders/bin"

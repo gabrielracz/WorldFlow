@@ -20,9 +20,9 @@ Renderer::Renderer(const std::string& name, uint32_t width, uint32_t height)
 
 Renderer::~Renderer()
 {
-    if(!this->_isInitialized) {
-        return;
-    }
+    // if(!this->_isInitialized) {
+    //     return;
+    // }
 
     vkDeviceWaitIdle(this->_device);
     for(FrameData &frame : this->_frames) {
@@ -52,6 +52,8 @@ Renderer::Init()
                             initSwapchain() &&
                             initCommands() &&
                             initSyncStructures() &&
+                            initDescriptorPool() &&
+                            initResources() &&
                             initCamera();
     return this->_isInitialized;
 }
@@ -226,7 +228,7 @@ Renderer::CreateBuffer(Buffer &newBuffer, uint64_t allocSize, VkBufferUsageFlags
 
 
 void
-Renderer::CreateImage(Image &newImg, VkExtent3D extent, VkImageUsageFlags usageFlags, VkImageAspectFlags aspectFlags, VkFormat format, bool autoCleanup)
+Renderer::CreateImage(Image &newImg, VkExtent3D extent, VkImageUsageFlags usageFlags, VkImageAspectFlags aspectFlags, VkFormat format, VkImageLayout layout, bool autoCleanup)
 {
     newImg.imageExtent = extent;
     newImg.imageFormat = format;
@@ -261,6 +263,12 @@ Renderer::CreateImage(Image &newImg, VkExtent3D extent, VkImageUsageFlags usageF
         }
     };
     VK_CHECK(vkCreateImageView(this->_device, &imgViewCreateInfo, nullptr, &newImg.imageView));
+   
+    ImmediateSubmit([&newImg, layout](VkCommandBuffer cmd) {
+        newImg.Transition(cmd, layout);
+    });
+
+    std::cout << "LAY" << newImg.layout << std::endl;
 
     if(autoCleanup) {
         this->_deletionQueue.push([this, newImg]() {
@@ -271,9 +279,9 @@ Renderer::CreateImage(Image &newImg, VkExtent3D extent, VkImageUsageFlags usageF
 }
 
 bool
-Renderer::CreateComputePipeline(ComputePipeline& newPipeline, const std::string& shaderFilename, std::vector<std::variant<BufferDescriptor, ImageDescriptor>> descriptors, VkShaderStageFlags descriptorShaderStages, uint32_t pushConstantsSize, bool autoCleanup)
+Renderer::CreateComputePipeline(ComputePipeline& newPipeline, const std::string& shaderFilename, std::vector<std::variant<BufferDescriptor, ImageDescriptor>> descriptors, uint32_t pushConstantsSize, bool autoCleanup)
 {
-    createPipelineDescriptors(newPipeline, descriptorShaderStages, descriptors);
+    createPipelineDescriptors(newPipeline, VK_SHADER_STAGE_COMPUTE_BIT, descriptors);
 
     const VkPushConstantRange pushConstants = {
         .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT,
@@ -316,6 +324,7 @@ Renderer::CreateComputePipeline(ComputePipeline& newPipeline, const std::string&
     if(autoCleanup) {
         vkDestroyShaderModule(this->_device, computeDrawShader, nullptr);
         this->_deletionQueue.push([this, newPipeline]() {
+            vkDestroyDescriptorSetLayout(this->_device, newPipeline.descriptorLayout, nullptr);
             vkDestroyPipelineLayout(this->_device, newPipeline.layout, nullptr);
             vkDestroyPipeline(this->_device, newPipeline.pipeline, nullptr);
         });
@@ -346,7 +355,7 @@ Renderer::CreateGraphicsPipeline(GraphicsPipeline &newPipeline, const std::strin
 
     VkShaderModule vertShader;
     if(!vkutil::load_shader_module(vertexShaderFile, this->_device, &vertShader)) {
-        std::cout << "[ERROR] Failed to load vertex shader" << std::endl;
+        std::cout << "[ERROR] Failed to load vertex shader " << vertexShaderFile << std::endl;
         return false;
     }
 
@@ -400,7 +409,8 @@ Renderer::CreateGraphicsPipeline(GraphicsPipeline &newPipeline, const std::strin
         vkDestroyShaderModule(this->_device, geomShader, nullptr);
     }
 
-    this->_deletionQueue.push([this, &newPipeline]() {
+    this->_deletionQueue.push([this, newPipeline]() {
+        vkDestroyDescriptorSetLayout(this->_device, newPipeline.descriptorLayout, nullptr);
         vkDestroyPipelineLayout(this->_device, newPipeline.layout, nullptr);
         vkDestroyPipeline(this->_device, newPipeline.pipeline, nullptr);
     });
@@ -411,6 +421,9 @@ Renderer::CreateGraphicsPipeline(GraphicsPipeline &newPipeline, const std::strin
 template <typename PipelineType>
 void Renderer::createPipelineDescriptors(PipelineType& pipeline, VkShaderStageFlags shaderStages, std::vector<std::variant<BufferDescriptor, ImageDescriptor>> descriptors)
 {
+    if(descriptors.empty()) {
+        return;
+    }
     // create the layout based on the first descriptor set (we assume all sets have the same layout)
     std::unordered_map<unsigned int, unsigned int> descriptorSetCounts;
     DescriptorLayoutBuilder layoutBuilder = DescriptorLayoutBuilder::newLayout();
@@ -452,6 +465,7 @@ void Renderer::createPipelineDescriptors(PipelineType& pipeline, VkShaderStageFl
     this->_descriptorWriter.update_set(this->_device, pipeline.descriptorSets[currentSet]);
 }
 
+
 void
 Renderer::UploadMesh(GPUMesh& mesh, std::span<Vertex> vertices, std::span<uint32_t> indices)
 {
@@ -486,7 +500,7 @@ Renderer::UploadMesh(GPUMesh& mesh, std::span<Vertex> vertices, std::span<uint32
 		VMA_MEMORY_USAGE_CPU_ONLY,
 		false
 	);
-	void* stagingData = meshStagingBuffer.allocation->GetMappedData();
+	void* stagingData = meshStagingBuffer.info.pMappedData;
 	
 	std::memcpy(stagingData, vertices.data(), vertexBufferSize);
 	std::memcpy((char *)stagingData + vertexBufferSize, indices.data(), indexBufferSize);
@@ -510,6 +524,11 @@ Renderer::UploadMesh(GPUMesh& mesh, std::span<Vertex> vertices, std::span<uint32
 	meshStagingBuffer.Destroy(this->_allocator);
 	mesh.numIndices = indices.size();
 	mesh.numVertices = vertices.size();
+
+    this->_deletionQueue.push([this, mesh]() mutable {
+        mesh.vertexBuffer.Destroy(this->_allocator);
+        mesh.indexBuffer.Destroy(this->_allocator);
+    });
 }
 
 bool
@@ -632,17 +651,18 @@ Renderer::createSwapchain(uint32_t width, uint32_t height)
 
     this->_swapchainExtent     = vkbSwapchain.extent;
 
-    for(int i = 0; i < vkbSwapchain.get_images().value().size(); i++) {
+    const std::vector<VkImage>& vkbImages = vkbSwapchain.get_images().value();
+    const std::vector<VkImageView>& vkbImageViews = vkbSwapchain.get_image_views().value();
+
+    for(int i = 0; i < vkbImages.size(); i++) {
         this->_swapchainImages.push_back(Image{
-            .image = vkbSwapchain.get_images().value()[i],
-            .imageView = vkbSwapchain.get_image_views().value()[i],
+            .image = vkbImages[i],
+            .imageView = vkbImageViews[i],
             .imageExtent = VkExtent3D{this->_swapchainExtent.width, this->_swapchainExtent.height, 1},
             .imageFormat = this->_swapchainImageFormat
 
         });
     }
-    // this->_swapchainImages     = vkbSwapchain.get_images().value();
-    // this->_swapchainImageViews = vkbSwapchain.get_image_views().value();
     this->_swapchain           = vkbSwapchain.swapchain;
     return true;
 }
@@ -720,7 +740,8 @@ Renderer::initResources()
         Constants::DrawImageResolution,
         VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT,
         VK_IMAGE_ASPECT_COLOR_BIT,
-        VK_FORMAT_R32G32B32A32_SFLOAT
+        VK_FORMAT_R32G32B32A32_SFLOAT,
+        VK_IMAGE_LAYOUT_GENERAL
     );
     return true;
 }
@@ -823,21 +844,6 @@ void Renderer::pollEvents()
     }
 }
 
-VkDevice
-Renderer::GetDevice()
-{
-	return this->_device;
-}
-
-VkExtent3D
-Renderer::GetWorkgroupCounts(uint32_t localGroupSize)
-{
-    return VkExtent3D {
-        .width = static_cast<uint32_t>(std::ceil(this->_windowExtent.width/(float)localGroupSize)),
-        .height = static_cast<uint32_t>(std::ceil(this->_windowExtent.height/(float)localGroupSize)),
-        .depth = 1
-    };
-}
 
 void
 Renderer::destroySwapchain()
@@ -863,6 +869,29 @@ Renderer::getCurrentFrame()
 { 
     return this->_frames[this->_frameNumber % Constants::FrameOverlap];
 }
+
+Image
+Renderer::GetDrawImage()
+{
+    return this->_drawImage;
+}
+
+VkDevice
+Renderer::GetDevice()
+{
+	return this->_device;
+}
+
+VkExtent3D
+Renderer::GetWorkgroupCounts(uint32_t localGroupSize)
+{
+    return VkExtent3D {
+        .width = static_cast<uint32_t>(std::ceil(this->_windowExtent.width/(float)localGroupSize)),
+        .height = static_cast<uint32_t>(std::ceil(this->_windowExtent.height/(float)localGroupSize)),
+        .depth = 1
+    };
+}
+
 bool
 Renderer::ShouldClose() const
 {
