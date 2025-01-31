@@ -5,6 +5,20 @@
 #include "vk_images.h"
 #include "defines.hpp"
 
+
+namespace Constants
+{
+    constexpr bool IsValidationLayersEnabled = true;
+    constexpr bool VSYNCEnabled = false;
+
+    constexpr uint32_t FPSMeasurePeriod = 60;
+    constexpr uint64_t TimeoutNs = 100000000;
+    constexpr uint32_t MaxDescriptorSets = 10;
+
+    constexpr glm::vec3 CameraPosition = glm::vec3(0.0, 0.0, -3.0);
+    constexpr VkExtent3D DrawImageResolution {2560, 1440, 1};
+}
+
 static inline void
 printDeviceProperties(vkb::PhysicalDevice& dev)
 {
@@ -13,6 +27,12 @@ printDeviceProperties(vkb::PhysicalDevice& dev)
     "WorkGroups:      " << wgs[0] << " x " << wgs[1] << " x " << wgs[2] << ") \n" << 
     "PushConstants:   " << dev.properties.limits.maxPushConstantsSize << "\n" <<
     "Uniform Buffers: " << dev.properties.limits.maxUniformBufferRange << std::endl;
+}
+
+void
+FillBuffers(const std::vector<Buffer>& buffers, uint32_t data, uint32_t offset)
+{
+    
 }
 
 Renderer::Renderer(const std::string& name, uint32_t width, uint32_t height)
@@ -655,13 +675,13 @@ Renderer::createSwapchain(uint32_t width, uint32_t height)
     const std::vector<VkImage>& vkbImages = vkbSwapchain.get_images().value();
     const std::vector<VkImageView>& vkbImageViews = vkbSwapchain.get_image_views().value();
 
+    this->_swapchainImages.clear();
     for(int i = 0; i < vkbImages.size(); i++) {
         this->_swapchainImages.push_back(Image{
             .image = vkbImages[i],
             .imageView = vkbImageViews[i],
             .imageExtent = VkExtent3D{this->_swapchainExtent.width, this->_swapchainExtent.height, 1},
             .imageFormat = this->_swapchainImageFormat
-
         });
     }
     this->_swapchain           = vkbSwapchain.swapchain;
@@ -752,7 +772,7 @@ Renderer::initDescriptorPool()
 {
     std::vector<DescriptorPool::DescriptorQuantity> sizes = {
         {VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 5},
-        {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 20}
+        {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 10}
     };
     this->_descriptorPool.init(this->_device, 10, sizes);
     this->_deletionQueue.push([&]() {

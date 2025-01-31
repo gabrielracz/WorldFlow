@@ -488,7 +488,7 @@ private:
                 .sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER,
                 .srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT,
                 .dstAccessMask = VK_ACCESS_SHADER_READ_BIT,
-                .buffer = this->_voxelVolume.bufferHandle,
+                .buffer = this->_voxelGrid.bufferHandle,
                 .offset = 0,
                 .size = VK_WHOLE_SIZE,
             },
@@ -1120,9 +1120,9 @@ private:
 
         // BUFFERS
         CreateBuffer(this->_stagingBuffer, OldConstants::StagingBufferSize, VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VMA_MEMORY_USAGE_CPU_ONLY);
-        CreateBuffer(this->_voxelVolume, OldConstants::VoxelGridSize, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
+        CreateBuffer(this->_voxelGrid, OldConstants::VoxelGridSize, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
         immediateSubmit([&](VkCommandBuffer cmd) {
-            vkCmdFillBuffer(cmd, this->_voxelVolume.bufferHandle, 0, VK_WHOLE_SIZE, 0);
+            vkCmdFillBuffer(cmd, this->_voxelGrid.bufferHandle, 0, VK_WHOLE_SIZE, 0);
         });
         CreateBuffer(this->_voxelInfoBuffer, sizeof(VoxelInfo), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
         VoxelInfo voxInfo = {
@@ -1139,7 +1139,7 @@ private:
             };
             vkCmdCopyBuffer(cmd, this->_stagingBuffer.bufferHandle, this->_voxelInfoBuffer.bufferHandle, 1, &copy);
         });
-        std::cout << "VOXBUFFMEM: " << this->_voxelVolume.info.size << std::endl;
+        std::cout << "VOXBUFFMEM: " << this->_voxelGrid.info.size << std::endl;
 
         CreateBuffer(
 			this->_voxelFragmentCounter,
@@ -1333,13 +1333,13 @@ private:
         this->_voxelizerPipeline.descriptorSets.push_back(this->_descriptorPool.allocateSet(this->_device, this->_voxelizerPipeline.descriptorLayout));
         this->_descriptorWriter
             .clear()
-            .write_buffer(0, this->_voxelVolume.bufferHandle, OldConstants::VoxelGridSize, 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER)
+            .write_buffer(0, this->_voxelGrid.bufferHandle, OldConstants::VoxelGridSize, 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER)
             .update_set(this->_device, this->_voxelizerPipeline.descriptorSets[0]);
 
         // VOXEL RASTERIZER
 		createPipelineDescriptors(
 			this->_voxelRasterPipeline, VK_SHADER_STAGE_FRAGMENT_BIT, {
-			BufferDescriptor(0, 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, this->_voxelVolume.bufferHandle, this->_voxelVolume.info.size),
+			BufferDescriptor(0, 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, this->_voxelGrid.bufferHandle, this->_voxelGrid.info.size),
 			BufferDescriptor(0, 1, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, this->_voxelInfoBuffer.bufferHandle, sizeof(VoxelInfo)),
 			BufferDescriptor(0, 2, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, this->_voxelFragmentCounter.bufferHandle, sizeof(VoxelFragmentCounter)),
 			BufferDescriptor(0, 3, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, this->_voxelFragmentList.bufferHandle, this->_voxelFragmentList.allocation->GetSize())
@@ -1348,7 +1348,7 @@ private:
         // VOXEL RENDERER
 		createPipelineDescriptors(
 			this->_raytracerPipeline, VK_SHADER_STAGE_COMPUTE_BIT, {
-			BufferDescriptor(0, 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, this->_voxelVolume.bufferHandle, OldConstants::VoxelGridSize),
+			BufferDescriptor(0, 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, this->_voxelGrid.bufferHandle, OldConstants::VoxelGridSize),
 			ImageDescriptor(0, 1, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, this->_drawImage.imageView, VK_NULL_HANDLE, VK_IMAGE_LAYOUT_GENERAL)
 		});
 
@@ -1687,7 +1687,7 @@ private:
     Image _drawImage;
     Image _voxelImage;
     Buffer _stagingBuffer;
-    Buffer _voxelVolume;
+    Buffer _voxelGrid;
     Buffer _voxelInfoBuffer;
     Buffer _voxelFragmentCounter;
     Buffer _voxelFragmentList;

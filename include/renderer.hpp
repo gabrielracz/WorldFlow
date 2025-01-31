@@ -24,16 +24,7 @@
 
 namespace Constants
 {
-    constexpr bool IsValidationLayersEnabled = true;
-    constexpr bool VSYNCEnabled = true;
-
-    constexpr uint32_t FPSMeasurePeriod = 60;
     constexpr uint32_t FrameOverlap = 2;
-    constexpr uint64_t TimeoutNs = 100000000;
-    constexpr uint32_t MaxDescriptorSets = 10;
-
-    constexpr glm::vec3 CameraPosition = glm::vec3(0.0, 0.0, -3.0);
-    constexpr VkExtent3D DrawImageResolution {2560, 1440, 1};
 }
 
 class Renderer
@@ -71,6 +62,10 @@ public:
     KeyMap& GetKeyMap();
     MouseMap& GetMouseMap();
     Mouse& GetMouse();
+
+public:
+    static void FillBuffers(const std::vector<Buffer>& buffers, uint32_t data = 0, uint32_t offset = 0);
+
 private:
     bool render(float dt);
 

@@ -25,7 +25,6 @@ int main(int argc, char* argv[])
         const double currentFrameTime = GetTimestamp();
         const double dt = currentFrameTime - lastFrameTime;
         lastFrameTime = currentFrameTime;
-        
         renderer.Update(dt);
     }
 

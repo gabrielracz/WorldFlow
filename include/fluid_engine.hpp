@@ -23,6 +23,7 @@ public:
 private:
 	void update(VkCommandBuffer cmd, float dt);
 
+	void zeroVoxelBuffers(VkCommandBuffer cmd);
 	void updateVoxelVolume(VkCommandBuffer cmd);
 	void voxelRasterizeGeometry(VkCommandBuffer cmd);
 	void generateTreeIndirectCommands(VkCommandBuffer cmd);
@@ -42,12 +43,11 @@ private:
 	Renderer& _renderer;
 
 	/* CONFIG */
-	std::atomic<bool> _shouldSubdivide {false};
+	std::atomic<bool> _shouldSubdivide {true};
 	std::atomic<bool> _shouldRenderVoxels {true};
 	std::atomic<bool> _shouldRenderGeometry {false};
 	std::atomic<bool> _shouldRenderLines {true};
 	std::atomic<bool> _shouldAddVoxelNoise {false};
-
 
 	/* PIPELINES */
     ComputePipeline _voxelizerPipeline;
@@ -65,12 +65,11 @@ private:
 	/* RESOURCES */
     Image _voxelImage;
     Buffer _stagingBuffer;
-    Buffer _voxelVolume;
+    Buffer _voxelGrid;
     Buffer _voxelInfoBuffer;
     Buffer _voxelFragmentCounter;
     Buffer _voxelFragmentList;
     Buffer _voxelNodes;
-    Buffer _voxelNodesToSubdivide;
     Buffer _treeIndirectDrawBuffer;
     Buffer _treeIndirectDispatchBuffer;
     Buffer _treeFlaggerIndirectDispatchBuffer;

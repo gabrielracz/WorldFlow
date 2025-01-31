@@ -14,22 +14,24 @@ namespace Constants
 {
 constexpr uint64_t StagingBufferSize = 1024ul * 1024ul * 8ul;
 
-constexpr size_t VoxelGridResolution = 256;
+constexpr size_t VoxelGridResolution = 1000;
 constexpr size_t VoxelGridSize = VoxelGridResolution * VoxelGridResolution * VoxelGridResolution * sizeof(float);
 constexpr float VoxelGridScale = 2.0f;
 
-constexpr uint32_t MeshIdx = 2;
-// constexpr float MeshScale = 0.01;
+constexpr uint32_t MeshIdx = 0;
+constexpr float MeshScale = 0.01;
 // constexpr float MeshScale = 0.0007;
-constexpr float MeshScale = 0.60;
+// constexpr float MeshScale = 0.60;
 constexpr glm::vec3 MeshTranslation = glm::vec3(0.0, 0.0, 0.0);
 const glm::mat4 MeshTransform = glm::translate(MeshTranslation) * glm::scale(glm::vec3(MeshScale));
-const std::string MeshFile = ASSETS_DIRECTORY"/basicmesh.glb";
+const std::string MeshFile = ASSETS_DIRECTORY"/xyz.glb";
 
 constexpr glm::vec3 LightPosition = glm::vec4(10.0, 10.0, 10.0, 1.0);
 
-constexpr uint32_t NumAllocatedVoxelFragments = 1024 * 1024;
-constexpr uint32_t NumAllocatedNodes = 256 * 256 * 256 * 2;
+constexpr uint32_t NumAllocatedVoxelFragments = 1024 * 1000;
+constexpr uint32_t VoxelFragmentListSize = NumAllocatedVoxelFragments * sizeof(VoxelFragment);
+constexpr uint32_t NumAllocatedVoxelNodes = 128 * 128 * 128 * 2;
+constexpr uint32_t VoxelNodesSize = NumAllocatedVoxelNodes * sizeof(VoxelNode);
 constexpr uint32_t MaxTreeDepth = 2;
 constexpr uint32_t NodeDivisions = 2;
 constexpr uint32_t NodeChildren = NodeDivisions * NodeDivisions * NodeDivisions;
@@ -57,22 +59,28 @@ void FluidEngine::update(VkCommandBuffer cmd, float dt)
 {
 	checkInput(this->_renderer.GetKeyMap(), this->_renderer.GetMouseMap(), this->_renderer.GetMouse());
 
+	// zeroVoxelBuffers(cmd);
+
 	if(this->_shouldAddVoxelNoise) {
 		updateVoxelVolume(cmd); // fill voxels with sample noise
 	}
 
 	voxelRasterizeGeometry(cmd);
 
-	if(this->_shouldRenderLines) {
-		generateTreeIndirectCommands(cmd);
-		generateTreeGeometry(cmd);
-		drawLines(cmd);
-	}
 
 	if(this->_shouldSubdivide) {
-		flagNodesForSubdivision(cmd);
-		subdivideTree(cmd);
+		// for(int i = 0; i < 5; i++) {
+			generateTreeIndirectCommands(cmd);
+			flagNodesForSubdivision(cmd);
+			subdivideTree(cmd);
+		// }
 		this->_shouldSubdivide = false;
+	}
+
+	if(this->_shouldRenderLines) {
+		// generateTreeIndirectCommands(cmd);
+		generateTreeGeometry(cmd);
+		drawLines(cmd);
 	}
 
 	if(this->_shouldRenderGeometry) {
@@ -82,6 +90,43 @@ void FluidEngine::update(VkCommandBuffer cmd, float dt)
 	if(this->_shouldRenderVoxels) {
 		rayCastVoxelVolume(cmd);
 	}
+}
+
+void FluidEngine::zeroVoxelBuffers(VkCommandBuffer cmd)
+{
+	vkCmdFillBuffer(cmd, this->_voxelNodes.bufferHandle, 8 * sizeof(VoxelNode), VK_WHOLE_SIZE, 0);
+	const uint32_t width = Constants::NodeDivisions;
+	const float s = 1.0 / (Constants::NodeDivisions);
+	const float m = -0.5 + s/2.0;
+	for(int z = 0; z < Constants::NodeDivisions; z++) {
+		for(int y = 0; y < Constants::NodeDivisions; y++) {
+			for(int x = 0; x < Constants::NodeDivisions; x++) {
+				uint32_t index = x + width*y + width*width*z;
+				VoxelNode* data = (VoxelNode*)this->_stagingBuffer.info.pMappedData;
+				data[index] = VoxelNode{
+					.pos = glm::vec4(
+						m + s*(x),
+						m + s*(y),
+						m + s*(z),
+						1.0
+					),
+					.childPtr = 0,
+				};
+			}
+		}
+	}
+	VkBufferCopy copy = {.srcOffset = 0, .dstOffset = 0, .size = sizeof(VoxelNode) * Constants::NodeChildren};
+	vkCmdCopyBuffer(cmd, this->_stagingBuffer.bufferHandle, this->_voxelNodes.bufferHandle, 1, &copy);
+
+	vkCmdFillBuffer(cmd, this->_voxelGrid.bufferHandle, 0, VK_WHOLE_SIZE, 0);
+	vkCmdFillBuffer(cmd, this->_treeInfoBuffer.bufferHandle, 0, VK_WHOLE_SIZE, 8);
+	VkBufferMemoryBarrier bufferBarriers[] = {
+			this->_voxelNodes.CreateBarrier(),
+			this->_voxelFragmentCounter.CreateBarrier(),
+			this->_voxelFragmentList.CreateBarrier(),
+			this->_voxelGrid.CreateBarrier()
+	};
+	vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, nullptr, ARRLEN(bufferBarriers), bufferBarriers, 0, nullptr);
 }
 
 void
@@ -191,7 +236,7 @@ FluidEngine::voxelRasterizeGeometry(VkCommandBuffer cmd)
 			.sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER,
 			.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT,
 			.dstAccessMask = VK_ACCESS_SHADER_READ_BIT,
-			.buffer = this->_voxelVolume.bufferHandle,
+			.buffer = this->_voxelGrid.bufferHandle,
 			.offset = 0,
 			.size = VK_WHOLE_SIZE,
 		},
@@ -299,7 +344,7 @@ FluidEngine::generateTreeIndirectCommands(VkCommandBuffer cmd)
 		this->_treeFlaggerIndirectDispatchBuffer.CreateBarrier(),
 		this->_treeIndirectDrawBuffer.CreateBarrier()
 	};
-	vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_ALL_GRAPHICS_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, nullptr, ARRLEN(bufferBarriers), bufferBarriers, 0, nullptr);
+	vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_ALL_GRAPHICS_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT | VK_PIPELINE_STAGE_ALL_GRAPHICS_BIT, 0, 0, nullptr, ARRLEN(bufferBarriers), bufferBarriers, 0, nullptr);
 }
 
 void
@@ -372,22 +417,19 @@ FluidEngine::checkInput(KeyMap& keyMap, MouseMap& mouseMap, Mouse& mouse)
 
 bool FluidEngine::initResources()
 {
+	// IMAGES
 	this->_renderer.CreateImage(this->_voxelImage,
 		VkExtent3D{Constants::VoxelGridResolution, Constants::VoxelGridResolution, 1},
 		VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT,
 		VK_IMAGE_ASPECT_COLOR_BIT,
 		VK_FORMAT_R32G32B32A32_SFLOAT,
-        VK_IMAGE_LAYOUT_GENERAL
+        VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL
 	);
-	this->_renderer.ImmediateSubmit([&](VkCommandBuffer cmd) {
-		this->_voxelImage.Transition(cmd, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
-	});
-
 	// BUFFERS
 	this->_renderer.CreateBuffer(this->_stagingBuffer, Constants::StagingBufferSize, VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VMA_MEMORY_USAGE_CPU_ONLY);
-	this->_renderer.CreateBuffer(this->_voxelVolume, Constants::VoxelGridSize, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
+	this->_renderer.CreateBuffer(this->_voxelGrid, Constants::VoxelGridSize, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
 	this->_renderer.ImmediateSubmit([&](VkCommandBuffer cmd) {
-		vkCmdFillBuffer(cmd, this->_voxelVolume.bufferHandle, 0, VK_WHOLE_SIZE, 0);
+		vkCmdFillBuffer(cmd, this->_voxelGrid.bufferHandle, 0, VK_WHOLE_SIZE, 0);
 	});
 	this->_renderer.CreateBuffer(this->_voxelInfoBuffer, sizeof(VoxelInfo), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
 	VoxelInfo voxInfo = {
@@ -404,7 +446,7 @@ bool FluidEngine::initResources()
 		};
 		vkCmdCopyBuffer(cmd, this->_stagingBuffer.bufferHandle, this->_voxelInfoBuffer.bufferHandle, 1, &copy);
 	});
-	std::cout << "VOXBUFFMEM: " << this->_voxelVolume.info.size << std::endl;
+	std::cout << "VOXBUFFMEM: " << this->_voxelGrid.info.size << std::endl;
 
 	this->_renderer.CreateBuffer(
 		this->_voxelFragmentCounter,
@@ -416,13 +458,13 @@ bool FluidEngine::initResources()
 	this->_renderer.CreateBuffer(
 		this->_voxelFragmentList,
 		Constants::NumAllocatedVoxelFragments * sizeof(VoxelFragment),
-		VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+		VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
 		VMA_MEMORY_USAGE_GPU_ONLY
 	);
 
 	this->_renderer.CreateBuffer(
 		this->_treeVertices,
-		Constants::NumAllocatedNodes * 8 * sizeof(glm::vec3), // 8 vertices per cube
+		Constants::NumAllocatedVoxelNodes * 8 * sizeof(glm::vec3), // 8 vertices per cube
 		VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
 		VMA_MEMORY_USAGE_GPU_ONLY
 	);
@@ -434,7 +476,7 @@ bool FluidEngine::initResources()
 
 	this->_renderer.CreateBuffer(
 		this->_treeIndices,
-		Constants::NumAllocatedNodes * 12 * 2 * sizeof(uint32_t), // 12 lines per cube, 2 indices per line
+		Constants::NumAllocatedVoxelNodes * 12 * 2 * sizeof(uint32_t), // 12 lines per cube, 2 indices per line
 		VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
 		VMA_MEMORY_USAGE_GPU_ONLY
 	);
@@ -474,7 +516,7 @@ bool FluidEngine::initResources()
 
 	// voxel nodes
 	this->_renderer.CreateBuffer(this->_voxelNodes,
-		Constants::NumAllocatedNodes * sizeof(VoxelNode),
+		Constants::VoxelNodesSize,
 		VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
 		VMA_MEMORY_USAGE_GPU_ONLY
 	);
@@ -482,7 +524,6 @@ bool FluidEngine::initResources()
 	const uint32_t width = Constants::NodeDivisions;
 	const float s = 1.0 / (Constants::NodeDivisions);
 	const float m = -0.5 + s/2.0;
-	VoxelNode nodes[Constants::NodeChildren];
 	for(int z = 0; z < Constants::NodeDivisions; z++) {
 		for(int y = 0; y < Constants::NodeDivisions; y++) {
 			for(int x = 0; x < Constants::NodeDivisions; x++) {
@@ -528,26 +569,26 @@ bool FluidEngine::initPipelines()
                                            sizeof(GraphicsPushConstants), {.inputTopology = VK_PRIMITIVE_TOPOLOGY_LINE_LIST});
 
     this->_renderer.CreateGraphicsPipeline(this->_voxelRasterPipeline, SHADER_DIRECTORY"/voxelRaster.vert.spv", SHADER_DIRECTORY"/voxelRaster.frag.spv", SHADER_DIRECTORY"/voxelRaster.geom.spv", {
-        BufferDescriptor(0, 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, this->_voxelVolume.bufferHandle, this->_voxelVolume.info.size),
+        BufferDescriptor(0, 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, this->_voxelGrid.bufferHandle, Constants::VoxelGridSize),
         BufferDescriptor(0, 1, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, this->_voxelInfoBuffer.bufferHandle, sizeof(VoxelInfo)),
         BufferDescriptor(0, 2, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, this->_voxelFragmentCounter.bufferHandle, sizeof(VoxelFragmentCounter)),
-        BufferDescriptor(0, 3, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, this->_voxelFragmentList.bufferHandle, this->_voxelFragmentList.info.size)
+        BufferDescriptor(0, 3, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, this->_voxelFragmentList.bufferHandle, Constants::VoxelFragmentListSize)
     },
     VK_SHADER_STAGE_FRAGMENT_BIT, sizeof(GraphicsPushConstants));
 
     this->_renderer.CreateComputePipeline(this->_voxelizerPipeline, SHADER_DIRECTORY"/voxelizer.comp.spv", {
-        BufferDescriptor(0, 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, this->_voxelVolume.bufferHandle, Constants::VoxelGridSize)
+        BufferDescriptor(0, 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, this->_voxelGrid.bufferHandle, Constants::VoxelGridSize)
     },
     sizeof(VoxelizerPushConstants));
 
     this->_renderer.CreateComputePipeline(this->_raytracerPipeline, SHADER_DIRECTORY"/voxelTracer.comp.spv", {
-        BufferDescriptor(0, 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, this->_voxelVolume.bufferHandle, Constants::VoxelGridSize),
+        BufferDescriptor(0, 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, this->_voxelGrid.bufferHandle, Constants::VoxelGridSize),
         ImageDescriptor(0, 1, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, this->_renderer.GetDrawImage().imageView, VK_NULL_HANDLE, this->_renderer.GetDrawImage().layout)
     },
     sizeof(RayTracerPushConstants));
 
     this->_renderer.CreateComputePipeline(this->_treeLineGenerator, SHADER_DIRECTORY"/treeRenderer.comp.spv", {
-        BufferDescriptor(0, 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, this->_voxelNodes.bufferHandle, this->_voxelNodes.info.size),
+        BufferDescriptor(0, 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, this->_voxelNodes.bufferHandle, Constants::VoxelNodesSize),
         BufferDescriptor(0, 1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, this->_treeIndirectDrawBuffer.bufferHandle, sizeof(VkDrawIndexedIndirectCommand))
     },
     sizeof(TreeRendererPushConstants));
@@ -562,13 +603,13 @@ bool FluidEngine::initPipelines()
 
     this->_renderer.CreateComputePipeline(this->_treeSubdivider, SHADER_DIRECTORY"/treeSubdivider.comp.spv", {
         BufferDescriptor(0, 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, this->_treeInfoBuffer.bufferHandle, sizeof(TreeInfo)),
-        BufferDescriptor(0, 1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, this->_voxelNodes.bufferHandle, this->_voxelNodes.info.size)
+        BufferDescriptor(0, 1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, this->_voxelNodes.bufferHandle, Constants::VoxelNodesSize)
     });
 
     this->_renderer.CreateComputePipeline(this->_treeFlagger, SHADER_DIRECTORY"/treeFlagger.comp.spv", {
         BufferDescriptor(0, 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, this->_voxelFragmentList.bufferHandle, this->_voxelFragmentList.info.size),
         BufferDescriptor(0, 1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, this->_voxelFragmentCounter.bufferHandle, sizeof(VoxelFragmentCounter)),
-        BufferDescriptor(0, 2, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, this->_voxelNodes.bufferHandle, this->_voxelNodes.info.size)
+        BufferDescriptor(0, 2, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, this->_voxelNodes.bufferHandle, Constants::VoxelNodesSize)
     });
 
     return true;
