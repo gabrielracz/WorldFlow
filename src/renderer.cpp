@@ -32,7 +32,7 @@ printDeviceProperties(vkb::PhysicalDevice& dev)
 void
 FillBuffers(const std::vector<Buffer>& buffers, uint32_t data, uint32_t offset)
 {
-    
+
 }
 
 Renderer::Renderer(const std::string& name, uint32_t width, uint32_t height)
@@ -576,6 +576,7 @@ Renderer::initVulkan()
     vkb::Result<vkb::Instance> instanceRet = builder
         .set_app_name(this->_name.c_str())
         .request_validation_layers(Constants::IsValidationLayersEnabled)
+        .add_validation_feature_enable(VK_VALIDATION_FEATURE_ENABLE_SYNCHRONIZATION_VALIDATION_EXT)
         .use_default_debug_messenger()
         .require_api_version(1, 3, 0)
         .build();

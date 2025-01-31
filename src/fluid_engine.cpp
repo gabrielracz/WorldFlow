@@ -183,22 +183,28 @@ FluidEngine::voxelRasterizeGeometry(VkCommandBuffer cmd)
 {
 	this->_voxelImage.Transition(cmd, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
 	// Zero the counter
-	vkCmdFillBuffer(cmd, this->_voxelFragmentCounter.bufferHandle, 0, VK_WHOLE_SIZE, 0);
-	VkMemoryBarrier2 memBarrier = {
-		.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2,
-		.srcStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT,
-		.srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT,
-		.dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
-		.dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT,
+	vkCmdFillBuffer(cmd, this->_voxelFragmentCounter.bufferHandle, 0, sizeof(VoxelFragmentCounter), 0);
+	VkBufferMemoryBarrier fragCounterBarrier[] = {
+			this->_voxelFragmentCounter.CreateBarrier(VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_SHADER_WRITE_BIT),
 	};
+	vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0, 0, nullptr, ARRLEN(fragCounterBarrier), fragCounterBarrier, 0, nullptr);
 
-	VkDependencyInfo dependencyInfo = {
-		.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO,
-		.memoryBarrierCount = 1,
-		.pMemoryBarriers = &memBarrier
-	};
 
-	vkCmdPipelineBarrier2(cmd, &dependencyInfo);
+	// VkMemoryBarrier2 memBarrier = {
+	// 	.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2,
+	// 	.srcStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT,
+	// 	.srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT,
+	// 	.dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+	// 	.dstAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT,
+	// };
+
+	// VkDependencyInfo dependencyInfo = {
+	// 	.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO,
+	// 	.memoryBarrierCount = 1,
+	// 	.pMemoryBarriers = &memBarrier
+	// };
+
+	// vkCmdPipelineBarrier2(cmd, &dependencyInfo);
 	VkRenderingAttachmentInfo colorAttachmentInfo = vkinit::attachment_info(this->_voxelImage.imageView, nullptr, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
 	VkRenderingInfo renderInfo = vkinit::rendering_info(VkExtent2D{Constants::VoxelGridResolution, Constants::VoxelGridResolution}, &colorAttachmentInfo, nullptr);
 	vkCmdBeginRendering(cmd, &renderInfo);
@@ -232,22 +238,9 @@ FluidEngine::voxelRasterizeGeometry(VkCommandBuffer cmd)
 	vkCmdDrawIndexed(cmd, this->_testMeshes[Constants::MeshIdx].numIndices, 1, 0, 0, 0);
 	vkCmdEndRendering(cmd);
 	VkBufferMemoryBarrier bufferBarriers[] = {
-		{
-			.sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER,
-			.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT,
-			.dstAccessMask = VK_ACCESS_SHADER_READ_BIT,
-			.buffer = this->_voxelGrid.bufferHandle,
-			.offset = 0,
-			.size = VK_WHOLE_SIZE,
-		},
-		{
-			.sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER,
-			.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT,
-			.dstAccessMask = VK_ACCESS_SHADER_READ_BIT,
-			.buffer = this->_voxelFragmentCounter.bufferHandle,
-			.offset = 0,
-			.size = VK_WHOLE_SIZE
-		}
+		this->_voxelGrid.CreateBarrier(),
+		this->_voxelFragmentList.CreateBarrier(),
+		this->_voxelFragmentCounter.CreateBarrier(),
 	};
 	vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_ALL_GRAPHICS_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, nullptr, 2, bufferBarriers, 0, nullptr);
 }
@@ -260,7 +253,7 @@ FluidEngine::updateVoxelVolume(VkCommandBuffer cmd)
 	VoxelizerPushConstants pc = {
 		.gridSize = glm::vec3(Constants::VoxelGridResolution),
 		.gridScale = 1.0f/Constants::VoxelGridResolution,
-		.time = static_cast<float>(this->_renderer.GetElapsedTime())
+		.time = this->_renderer.GetElapsedTime()
 	};
 	vkCmdPushConstants(cmd, this->_voxelizerPipeline.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(VoxelizerPushConstants), &pc);
 
@@ -330,7 +323,7 @@ FluidEngine::generateTreeGeometry(VkCommandBuffer cmd)
 			.size = VK_WHOLE_SIZE,
 		},
 	};
-	vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_ALL_GRAPHICS_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, nullptr, ARRLEN(bufferBarriers), bufferBarriers, 0, nullptr);
+	vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_ALL_GRAPHICS_BIT, 0, 0, nullptr, ARRLEN(bufferBarriers), bufferBarriers, 0, nullptr);
 }
 
 void
