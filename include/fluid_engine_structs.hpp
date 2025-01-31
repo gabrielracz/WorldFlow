@@ -1,6 +1,9 @@
 #ifndef FLUID_ENGINE_STRUCTS_HPP_
 #define FLUID_ENGINE_STRUCTS_HPP_
 
+
+
+
 struct alignas(16) VoxelizerPushConstants
 {
     glm::uvec3 gridSize;

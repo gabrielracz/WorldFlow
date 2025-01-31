@@ -14,17 +14,17 @@ namespace Constants
 {
 constexpr uint64_t StagingBufferSize = 1024ul * 1024ul * 8ul;
 
-constexpr size_t VoxelGridResolution = 1000;
+constexpr size_t VoxelGridResolution = 128;
 constexpr size_t VoxelGridSize = VoxelGridResolution * VoxelGridResolution * VoxelGridResolution * sizeof(float);
 constexpr float VoxelGridScale = 2.0f;
 
-constexpr uint32_t MeshIdx = 0;
+constexpr uint32_t MeshIdx = 2;
 constexpr float MeshScale = 0.01;
 // constexpr float MeshScale = 0.0007;
 // constexpr float MeshScale = 0.60;
 constexpr glm::vec3 MeshTranslation = glm::vec3(0.0, 0.0, 0.0);
 const glm::mat4 MeshTransform = glm::translate(MeshTranslation) * glm::scale(glm::vec3(MeshScale));
-const std::string MeshFile = ASSETS_DIRECTORY"/xyz.glb";
+const std::string MeshFile = ASSETS_DIRECTORY"/basicmesh.glb";
 
 constexpr glm::vec3 LightPosition = glm::vec4(10.0, 10.0, 10.0, 1.0);
 
@@ -65,7 +65,7 @@ void FluidEngine::update(VkCommandBuffer cmd, float dt)
 		updateVoxelVolume(cmd); // fill voxels with sample noise
 	}
 
-	voxelRasterizeGeometry(cmd);
+	// voxelRasterizeGeometry(cmd);
 
 
 	if(this->_shouldSubdivide) {

@@ -9,7 +9,7 @@
 namespace Constants
 {
     constexpr bool IsValidationLayersEnabled = true;
-    constexpr bool VSYNCEnabled = false;
+    constexpr bool VSYNCEnabled = true;
 
     constexpr uint32_t FPSMeasurePeriod = 60;
     constexpr uint64_t TimeoutNs = 100000000;
@@ -576,7 +576,7 @@ Renderer::initVulkan()
     vkb::Result<vkb::Instance> instanceRet = builder
         .set_app_name(this->_name.c_str())
         .request_validation_layers(Constants::IsValidationLayersEnabled)
-        .add_validation_feature_enable(VK_VALIDATION_FEATURE_ENABLE_SYNCHRONIZATION_VALIDATION_EXT)
+        // .add_validation_feature_enable(VK_VALIDATION_FEATURE_ENABLE_SYNCHRONIZATION_VALIDATION_EXT)
         .use_default_debug_messenger()
         .require_api_version(1, 3, 0)
         .build();

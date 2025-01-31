@@ -2,6 +2,7 @@
 // #include "vk_mem_alloc.h"
 #include "vma.hpp"
 #include "fluid_engine.hpp"
+#include "uniform_fluid_engine.hpp"
 #include "renderer.hpp"
 #include "defines.hpp"
 
@@ -13,7 +14,7 @@ int main(int argc, char* argv[])
         return EXIT_FAILURE;
     }
 
-	FluidEngine fluidEngine(renderer);
+	UniformFluidEngine fluidEngine(renderer);
 	if(!fluidEngine.Init()) {
         std::cout << "[ERROR] Failed to initialize fluid engine" << std::endl;
 		return EXIT_FAILURE;
