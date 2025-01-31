@@ -24,6 +24,7 @@ private:
 	void update(VkCommandBuffer cmd, float dt);
 
 	void updateVoxelVolume(VkCommandBuffer cmd);
+	void voxelRasterizeGeometry(VkCommandBuffer cmd);
 	void generateTreeIndirectCommands(VkCommandBuffer cmd);
 	void generateTreeGeometry(VkCommandBuffer cmd);
 	void drawLines(VkCommandBuffer cmd);
@@ -31,6 +32,8 @@ private:
 	void subdivideTree(VkCommandBuffer cmd);
 	void drawGeometry(VkCommandBuffer cmd, float dt);
 	void rayCastVoxelVolume(VkCommandBuffer cmd);
+
+	void checkInput(KeyMap& keyMap, MouseMap& mouseMap, Mouse& mouse);
 
 	bool initResources();
 	bool initPipelines();
@@ -41,7 +44,10 @@ private:
 	/* CONFIG */
 	std::atomic<bool> _shouldSubdivide {false};
 	std::atomic<bool> _shouldRenderVoxels {true};
-	std::atomic<bool> _shouldRenderGeometry {true};
+	std::atomic<bool> _shouldRenderGeometry {false};
+	std::atomic<bool> _shouldRenderLines {true};
+	std::atomic<bool> _shouldAddVoxelNoise {false};
+
 
 	/* PIPELINES */
     ComputePipeline _voxelizerPipeline;
@@ -57,7 +63,6 @@ private:
     GraphicsPipeline _linePipeline;
 
 	/* RESOURCES */
-    Image _drawImage;
     Image _voxelImage;
     Buffer _stagingBuffer;
     Buffer _voxelVolume;

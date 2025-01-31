@@ -14,8 +14,9 @@ struct Mouse
 {
     bool first_captured = false;
     bool captured = true;
-    glm::vec2 prev;
-    glm::vec2 move;
+    float scroll = 0.0;
+    glm::vec2 prev {};
+    glm::vec2 move {};
 };
 
 struct DeletionQueue

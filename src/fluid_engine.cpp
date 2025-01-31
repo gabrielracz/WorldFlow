@@ -2,11 +2,12 @@
 #include "fluid_engine_structs.hpp"
 #include "renderer.hpp"
 #include "path_config.hpp"
-#include "vk_loader.h"
+#include "defines.hpp"
 
-// #define VMA_IMPLEMENTATION
-// #include "vk_mem_alloc.h"
 #include "vma.hpp"
+#include "vk_loader.h"
+#include "vk_initializers.h"
+
 #include <functional>
 
 namespace Constants
@@ -54,26 +55,319 @@ bool FluidEngine::Init()
 
 void FluidEngine::update(VkCommandBuffer cmd, float dt)
 {
-	// updateVoxelVolume(cmd); // fill voxels with sample noise
-	// // voxelRasterizeGeometry(cmd);
+	checkInput(this->_renderer.GetKeyMap(), this->_renderer.GetMouseMap(), this->_renderer.GetMouse());
 
-	// generateTreeIndirectCommands(cmd);
-	// generateTreeGeometry(cmd);
-	// drawLines(cmd);
-	// if(this->_shouldSubdivide) {
-	// 	flagNodesForSubdivision(cmd);
-	// 	subdivideTree(cmd);
-	// 	this->_shouldSubdivide = false;
-	// }
+	if(this->_shouldAddVoxelNoise) {
+		updateVoxelVolume(cmd); // fill voxels with sample noise
+	}
 
-	// if(this->_shouldRenderGeometry) {
-	// 	drawGeometry(cmd, dt);
-	// }
+	voxelRasterizeGeometry(cmd);
 
-	// if(this->_shouldRenderVoxels) {
-	// 	rayCastVoxelVolume(cmd);
-	// }
-	std::cout << "update" << std::endl;
+	if(this->_shouldRenderLines) {
+		generateTreeIndirectCommands(cmd);
+		generateTreeGeometry(cmd);
+		drawLines(cmd);
+	}
+
+	if(this->_shouldSubdivide) {
+		flagNodesForSubdivision(cmd);
+		subdivideTree(cmd);
+		this->_shouldSubdivide = false;
+	}
+
+	if(this->_shouldRenderGeometry) {
+		drawGeometry(cmd, dt);
+	}
+
+	if(this->_shouldRenderVoxels) {
+		rayCastVoxelVolume(cmd);
+	}
+}
+
+void
+FluidEngine::drawLines(VkCommandBuffer cmd)
+{
+	this->_renderer.GetDrawImage().Transition(cmd, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+	VkRenderingAttachmentInfo colorAttachmentInfo = vkinit::attachment_info(this->_renderer.GetDrawImage().imageView, nullptr, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+	VkRenderingInfo renderInfo = vkinit::rendering_info(this->_renderer.GetWindowExtent2D(), &colorAttachmentInfo, nullptr);
+	vkCmdBeginRendering(cmd, &renderInfo);
+	vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, this->_linePipeline.pipeline);
+	const VkViewport viewport = this->_renderer.GetWindowViewport();
+	const VkRect2D scissor = this->_renderer.GetWindowScissor();
+	vkCmdSetViewport(cmd, 0, 1, &viewport);
+	vkCmdSetScissor(cmd, 0, 1, &scissor);
+
+	GraphicsPushConstants pc = {
+		.worldMatrix = this->_renderer.GetCamera().GetProjectionMatrix() * this->_renderer.GetCamera().GetViewMatrix() * glm::scale(glm::vec3(Constants::VoxelGridScale)),
+		.vertexBuffer = this->_treeMesh.vertexBufferAddress
+	};
+
+	vkCmdPushConstants(cmd, this->_linePipeline.layout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(GraphicsPushConstants), &pc);
+	vkCmdBindIndexBuffer(cmd, this->_treeIndices.bufferHandle, 0, VK_INDEX_TYPE_UINT32);
+	vkCmdDrawIndexedIndirect(cmd, this->_treeIndirectDrawBuffer.bufferHandle, 0, 1, sizeof(VkDrawIndexedIndirectCommand));
+	vkCmdEndRendering(cmd);
+}
+
+void
+FluidEngine::drawGeometry(VkCommandBuffer cmd, float dt)
+{
+	this->_renderer.GetDrawImage().Transition(cmd, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+	VkRenderingAttachmentInfo colorAttachmentInfo = vkinit::attachment_info(this->_renderer.GetDrawImage().imageView, nullptr, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+	VkRenderingInfo renderInfo = vkinit::rendering_info(this->_renderer.GetWindowExtent2D(), &colorAttachmentInfo, nullptr);
+	vkCmdBeginRendering(cmd, &renderInfo);
+
+	vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, this->_meshPipeline.pipeline);
+	const VkViewport viewport = this->_renderer.GetWindowViewport();
+	const VkRect2D scissor = this->_renderer.GetWindowScissor();
+	vkCmdSetViewport(cmd, 0, 1, &viewport);
+	vkCmdSetScissor(cmd, 0, 1, &scissor);
+
+	GraphicsPushConstants pc = {
+		.worldMatrix = this->_renderer.GetCamera().GetProjectionMatrix() * this->_renderer.GetCamera().GetViewMatrix() * Constants::MeshTransform,
+		.vertexBuffer = this->_testMeshes[Constants::MeshIdx].vertexBufferAddress
+	};
+
+	vkCmdPushConstants(cmd, this->_meshPipeline.layout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(GraphicsPushConstants), &pc);
+	vkCmdBindIndexBuffer(cmd, this->_testMeshes[Constants::MeshIdx].indexBuffer.bufferHandle, 0, VK_INDEX_TYPE_UINT32);
+	vkCmdDrawIndexed(cmd, this->_testMeshes[Constants::MeshIdx].numIndices, 1, 0, 0, 0);
+	vkCmdEndRendering(cmd);
+}
+
+void
+FluidEngine::voxelRasterizeGeometry(VkCommandBuffer cmd)
+{
+	this->_voxelImage.Transition(cmd, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+	// Zero the counter
+	vkCmdFillBuffer(cmd, this->_voxelFragmentCounter.bufferHandle, 0, VK_WHOLE_SIZE, 0);
+	VkMemoryBarrier2 memBarrier = {
+		.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2,
+		.srcStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT,
+		.srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT,
+		.dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+		.dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT,
+	};
+
+	VkDependencyInfo dependencyInfo = {
+		.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO,
+		.memoryBarrierCount = 1,
+		.pMemoryBarriers = &memBarrier
+	};
+
+	vkCmdPipelineBarrier2(cmd, &dependencyInfo);
+	VkRenderingAttachmentInfo colorAttachmentInfo = vkinit::attachment_info(this->_voxelImage.imageView, nullptr, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+	VkRenderingInfo renderInfo = vkinit::rendering_info(VkExtent2D{Constants::VoxelGridResolution, Constants::VoxelGridResolution}, &colorAttachmentInfo, nullptr);
+	vkCmdBeginRendering(cmd, &renderInfo);
+	vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, this->_voxelRasterPipeline.pipeline);
+	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, this->_voxelRasterPipeline.layout, 0, 1, this->_voxelRasterPipeline.descriptorSets.data(), 0, nullptr);
+
+	VkViewport viewport = {
+		.x = 0,
+		.y = 0,
+		.width = (float)Constants::VoxelGridResolution,
+		.height = (float)Constants::VoxelGridResolution,
+		.minDepth = 0.0,
+		.maxDepth = 1.0
+	};
+	vkCmdSetViewport(cmd, 0, 1, &viewport);
+
+	VkRect2D scissor = {
+		.offset = { .x = 0, .y = 0 },
+		.extent = { .width = Constants::VoxelGridResolution, .height = Constants::VoxelGridResolution}
+	};
+	vkCmdSetScissor(cmd, 0, 1, &scissor);
+
+
+	GraphicsPushConstants pc = {
+		.worldMatrix = glm::mat4(1.0) * Constants::MeshTransform,
+		.vertexBuffer = this->_testMeshes[Constants::MeshIdx].vertexBufferAddress
+	};
+
+	vkCmdPushConstants(cmd, this->_voxelRasterPipeline.layout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(GraphicsPushConstants), &pc);
+	vkCmdBindIndexBuffer(cmd, this->_testMeshes[Constants::MeshIdx].indexBuffer.bufferHandle, 0, VK_INDEX_TYPE_UINT32);
+	vkCmdDrawIndexed(cmd, this->_testMeshes[Constants::MeshIdx].numIndices, 1, 0, 0, 0);
+	vkCmdEndRendering(cmd);
+	VkBufferMemoryBarrier bufferBarriers[] = {
+		{
+			.sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER,
+			.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT,
+			.dstAccessMask = VK_ACCESS_SHADER_READ_BIT,
+			.buffer = this->_voxelVolume.bufferHandle,
+			.offset = 0,
+			.size = VK_WHOLE_SIZE,
+		},
+		{
+			.sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER,
+			.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT,
+			.dstAccessMask = VK_ACCESS_SHADER_READ_BIT,
+			.buffer = this->_voxelFragmentCounter.bufferHandle,
+			.offset = 0,
+			.size = VK_WHOLE_SIZE
+		}
+	};
+	vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_ALL_GRAPHICS_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, nullptr, 2, bufferBarriers, 0, nullptr);
+}
+
+void
+FluidEngine::updateVoxelVolume(VkCommandBuffer cmd)
+{
+	vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, this->_voxelizerPipeline.pipeline);
+	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, this->_voxelizerPipeline.layout, 0, 1, this->_voxelizerPipeline.descriptorSets.data(), 0, nullptr);
+	VoxelizerPushConstants pc = {
+		.gridSize = glm::vec3(Constants::VoxelGridResolution),
+		.gridScale = 1.0f/Constants::VoxelGridResolution,
+		.time = static_cast<float>(this->_renderer.GetElapsedTime())
+	};
+	vkCmdPushConstants(cmd, this->_voxelizerPipeline.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(VoxelizerPushConstants), &pc);
+
+	constexpr uint32_t localWorkgroupSize = 8;
+	constexpr uint32_t groupCount = Constants::VoxelGridResolution / localWorkgroupSize;
+	vkCmdDispatch(cmd, groupCount, groupCount, groupCount);
+}
+
+void
+FluidEngine::rayCastVoxelVolume(VkCommandBuffer cmd)
+{
+	this->_renderer.GetDrawImage().Transition(cmd, VK_IMAGE_LAYOUT_GENERAL);
+	vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, this->_raytracerPipeline.pipeline);
+	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, this->_raytracerPipeline.layout, 0, 1, this->_raytracerPipeline.descriptorSets.data(), 0, nullptr);
+
+	glm::mat4 view = this->_renderer.GetCamera().GetViewMatrix();
+	glm::mat4 invView = glm::inverse(view);
+	glm::mat4 projection = this->_renderer.GetCamera().GetProjectionMatrix();
+	projection[1][1] *= -1;
+	RayTracerPushConstants rtpc = {
+		.inverseProjection = glm::inverse(projection),
+		.inverseView = invView,
+		.cameraPos = invView * glm::vec4(0.0, 0.0, 0.0, 1.0),
+		.nearPlane = 0.1f,
+		.screenSize = glm::vec2(this->_renderer.GetWindowExtent2D().width, this->_renderer.GetWindowExtent2D().height),
+		.maxDistance = 2000.0f,
+		.stepSize = 0.1,
+		.gridSize = glm::vec3(Constants::VoxelGridResolution),
+		.gridScale = Constants::VoxelGridScale,
+		.lightSource = glm::vec4(30.0, 50.0, 20.0, 1.0),
+		// .baseColor = glm::vec4(HEXCOLOR(0xFFBF00))
+		// .baseColor = glm::vec4(HEXCOLOR(0x675CFF))
+		.baseColor = glm::vec4(0.8, 0.8, 0.8, 1.0)
+	};
+	vkCmdPushConstants(cmd, this->_raytracerPipeline.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(RayTracerPushConstants), &rtpc);
+	VkExtent3D groupCounts = this->_renderer.GetWorkgroupCounts(8);
+	vkCmdDispatch(cmd, groupCounts.width, groupCounts.height, groupCounts.depth);
+}
+
+void
+FluidEngine::generateTreeGeometry(VkCommandBuffer cmd)
+{
+	vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, this->_treeLineGenerator.pipeline);
+	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, this->_treeLineGenerator.layout, 0, 1, this->_treeLineGenerator.descriptorSets.data(), 0, nullptr);
+	TreeRendererPushConstants pc = {
+		.vertexBuffer = this->_treeMesh.vertexBufferAddress,
+		.indexBuffer = this->_treeMesh.indexBufferAddress
+	};
+	vkCmdPushConstants(cmd, this->_treeLineGenerator.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(TreeRendererPushConstants), &pc);
+	// vkCmdDispatch(cmd, Constants::NodeChildren, 1, 1);
+	vkCmdDispatchIndirect(cmd, this->_treeIndirectDispatchBuffer.bufferHandle, 0);
+	VkBufferMemoryBarrier bufferBarriers[] = {
+		{
+			.sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER,
+			.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT,
+			.dstAccessMask = VK_ACCESS_SHADER_READ_BIT,
+			.buffer = this->_treeIndices.bufferHandle,
+			.offset = 0,
+			.size = VK_WHOLE_SIZE,
+		},
+		{
+			.sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER,
+			.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT,
+			.dstAccessMask = VK_ACCESS_SHADER_READ_BIT,
+			.buffer = this->_treeVertices.bufferHandle,
+			.offset = 0,
+			.size = VK_WHOLE_SIZE,
+		},
+	};
+	vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_ALL_GRAPHICS_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, nullptr, ARRLEN(bufferBarriers), bufferBarriers, 0, nullptr);
+}
+
+void
+FluidEngine::generateTreeIndirectCommands(VkCommandBuffer cmd)
+{
+	vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, this->_treeIndirectCmdGenerator.pipeline);
+	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, this->_treeIndirectCmdGenerator.layout, 0, 1, this->_treeIndirectCmdGenerator.descriptorSets.data(), 0, nullptr);
+	vkCmdDispatch(cmd, 1, 1, 1);
+	VkBufferMemoryBarrier bufferBarriers[] = {
+		this->_treeIndirectDispatchBuffer.CreateBarrier(),
+		this->_treeFlaggerIndirectDispatchBuffer.CreateBarrier(),
+		this->_treeIndirectDrawBuffer.CreateBarrier()
+	};
+	vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_ALL_GRAPHICS_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, nullptr, ARRLEN(bufferBarriers), bufferBarriers, 0, nullptr);
+}
+
+void
+FluidEngine::subdivideTree(VkCommandBuffer cmd)
+{
+	vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, this->_treeSubdivider.pipeline);
+	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, this->_treeSubdivider.layout, 0, 1, this->_treeSubdivider.descriptorSets.data(), 0, nullptr);
+	vkCmdDispatchIndirect(cmd, this->_treeIndirectDispatchBuffer.bufferHandle, 0); // TODO: rethink this indirect buffer
+	VkBufferMemoryBarrier bufferBarriers[] = {
+			this->_treeInfoBuffer.CreateBarrier(),
+			this->_voxelNodes.CreateBarrier()
+	};
+	vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_ALL_GRAPHICS_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, nullptr, ARRLEN(bufferBarriers), bufferBarriers, 0, nullptr);
+}
+
+void
+FluidEngine::flagNodesForSubdivision(VkCommandBuffer cmd)
+{
+	vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, this->_treeFlagger.pipeline);
+	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, this->_treeFlagger.layout, 0, 1, this->_treeFlagger.descriptorSets.data(), 0, nullptr);
+	vkCmdDispatchIndirect(cmd, this->_treeFlaggerIndirectDispatchBuffer.bufferHandle, 0); // TODO: rethink this indirect buffer
+	VkBufferMemoryBarrier bufferBarriers[] = {
+			this->_voxelNodes.CreateBarrier()
+	};
+	vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_ALL_GRAPHICS_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, nullptr, ARRLEN(bufferBarriers), bufferBarriers, 0, nullptr);
+}
+
+
+void
+FluidEngine::checkInput(KeyMap& keyMap, MouseMap& mouseMap, Mouse& mouse)
+{
+
+	if(keyMap[SDLK_q]) {
+		this->_shouldRenderGeometry = !this->_shouldRenderGeometry;
+		keyMap[SDLK_q] = false;
+	}
+	if(keyMap[SDLK_w]) {
+		this->_shouldRenderVoxels = !this->_shouldRenderVoxels;
+		keyMap[SDLK_w] = false;
+	}
+	if(keyMap[SDLK_e]) {
+		this->_shouldRenderLines = !this->_shouldRenderLines;
+		keyMap[SDLK_e] = false;
+	}
+	if(keyMap[SDLK_r]) {
+		this->_shouldSubdivide = !this->_shouldSubdivide;
+		if(!keyMap[SDLK_LSHIFT]) {
+			keyMap[SDLK_r] = false;
+		}
+	}
+	if(keyMap[SDLK_a]) {
+		this->_shouldAddVoxelNoise = !this->_shouldAddVoxelNoise;
+		keyMap[SDLK_a] = false;
+	}
+
+	if(mouseMap[SDL_BUTTON_LEFT]) {
+		float mouse_sens = -0.003f;
+		glm::vec2 look = mouse.move * mouse_sens;
+		this->_renderer.GetCamera().OrbitYaw(-look.x);
+		this->_renderer.GetCamera().OrbitPitch(-look.y);
+		mouse.move = {0.0, 0.0};
+	}
+
+	if(mouse.scroll != 0.0f) {
+		float delta = -mouse.scroll * 0.1f;
+		this->_renderer.GetCamera().distance += delta;
+		mouse.scroll = 0.0;
+	}
 }
 
 bool FluidEngine::initResources()

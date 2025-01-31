@@ -59,9 +59,18 @@ public:
                                 std::vector<std::variant<BufferDescriptor, ImageDescriptor>> descriptors = {}, VkShaderStageFlags descriptorShaderStages = VK_SHADER_STAGE_ALL_GRAPHICS, uint32_t pushConstantsSize = 0, GraphicsPipelineOptions options = {}, bool autoCleanup = true);
 	void UploadMesh(GPUMesh& mesh, std::span<Vertex> vertices, std::span<uint32_t> indices);
 
-    Image GetDrawImage();
+    Camera& GetCamera();
+    Image& GetDrawImage();
+    VkViewport GetWindowViewport();
+    VkRect2D GetWindowScissor();
+    VkExtent2D GetWindowExtent2D();
+    float GetElapsedTime();
+
 	VkDevice GetDevice();
     VkExtent3D GetWorkgroupCounts(uint32_t localGroupSize = 16);
+    KeyMap& GetKeyMap();
+    MouseMap& GetMouseMap();
+    Mouse& GetMouse();
 private:
     bool render(float dt);
 
@@ -73,6 +82,9 @@ private:
     bool initResources();
     bool initDescriptorPool();
     bool initCamera();
+    bool initControls();
+
+
     void destroySwapchain();
     void destroyVulkan();
 
@@ -100,7 +112,7 @@ private:
     double _elapsed {};
     double _lastFpsMeasurementTime {};
     Mouse _mouse;
-    MouseMap _mouseButtons;
+    MouseMap _mouseMap;
     KeyMap _keyMap;
 
     std::function<void(VkCommandBuffer, float)> _userUpdate;

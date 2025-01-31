@@ -54,7 +54,8 @@ Renderer::Init()
                             initSyncStructures() &&
                             initDescriptorPool() &&
                             initResources() &&
-                            initCamera();
+                            initCamera() &&
+                            initControls();
     return this->_isInitialized;
 }
 
@@ -774,13 +775,67 @@ bool Renderer::initCamera()
     return true;
 }
 
+bool Renderer::initControls()
+{
+    for (SDL_Keycode k = SDLK_F1; k <= SDLK_F12; ++k) {
+        this->_keyMap[k] = false;
+    }
+    
+    // Numbers
+    for (SDL_Keycode k = SDLK_0; k <= SDLK_9; ++k) {
+        this->_keyMap[k] = false;
+    }
+    
+    // Letters
+    for (SDL_Keycode k = SDLK_a; k <= SDLK_z; ++k) {
+        this->_keyMap[k] = false;
+    }
+    
+    // Special keys
+    const SDL_Keycode specialKeys[] = {
+        SDLK_RETURN, SDLK_ESCAPE, SDLK_BACKSPACE, SDLK_TAB,
+        SDLK_SPACE, SDLK_CAPSLOCK,
+        SDLK_PRINTSCREEN, SDLK_SCROLLLOCK, SDLK_PAUSE,
+        SDLK_INSERT, SDLK_HOME, SDLK_PAGEUP,
+        SDLK_DELETE, SDLK_END, SDLK_PAGEDOWN,
+        SDLK_RIGHT, SDLK_LEFT, SDLK_DOWN, SDLK_UP,
+        SDLK_NUMLOCKCLEAR,
+        SDLK_KP_DIVIDE, SDLK_KP_MULTIPLY, SDLK_KP_MINUS,
+        SDLK_KP_PLUS, SDLK_KP_ENTER, SDLK_KP_PERIOD,
+        SDLK_LCTRL, SDLK_LSHIFT, SDLK_LALT, SDLK_LGUI,
+        SDLK_RCTRL, SDLK_RSHIFT, SDLK_RALT, SDLK_RGUI
+    };
+    
+    for (const auto& key : specialKeys) {
+        this->_keyMap[key] = false;
+    }
+    
+    // Numpad numbers
+    for (SDL_Keycode k = SDLK_KP_1; k <= SDLK_KP_9; ++k) {
+        this->_keyMap[k] = false;
+    }
+    this->_keyMap[SDLK_KP_0] = false;  // Add KP_0 separately since it's not consecutive
+
+    const Uint8 mouseButtons[] = {
+        SDL_BUTTON_LEFT,    // 1
+        SDL_BUTTON_MIDDLE,  // 2
+        SDL_BUTTON_RIGHT,   // 3
+    };
+
+    this->_mouseMap[SDL_BUTTON_LEFT] = false;
+    this->_mouseMap[SDL_BUTTON_RIGHT] = false;
+    this->_mouseMap[SDL_BUTTON_MIDDLE] = false;
+
+    return true;
+}
+
 void Renderer::updatePerformanceCounters(float dt)
 {
     if(this->_frameNumber > 0 && this->_frameNumber % Constants::FPSMeasurePeriod == 0) {
         const double delta = (this->_elapsed - this->_lastFpsMeasurementTime);
         const double averageFrameTime =  delta / Constants::FPSMeasurePeriod;
         const double fps = Constants::FPSMeasurePeriod / delta;
-        std::cout << std::fixed << std::setprecision(3) << "FPS: " << fps  << std::setprecision(5) << "  (" << averageFrameTime << ") ";
+        std::cout << std::fixed << std::setprecision(3) << "FPS: " << fps  << std::setprecision(5) << "  (" << averageFrameTime << ") " << std::endl;
         this->_lastFpsMeasurementTime = this->_elapsed;
     }
 }
@@ -794,9 +849,9 @@ void Renderer::pollEvents()
         } 
         
         else if(event.type == SDL_MOUSEBUTTONDOWN) {
-            this->_mouseButtons[event.button.button] = true;
+            this->_mouseMap[event.button.button] = true;
         } else if(event.type == SDL_MOUSEBUTTONUP) {
-            this->_mouseButtons[event.button.button] = false;
+            this->_mouseMap[event.button.button] = false;
         }
         
         else if(event.type == SDL_MOUSEMOTION) {
@@ -807,18 +862,10 @@ void Renderer::pollEvents()
             }
             mouse.move = glm::vec2(event.motion.x, event.motion.y) - mouse.prev;
             mouse.prev = {event.motion.x, event.motion.y};
-
-            float mouse_sens = -0.003f;
-            glm::vec2 look = mouse.move * mouse_sens;
-            if(this->_mouseButtons[SDL_BUTTON_LEFT]) {
-                this->_camera.OrbitYaw(-look.x);
-                this->_camera.OrbitPitch(-look.y);
-            }
         }
 
         else if(event.type == SDL_MOUSEWHEEL) {
-            float delta = -event.wheel.preciseY * 0.1f;
-            this->_camera.distance += delta;
+            this->_mouse.scroll += event.wheel.preciseY;
         }
 
         else if(event.type == SDL_KEYDOWN) {
@@ -826,20 +873,7 @@ void Renderer::pollEvents()
         }
 
         else if(event.type == SDL_KEYUP) {
-            this->_keyMap[event.key.keysym.sym] = true;
-            // switch(event.key.keysym.sym) {
-            //     case SDL_KeyCode::SDLK_q:
-            //         this->_shouldRenderGeometry = !this->_shouldRenderGeometry;
-            //         break;
-            //     case SDL_KeyCode::SDLK_w:
-            //         this->_shouldRenderVoxels = !this->_shouldRenderVoxels;
-            //         break;
-            //     case SDL_KeyCode::SDLK_e:
-            //         this->_shouldSubdivide = true;
-            //         break;
-            //     default:
-            //         break;
-            // }
+            this->_keyMap[event.key.keysym.sym] = false;
         }
     }
 }
@@ -870,7 +904,13 @@ Renderer::getCurrentFrame()
     return this->_frames[this->_frameNumber % Constants::FrameOverlap];
 }
 
-Image
+Camera&
+Renderer::GetCamera()
+{
+    return this->_camera;
+}
+
+Image&
 Renderer::GetDrawImage()
 {
     return this->_drawImage;
@@ -882,6 +922,40 @@ Renderer::GetDevice()
 	return this->_device;
 }
 
+VkViewport
+Renderer::GetWindowViewport()
+{
+	return VkViewport{
+		.x = 0,
+		.y = (float)this->_windowExtent.height,
+		.width = (float)this->_windowExtent.width,
+		.height = -(float)this->_windowExtent.height,
+		.minDepth = 0.0,
+		.maxDepth = 1.0
+	};
+}
+
+VkRect2D
+Renderer::GetWindowScissor()
+{
+	return VkRect2D{
+		.offset = { .x = 0, .y = 0 },
+		.extent = { .width = this->_windowExtent.width, .height = this->_windowExtent.height }
+	};
+}
+
+VkExtent2D
+Renderer::GetWindowExtent2D()
+{
+    return VkExtent2D{this->_windowExtent.width, this->_windowExtent.height};
+}
+
+float
+Renderer::GetElapsedTime()
+{
+    return this->_elapsed;
+}
+
 VkExtent3D
 Renderer::GetWorkgroupCounts(uint32_t localGroupSize)
 {
@@ -890,6 +964,24 @@ Renderer::GetWorkgroupCounts(uint32_t localGroupSize)
         .height = static_cast<uint32_t>(std::ceil(this->_windowExtent.height/(float)localGroupSize)),
         .depth = 1
     };
+}
+
+KeyMap&
+Renderer::GetKeyMap()
+{
+    return this->_keyMap;
+}
+
+MouseMap&
+Renderer::GetMouseMap()
+{
+    return this->_mouseMap;
+}
+
+Mouse&
+Renderer::GetMouse()
+{
+    return this->_mouse;
 }
 
 bool
