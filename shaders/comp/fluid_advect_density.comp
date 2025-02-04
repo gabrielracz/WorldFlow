@@ -59,6 +59,32 @@ float trilinearInterpolation(vec3 gridPoint, float values[6]) {
     return result;
 }
 
+float trilinearInterpolation(vec3 fracPos, float values[6], float centerValue) {
+    // Weighted average of the 6 neighbors AND the center cell.
+
+    float result = 0.0;
+
+    // Interpolate along x-axis
+    float xWeight = fracPos.x;
+    result += mix(values[0], values[1], xWeight);  // l and r
+
+    // Interpolate along y-axis
+    float yWeight = fracPos.y;
+    result += mix(values[2], values[3], yWeight);  // d and u
+
+    // Interpolate along z-axis
+    float zWeight = fracPos.z;
+    result += mix(values[4], values[5], zWeight);  // f and b
+
+    // Add the center value, weighted appropriately.  A simple approach is to
+    // give the center cell an equal weight to each of the other axes.
+    result += centerValue;
+
+
+    // Divide by 4 to normalize (since we added 4 values - 3 axes + center)
+    return result / 4.0;
+}
+
 vec3 traceVelocityField(vec3 pos, vec3 velocity, float dt)
 {
     // TODO: more sophisticated path trace?
@@ -95,12 +121,7 @@ void main()
 	float values[6] = {
 		l, r, d, u, f, b
 	};
-
-	// Perform trilinear interpolation
-	// float interpolatedDensity = 
-	// 	sxl * (syu * (szu * n1 + szd * n2) + syd * (szu * n3 + szd * n4)) +
-	// 	sxr * (syu * (szu * n5 + szd * n6) + syd * (szu * n3 + szd * n4)); 
-	float interpolatedDensity = trilinearInterpolation(vec3(fract(pastPos.x), fract(pastPos.y), fract(pastPos.z)), values);
+	float interpolatedDensity = trilinearInterpolation(vec3(fract(pastPos.x), fract(pastPos.y), fract(pastPos.z)), values, cell.density);
 
 	atomicExchange(grid[index].density, interpolatedDensity);
 }
