@@ -27,7 +27,7 @@ private:
 	void advectDensity(VkCommandBuffer cmd, float dt);
 	void renderVoxelVolume(VkCommandBuffer cmd);
 
-	void checkInput(KeyMap& keyMap, MouseMap& mouseMap, Mouse& mouse);
+	void checkControls(KeyMap& keyMap, MouseMap& mouseMap, Mouse& mouse, float dt);
 
 	bool initResources();
 	bool initPipelines();
@@ -43,6 +43,7 @@ private:
 	Buffer _buffFluidInfo;
 
 	bool _shouldAddSources {true};
+	bool _shouldDiffuseDensity {false};
 };
 
 

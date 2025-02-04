@@ -92,6 +92,7 @@ private:
 
     FrameData& getCurrentFrame();
     void pollEvents();
+	static int eventCallback(void* userdata, SDL_Event* event);
     void updatePerformanceCounters(float dt);
 
 private:

@@ -1,5 +1,6 @@
 // #define VMA_IMPLEMENTATION
 #include "renderer.hpp"
+#include "SDL_events.h"
 #include "vk_initializers.h"
 #include "vk_pipelines.h"
 #include "vk_images.h"
@@ -15,7 +16,7 @@ namespace Constants
     constexpr uint64_t TimeoutNs = 100000000;
     constexpr uint32_t MaxDescriptorSets = 10;
 
-    constexpr glm::vec3 CameraPosition = glm::vec3(0.0, 0.0, -3.0);
+    constexpr glm::vec3 CameraPosition = glm::vec3(0.0, 0.0, 3.0);
     constexpr VkExtent3D DrawImageResolution {2560, 1440, 1};
 }
 
@@ -564,6 +565,8 @@ Renderer::initWindow()
         this->_windowExtent.height,
         windowFlags
     );
+	SDL_AddEventWatch(&Renderer::eventCallback, this);
+
     return this->_window != nullptr;
 }
 
@@ -613,7 +616,6 @@ Renderer::initVulkan()
 		.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_ATOMIC_FLOAT_FEATURES_EXT,
 		.shaderBufferFloat32Atomics = true
 	};
-
 
     vkb::PhysicalDeviceSelector selector {vkbInstance};
     vkb::PhysicalDevice physDevice = selector
@@ -797,6 +799,7 @@ bool Renderer::initCamera()
 
     this->_camera.SetView(Constants::CameraPosition, glm::vec3(0.0, 0.0, 0.0), glm::vec3(0.0, 1.0, 0.0));
     this->_camera.Attach(&this->_origin);
+	this->_camera.OrbitYaw(PI/2);
     this->_camera.SetupViewMatrix();
 
     return true;
@@ -867,6 +870,42 @@ void Renderer::updatePerformanceCounters(float dt)
     }
 }
 
+int
+Renderer::eventCallback(void* userdata, SDL_Event* event)
+{
+	// std::cout << "event callback" << std::endl;
+	Renderer* renderer = (Renderer*) userdata;
+	
+	if(event->type == SDL_MOUSEBUTTONDOWN) {
+		renderer->_mouseMap[event->button.button] = true;
+	} else if(event->type == SDL_MOUSEBUTTONUP) {
+		renderer->_mouseMap[event->button.button] = false;
+	}
+	
+	else if(event->type == SDL_MOUSEMOTION) {
+		Mouse& mouse = renderer->_mouse;
+		if (mouse.first_captured) {
+			mouse.prev = {event->motion.x, event->motion.y};
+			mouse.first_captured = false;
+		}
+		mouse.move = glm::vec2(event->motion.x, event->motion.y) - mouse.prev;
+		mouse.prev = {event->motion.x, event->motion.y};
+	}
+
+	else if(event->type == SDL_MOUSEWHEEL) {
+		renderer->_mouse.scroll += event->wheel.preciseY;
+	}
+
+	else if(event->type == SDL_KEYDOWN) {
+		renderer->_keyMap[event->key.keysym.sym] = true;
+	}
+
+	else if(event->type == SDL_KEYUP) {
+		renderer->_keyMap[event->key.keysym.sym] = false;
+	}
+	return 1;
+}
+
 void Renderer::pollEvents()
 {
     SDL_Event event;
@@ -875,33 +914,33 @@ void Renderer::pollEvents()
             this->_shouldClose = true;
         } 
         
-        else if(event.type == SDL_MOUSEBUTTONDOWN) {
-            this->_mouseMap[event.button.button] = true;
-        } else if(event.type == SDL_MOUSEBUTTONUP) {
-            this->_mouseMap[event.button.button] = false;
-        }
+        // else if(event.type == SDL_MOUSEBUTTONDOWN) {
+        //     this->_mouseMap[event.button.button] = true;
+        // } else if(event.type == SDL_MOUSEBUTTONUP) {
+        //     this->_mouseMap[event.button.button] = false;
+        // }
         
-        else if(event.type == SDL_MOUSEMOTION) {
-            Mouse& mouse = this->_mouse;
-            if (mouse.first_captured) {
-                mouse.prev = {event.motion.x, event.motion.y};
-                mouse.first_captured = false;
-            }
-            mouse.move = glm::vec2(event.motion.x, event.motion.y) - mouse.prev;
-            mouse.prev = {event.motion.x, event.motion.y};
-        }
+        // else if(event.type == SDL_MOUSEMOTION) {
+        //     Mouse& mouse = this->_mouse;
+        //     if (mouse.first_captured) {
+        //         mouse.prev = {event.motion.x, event.motion.y};
+        //         mouse.first_captured = false;
+        //     }
+        //     mouse.move = glm::vec2(event.motion.x, event.motion.y) - mouse.prev;
+        //     mouse.prev = {event.motion.x, event.motion.y};
+        // }
 
-        else if(event.type == SDL_MOUSEWHEEL) {
-            this->_mouse.scroll += event.wheel.preciseY;
-        }
+        // else if(event.type == SDL_MOUSEWHEEL) {
+        //     this->_mouse.scroll += event.wheel.preciseY;
+        // }
 
-        else if(event.type == SDL_KEYDOWN) {
-            this->_keyMap[event.key.keysym.sym] = true;
-        }
+        // else if(event.type == SDL_KEYDOWN) {
+        //     this->_keyMap[event.key.keysym.sym] = true;
+        // }
 
-        else if(event.type == SDL_KEYUP) {
-            this->_keyMap[event.key.keysym.sym] = false;
-        }
+        // else if(event.type == SDL_KEYUP) {
+        //     this->_keyMap[event.key.keysym.sym] = false;
+        // }
     }
 }
 

@@ -16,12 +16,14 @@ layout(std430, binding = 1) buffer FluidGrid {
 layout(push_constant) uniform PushConstants {
 	float elapsed;
 	float dt;
+	uint redBlack;
 } pc;
 
 float sampleDensity(uvec3 center, ivec3 offset)
 {
 	uvec3 cell = center + offset;
 	bool valid = all(greaterThanEqual(cell, uvec3(0))) && all(lessThan(cell, gridInfo.resolution));
+	// if(!valid) {return grid[getGridIndex(cell, gridInfo.resolution)].density;}
 	if(!valid) {return 0.0;}
 	return grid[getGridIndex(cell, gridInfo.resolution)].density;
 }
@@ -32,6 +34,10 @@ void main()
 	uint index = getGridIndex(center, gridInfo.resolution);
 	FluidGridCell cell = grid[index];
 
+	if(mod(center.x + center.y + center.z + pc.redBlack, 2) == 0){
+		return;
+	}
+
 	float l = sampleDensity(center, ivec3(-1, 0, 0));
 	float r = sampleDensity(center, ivec3(1, 0, 0));
 	float u = sampleDensity(center, ivec3(0, 1, 0));
@@ -40,8 +46,8 @@ void main()
 	float b = sampleDensity(center, ivec3(0, 0, -1));
 	float c = cell.density;
 
-    const float diffRate =  10.0;
-	const float N = gridInfo.resolution.x * gridInfo.resolution.y * gridInfo.resolution.z;
+    const float diffRate =  0.005;
+	const float N = gridInfo.resolution.x * gridInfo.resolution.y;
     const float a = diffRate*pc.dt*N; 
 
     const float result = (c + a*(l + r + u + d + f + b)) / (1+6*a); // backwards stable

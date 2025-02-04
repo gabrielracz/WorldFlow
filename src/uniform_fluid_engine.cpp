@@ -27,6 +27,7 @@ struct alignas(16) FluidPushConstants
 {
 	float time;
 	float dt;
+	uint redBlack;
 };
 
 /* CONSTANTS */
@@ -35,6 +36,8 @@ namespace Constants
 constexpr size_t VoxelGridResolution = 128;
 constexpr size_t VoxelGridSize = VoxelGridResolution * VoxelGridResolution * VoxelGridResolution * sizeof(FluidGridCell);
 constexpr float VoxelGridScale = 2.0f;
+
+constexpr uint32_t NumDiffusionIterations = 10;
 
 constexpr glm::vec3 LightPosition = glm::vec4(10.0, 10.0, 10.0, 1.0);
 }
@@ -66,18 +69,20 @@ bool UniformFluidEngine::Init()
 
 void UniformFluidEngine::update(VkCommandBuffer cmd, float dt)
 {
-	checkInput(this->_renderer.GetKeyMap(), this->_renderer.GetMouseMap(), this->_renderer.GetMouse());
+	checkControls(this->_renderer.GetKeyMap(), this->_renderer.GetMouseMap(), this->_renderer.GetMouse(), dt);
 
 	if(this->_shouldAddSources) {
 		addSources(cmd);
-		this->_shouldAddSources = false;
+		// this->_shouldAddSources = false;
 	}
 
 	// diffuseVelocity(cmd, dt);
 	// advectVelocity(cmd, dt);
 	// projectIncompressible(cmd, dt);
 
-	diffuseDensity(cmd, dt);
+	if(this->_shouldDiffuseDensity)
+		diffuseDensity(cmd, dt);
+
 	// advectDensity(cmd, dt);
 
 	renderVoxelVolume(cmd);
@@ -104,15 +109,22 @@ UniformFluidEngine::diffuseDensity(VkCommandBuffer cmd, float dt)
 {
 	this->_computeDiffuseDensity.Bind(cmd);
 
-	FluidPushConstants pc = {.time = this->_renderer.GetElapsedTime(), .dt = dt};
-	vkCmdPushConstants(cmd, this->_computeDiffuseDensity.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(pc), &pc);
 
-	const uint32_t groupCount = getFluidDispatchGroupCount(8);
-	vkCmdDispatch(cmd, groupCount, groupCount, groupCount);
-	VkBufferMemoryBarrier barriers[] = {
-		this->_buffFluidGrid.CreateBarrier(VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT)
-	};
-	vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, nullptr, ARRLEN(barriers), barriers, 0, nullptr);
+	for(uint32_t i = 0; i < Constants::NumDiffusionIterations; i++) {
+		FluidPushConstants pc = {
+			.time = this->_renderer.GetElapsedTime(),
+			.dt = dt/Constants::NumDiffusionIterations,
+			.redBlack = (i % 2)
+		};
+		vkCmdPushConstants(cmd, this->_computeDiffuseDensity.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(pc), &pc);
+
+		const uint32_t groupCount = getFluidDispatchGroupCount(8);
+		vkCmdDispatch(cmd, groupCount, groupCount, groupCount);
+		VkBufferMemoryBarrier barriers[] = {
+			this->_buffFluidGrid.CreateBarrier(VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT)
+		};
+		vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, nullptr, ARRLEN(barriers), barriers, 0, nullptr);
+	}
 }
 
 void
@@ -145,20 +157,25 @@ UniformFluidEngine::renderVoxelVolume(VkCommandBuffer cmd)
 }
 
 void
-UniformFluidEngine::checkInput(KeyMap& keyMap, MouseMap& mouseMap, Mouse& mouse)
+UniformFluidEngine::checkControls(KeyMap& keyMap, MouseMap& mouseMap, Mouse& mouse, float dt)
 {
 	if(mouseMap[SDL_BUTTON_LEFT]) {
-		float mouse_sens = -0.003f;
-		glm::vec2 look = mouse.move * mouse_sens;
+		const float mouse_sens = -0.1875f;
+		glm::vec2 look = mouse.move * mouse_sens * dt;
 		this->_renderer.GetCamera().OrbitYaw(-look.x);
 		this->_renderer.GetCamera().OrbitPitch(-look.y);
 		mouse.move = {0.0, 0.0};
 	}
 
 	if(mouse.scroll != 0.0f) {
-		float delta = -mouse.scroll * 0.1f;
+		float delta = -mouse.scroll * 6.25f * dt;
 		this->_renderer.GetCamera().distance += delta;
 		mouse.scroll = 0.0;
+	}
+
+	if(keyMap[SDLK_q]) {
+		this->_shouldDiffuseDensity = !this->_shouldDiffuseDensity;
+		keyMap[SDLK_q] = false;
 	}
 }
 
@@ -199,7 +216,7 @@ UniformFluidEngine::initResources()
 bool
 UniformFluidEngine::initPipelines()
 {
-    this->_renderer.CreateComputePipeline(this->_computeRaycastVoxelGrid, SHADER_DIRECTORY"/voxelTracer.comp.spv", {
+    this->_renderer.CreateComputePipeline(this->_computeRaycastVoxelGrid, SHADER_DIRECTORY"/voxelTracerAccum.comp.spv", {
         BufferDescriptor(0, 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, this->_buffFluidGrid.bufferHandle, Constants::VoxelGridSize),
         ImageDescriptor(0, 1, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, this->_renderer.GetDrawImage().imageView, VK_NULL_HANDLE, this->_renderer.GetDrawImage().layout)
     },
