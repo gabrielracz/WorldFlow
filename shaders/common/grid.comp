@@ -1,0 +1,25 @@
+struct FluidGridCell
+{
+	vec3 velocity;
+	float density;
+};
+
+struct FluidGridInfo
+{
+	uvec3 resolution;
+	float scale;
+};
+
+bool isWithinGridBounds(uvec3 p, uvec3 gridResolution)
+{
+    return p.x < gridResolution.x || 
+           p.y < gridResolution.y || 
+           p.z < gridResolution.z;
+}
+
+uint getGridIndex(uvec3 p, uvec3 gridResolution)
+{
+    return p.z * uint(gridResolution.x) * uint(gridResolution.y) +
+           p.y * uint(gridResolution.x) +
+           p.x;
+}

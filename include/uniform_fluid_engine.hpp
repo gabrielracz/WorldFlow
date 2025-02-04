@@ -8,8 +8,6 @@
 
 #include <atomic>
 
-
-
 class Renderer;
 class UniformFluidEngine
 {
@@ -21,7 +19,12 @@ public:
 
 private:
 	void update(VkCommandBuffer cmd, float dt);
-	void addVoxels(VkCommandBuffer cmd);
+	void addSources(VkCommandBuffer cmd);
+	void diffuseVelocity(VkCommandBuffer cmd, float dt);
+	void advectVelocity(VkCommandBuffer cmd, float dt);
+	void projectIncompressible(VkCommandBuffer cmd, float dt);
+	void diffuseDensity(VkCommandBuffer cmd, float dt);
+	void advectDensity(VkCommandBuffer cmd, float dt);
 	void renderVoxelVolume(VkCommandBuffer cmd);
 
 	void checkInput(KeyMap& keyMap, MouseMap& mouseMap, Mouse& mouse);
@@ -33,9 +36,12 @@ private:
 	Renderer& _renderer;
 
 	ComputePipeline _computeRaycastVoxelGrid;
-	ComputePipeline _computeAddVoxels;
+	ComputePipeline _computeAddSources;
 
-	Buffer _buffVoxelGrid;
+	Buffer _buffFluidGrid;
+	Buffer _buffFluidInfo;
+
+	bool _shouldAddSources {true};
 };
 
 

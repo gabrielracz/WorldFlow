@@ -289,8 +289,6 @@ Renderer::CreateImage(Image &newImg, VkExtent3D extent, VkImageUsageFlags usageF
         newImg.Transition(cmd, layout);
     });
 
-    std::cout << "LAY" << newImg.layout << std::endl;
-
     if(autoCleanup) {
         this->_deletionQueue.push([this, newImg]() {
             vmaDestroyImage(this->_allocator, newImg.image, newImg.allocation);
@@ -576,7 +574,7 @@ Renderer::initVulkan()
     vkb::Result<vkb::Instance> instanceRet = builder
         .set_app_name(this->_name.c_str())
         .request_validation_layers(Constants::IsValidationLayersEnabled)
-        // .add_validation_feature_enable(VK_VALIDATION_FEATURE_ENABLE_SYNCHRONIZATION_VALIDATION_EXT)
+        .add_validation_feature_enable(VK_VALIDATION_FEATURE_ENABLE_SYNCHRONIZATION_VALIDATION_EXT)
         .use_default_debug_messenger()
         .require_api_version(1, 3, 0)
         .build();

@@ -7,6 +7,7 @@
 
 #include <deque>
 #include <functional>
+#include <vulkan/vulkan_core.h>
 
 typedef std::unordered_map<SDL_Keycode, bool> KeyMap;
 typedef std::unordered_map<int, bool> MouseMap;
@@ -48,6 +49,12 @@ struct ComputePipeline
     VkPipelineLayout layout {};
     std::vector<VkDescriptorSet> descriptorSets {};
     VkDescriptorSetLayout descriptorLayout {};
+
+	void Bind(VkCommandBuffer cmd)
+	{
+		vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, this->pipeline);
+		vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, this->layout, 0, this->descriptorSets.size(), this->descriptorSets.data(), 0, nullptr);
+	}
 };
 
 struct GraphicsPipeline
@@ -56,6 +63,12 @@ struct GraphicsPipeline
     VkPipelineLayout layout {};
     std::vector<VkDescriptorSet> descriptorSets {};
     VkDescriptorSetLayout descriptorLayout {};
+	
+	void Bind(VkCommandBuffer cmd)
+	{
+		vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, this->pipeline);
+		vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, this->layout, 0, this->descriptorSets.size(), this->descriptorSets.data(), 0, nullptr);
+	}
 };
 
 enum class BlendMode {

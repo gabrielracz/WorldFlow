@@ -6,48 +6,46 @@
 
 #include "renderer_structs.hpp"
 #include "vma.hpp"
-#include "vk_initializers.h"
 
 #include <functional>
 #include <vulkan/vulkan_core.h>
 
 /* STRUCTS */
-struct alignas(16) VoxelGridCell
+struct alignas(16) FluidGridCell
 {
-	float value;
+	glm::vec3 velocity;
+	float density;
 };
 
-struct alignas(16) AddVoxelsPushConstants
+struct alignas(16) FluidGridInfo
 {
-    glm::uvec3 gridSize;
-    float gridScale;
-    float time;
+	glm::uvec3 resolution;
+	float scale;
 };
 
-// struct alignas(16) RayTracerPushConstants
-// {
-//     glm::mat4 inverseProjection;  
-//     glm::mat4 inverseView;        
-//     glm::vec3 cameraPos;         
-//     float nearPlane;        
-//     glm::vec2 screenSize;        
-//     float maxDistance;      
-//     float stepSize;         
-//     glm::vec3 gridSize;          
-//     float gridScale;          
-//     glm::vec4 lightSource;
-//     glm::vec4 baseColor;
-// };
+struct FluidPushConstants
+{
+	float time;
+};
 
+/* CONSTANTS */
 namespace Constants
 {
 constexpr size_t VoxelGridResolution = 128;
-constexpr size_t VoxelGridSize = VoxelGridResolution * VoxelGridResolution * VoxelGridResolution * sizeof(VoxelGridCell);
+constexpr size_t VoxelGridSize = VoxelGridResolution * VoxelGridResolution * VoxelGridResolution * sizeof(FluidGridCell);
 constexpr float VoxelGridScale = 2.0f;
 
 constexpr glm::vec3 LightPosition = glm::vec4(10.0, 10.0, 10.0, 1.0);
 }
 
+/* FUNCTIONS */
+static uint32_t
+getFluidDispatchGroupCount(uint32_t localGroupSize)
+{
+	return Constants::VoxelGridResolution / localGroupSize;
+}
+
+/* CLASS */
 UniformFluidEngine::UniformFluidEngine(Renderer& renderer)
 	: _renderer(renderer) {}
 
@@ -69,27 +67,33 @@ void UniformFluidEngine::update(VkCommandBuffer cmd, float dt)
 {
 	checkInput(this->_renderer.GetKeyMap(), this->_renderer.GetMouseMap(), this->_renderer.GetMouse());
 
-	addVoxels(cmd);
+	if(this->_shouldAddSources) {
+		addSources(cmd);
+		this->_shouldAddSources = false;
+	}
+
+	// diffuseVelocity(cmd, dt);
+	// advectVelocity(cmd, dt);
+	// projectIncompressible(cmd, dt);
+
+	// diffuseDensity(cmd, dt);
+	// advectDensity(cmd, dt);
+
 	renderVoxelVolume(cmd);
 }
 
 void
-UniformFluidEngine::addVoxels(VkCommandBuffer cmd)
+UniformFluidEngine::addSources(VkCommandBuffer cmd)
 {
-	vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, this->_computeAddVoxels.pipeline);
-	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, this->_computeAddVoxels.layout, 0, 1, this->_computeAddVoxels.descriptorSets.data(), 0, nullptr);
-	VoxelizerPushConstants pc {
-		.gridSize = glm::uvec3(Constants::VoxelGridResolution),
-		.gridScale = 1.0/Constants::VoxelGridResolution,
-		.time = this->_renderer.GetElapsedTime()
-	};
-	vkCmdPushConstants(cmd, this->_computeAddVoxels.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(VoxelizerPushConstants), &pc);
-	constexpr uint32_t localWorkgroupSize = 8;
-	constexpr uint32_t groupCount = Constants::VoxelGridResolution / localWorkgroupSize;
-	vkCmdDispatch(cmd, groupCount, groupCount, groupCount);
+	this->_computeAddSources.Bind(cmd);
 
+	FluidPushConstants pc = {.time = this->_renderer.GetElapsedTime()};
+	vkCmdPushConstants(cmd, this->_computeAddSources.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(FluidPushConstants), &pc);
+
+	const uint32_t groupCount = getFluidDispatchGroupCount(8);
+	vkCmdDispatch(cmd, groupCount, groupCount, groupCount);
 	VkBufferMemoryBarrier barriers[] = {
-		this->_buffVoxelGrid.CreateBarrier(VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT)
+		this->_buffFluidGrid.CreateBarrier(VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT)
 	};
 	vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, nullptr, ARRLEN(barriers), barriers, 0, nullptr);
 }
@@ -116,62 +120,12 @@ UniformFluidEngine::renderVoxelVolume(VkCommandBuffer cmd)
 		.gridSize = glm::vec3(Constants::VoxelGridResolution),
 		.gridScale = Constants::VoxelGridScale,
 		.lightSource = glm::vec4(30.0, 50.0, 20.0, 1.0),
-		// .baseColor = glm::vec4(HEXCOLOR(0xFFBF00))
-		// .baseColor = glm::vec4(HEXCOLOR(0x675CFF))
 		.baseColor = glm::vec4(0.8, 0.8, 0.8, 1.0)
 	};
 	vkCmdPushConstants(cmd, this->_computeRaycastVoxelGrid.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(RayTracerPushConstants), &rtpc);
 	VkExtent3D groupCounts = this->_renderer.GetWorkgroupCounts(8);
 	vkCmdDispatch(cmd, groupCounts.width, groupCounts.height, groupCounts.depth);
 }
-
-// void
-// UniformFluidEngine::addVoxels(VkCommandBuffer cmd)
-// {
-// 	vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, this->_voxelizerPipeline.pipeline);
-// 	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, this->_voxelizerPipeline.layout, 0, 1, this->_voxelizerPipeline.descriptorSets.data(), 0, nullptr);
-// 	VoxelizerPushConstants pc = {
-// 		.gridSize = glm::vec3(Constants::VoxelGridResolution),
-// 		.gridScale = 1.0f/Constants::VoxelGridResolution,
-// 		.time = this->_renderer.GetElapsedTime()
-// 	};
-// 	vkCmdPushConstants(cmd, this->_voxelizerPipeline.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(VoxelizerPushConstants), &pc);
-
-// 	constexpr uint32_t localWorkgroupSize = 8;
-// 	constexpr uint32_t groupCount = Constants::VoxelGridResolution / localWorkgroupSize;
-// 	vkCmdDispatch(cmd, groupCount, groupCount, groupCount);
-// }
-
-// void
-// UniformFluidEngine::rayCastVoxelVolume(VkCommandBuffer cmd)
-// {
-// 	this->_renderer.GetDrawImage().Transition(cmd, VK_IMAGE_LAYOUT_GENERAL);
-// 	vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, this->_raytracerPipeline.pipeline);
-// 	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, this->_raytracerPipeline.layout, 0, 1, this->_raytracerPipeline.descriptorSets.data(), 0, nullptr);
-
-// 	glm::mat4 view = this->_renderer.GetCamera().GetViewMatrix();
-// 	glm::mat4 invView = glm::inverse(view);
-// 	glm::mat4 projection = this->_renderer.GetCamera().GetProjectionMatrix();
-// 	projection[1][1] *= -1;
-// 	RayTracerPushConstants rtpc = {
-// 		.inverseProjection = glm::inverse(projection),
-// 		.inverseView = invView,
-// 		.cameraPos = invView * glm::vec4(0.0, 0.0, 0.0, 1.0),
-// 		.nearPlane = 0.1f,
-// 		.screenSize = glm::vec2(this->_renderer.GetWindowExtent2D().width, this->_renderer.GetWindowExtent2D().height),
-// 		.maxDistance = 2000.0f,
-// 		.stepSize = 0.1,
-// 		.gridSize = glm::vec3(Constants::VoxelGridResolution),
-// 		.gridScale = Constants::VoxelGridScale,
-// 		.lightSource = glm::vec4(30.0, 50.0, 20.0, 1.0),
-// 		// .baseColor = glm::vec4(HEXCOLOR(0xFFBF00))
-// 		// .baseColor = glm::vec4(HEXCOLOR(0x675CFF))
-// 		.baseColor = glm::vec4(0.8, 0.8, 0.8, 1.0)
-// 	};
-// 	vkCmdPushConstants(cmd, this->_raytracerPipeline.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(RayTracerPushConstants), &rtpc);
-// 	VkExtent3D groupCounts = this->_renderer.GetWorkgroupCounts(8);
-// 	vkCmdDispatch(cmd, groupCounts.width, groupCounts.height, groupCounts.depth);
-// }
 
 void
 UniformFluidEngine::checkInput(KeyMap& keyMap, MouseMap& mouseMap, Mouse& mouse)
@@ -196,11 +150,31 @@ UniformFluidEngine::initResources()
 {
 
 	this->_renderer.CreateBuffer(
-		this->_buffVoxelGrid,
+		this->_buffFluidGrid,
 		Constants::VoxelGridSize,
-		VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, 
+		VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, 
 		VMA_MEMORY_USAGE_GPU_ONLY
 	);
+	this->_renderer.ImmediateSubmit([this](VkCommandBuffer cmd) {
+		vkCmdFillBuffer(cmd, this->_buffFluidGrid.bufferHandle, 0, VK_WHOLE_SIZE, 0);
+	});
+
+	this->_renderer.CreateBuffer(
+		this->_buffFluidInfo,
+		sizeof(FluidGridInfo),
+		VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+		VMA_MEMORY_USAGE_GPU_ONLY
+	);
+	this->_renderer.ImmediateSubmit([this](VkCommandBuffer cmd) {
+		FluidGridInfo fluidInfo = {
+			.resolution = glm::uvec3(Constants::VoxelGridResolution),
+			.scale = 1.0
+		};
+		VkBufferCopy copy = {
+			.size = sizeof(FluidGridInfo),
+		};
+		vkCmdUpdateBuffer(cmd, this->_buffFluidInfo.bufferHandle, 0, sizeof(FluidGridInfo), &fluidInfo);
+	});
 
 	return true;
 }
@@ -209,14 +183,15 @@ bool
 UniformFluidEngine::initPipelines()
 {
     this->_renderer.CreateComputePipeline(this->_computeRaycastVoxelGrid, SHADER_DIRECTORY"/voxelTracer.comp.spv", {
-        BufferDescriptor(0, 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, this->_buffVoxelGrid.bufferHandle, Constants::VoxelGridSize),
+        BufferDescriptor(0, 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, this->_buffFluidGrid.bufferHandle, Constants::VoxelGridSize),
         ImageDescriptor(0, 1, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, this->_renderer.GetDrawImage().imageView, VK_NULL_HANDLE, this->_renderer.GetDrawImage().layout)
     },
     sizeof(RayTracerPushConstants));
 
-	this->_renderer.CreateComputePipeline(this->_computeAddVoxels, SHADER_DIRECTORY"/voxelizer.comp.spv", {
-		BufferDescriptor(0, 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, this->_buffVoxelGrid.bufferHandle, Constants::VoxelGridSize)
+	this->_renderer.CreateComputePipeline(this->_computeAddSources, SHADER_DIRECTORY"/fluid_add_sources.comp.spv", {
+		BufferDescriptor(0, 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, this->_buffFluidInfo.bufferHandle, sizeof(FluidGridInfo)),
+		BufferDescriptor(0, 1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, this->_buffFluidGrid.bufferHandle, Constants::VoxelGridSize)
 	},
-	sizeof(VoxelizerPushConstants));
+	sizeof(FluidPushConstants));
 	return true;	
 }
