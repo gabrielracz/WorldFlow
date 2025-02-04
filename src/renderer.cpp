@@ -609,17 +609,25 @@ Renderer::initVulkan()
         .shaderInt64 = true
     };
 
+	VkPhysicalDeviceShaderAtomicFloatFeaturesEXT atomicFloatFeatures{
+		.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_ATOMIC_FLOAT_FEATURES_EXT,
+		.shaderBufferFloat32Atomics = true
+	};
+
+
     vkb::PhysicalDeviceSelector selector {vkbInstance};
     vkb::PhysicalDevice physDevice = selector
         .set_minimum_version(1, 3)
         .set_required_features_13(features)
         .set_required_features_12(features12)
         .set_required_features(featuresBase)
+		.add_required_extension("VK_EXT_shader_atomic_float")
         .set_surface(this->_surface)
         .select()
         .value();
     
     vkb::DeviceBuilder deviceBuilder {physDevice};
+	deviceBuilder.add_pNext(&atomicFloatFeatures);
     vkb::Device vkbDevice = deviceBuilder.build().value();
     this->_device = vkbDevice.device;
     this->_gpu = physDevice.physical_device;
