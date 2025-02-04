@@ -37,6 +37,7 @@ private:
 
 	ComputePipeline _computeRaycastVoxelGrid;
 	ComputePipeline _computeAddSources;
+	ComputePipeline _computeDiffuseDensity;
 
 	Buffer _buffFluidGrid;
 	Buffer _buffFluidInfo;

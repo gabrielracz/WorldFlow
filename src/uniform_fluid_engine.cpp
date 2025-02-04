@@ -23,9 +23,10 @@ struct alignas(16) FluidGridInfo
 	float scale;
 };
 
-struct FluidPushConstants
+struct alignas(16) FluidPushConstants
 {
 	float time;
+	float dt;
 };
 
 /* CONSTANTS */
@@ -76,7 +77,7 @@ void UniformFluidEngine::update(VkCommandBuffer cmd, float dt)
 	// advectVelocity(cmd, dt);
 	// projectIncompressible(cmd, dt);
 
-	// diffuseDensity(cmd, dt);
+	diffuseDensity(cmd, dt);
 	// advectDensity(cmd, dt);
 
 	renderVoxelVolume(cmd);
@@ -88,7 +89,23 @@ UniformFluidEngine::addSources(VkCommandBuffer cmd)
 	this->_computeAddSources.Bind(cmd);
 
 	FluidPushConstants pc = {.time = this->_renderer.GetElapsedTime()};
-	vkCmdPushConstants(cmd, this->_computeAddSources.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(FluidPushConstants), &pc);
+	vkCmdPushConstants(cmd, this->_computeAddSources.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(pc), &pc);
+
+	const uint32_t groupCount = getFluidDispatchGroupCount(8);
+	vkCmdDispatch(cmd, groupCount, groupCount, groupCount);
+	VkBufferMemoryBarrier barriers[] = {
+		this->_buffFluidGrid.CreateBarrier(VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT)
+	};
+	vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, nullptr, ARRLEN(barriers), barriers, 0, nullptr);
+}
+
+void
+UniformFluidEngine::diffuseDensity(VkCommandBuffer cmd, float dt)
+{
+	this->_computeDiffuseDensity.Bind(cmd);
+
+	FluidPushConstants pc = {.time = this->_renderer.GetElapsedTime(), .dt = dt};
+	vkCmdPushConstants(cmd, this->_computeDiffuseDensity.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(pc), &pc);
 
 	const uint32_t groupCount = getFluidDispatchGroupCount(8);
 	vkCmdDispatch(cmd, groupCount, groupCount, groupCount);
@@ -193,5 +210,13 @@ UniformFluidEngine::initPipelines()
 		BufferDescriptor(0, 1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, this->_buffFluidGrid.bufferHandle, Constants::VoxelGridSize)
 	},
 	sizeof(FluidPushConstants));
+
+	this->_renderer.CreateComputePipeline(this->_computeDiffuseDensity, SHADER_DIRECTORY"/fluid_diffuse_density.comp.spv", {
+		BufferDescriptor(0, 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, this->_buffFluidInfo.bufferHandle, sizeof(FluidGridInfo)),
+		BufferDescriptor(0, 1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, this->_buffFluidGrid.bufferHandle, Constants::VoxelGridSize)
+	},
+	sizeof(FluidPushConstants));
+
+
 	return true;	
 }
