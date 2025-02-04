@@ -68,3 +68,7 @@ float cnoise(vec3 P){
   float n_xyz = mix(n_yz.x, n_yz.y, fade_xyz.x); 
   return 2.2 * n_xyz;
 }
+
+vec3 clampVector(vec3 a, vec3 minVec, vec3 maxVec) {
+    return min(max(a, minVec), maxVec);
+}

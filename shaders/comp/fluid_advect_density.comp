@@ -1,0 +1,106 @@
+#version 460
+#extension GL_GOOGLE_include_directive : enable
+#extension GL_EXT_shader_atomic_float : enable
+#include "../common/grid.comp"
+#include "../common/utils.comp"
+
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 8) in;
+
+layout(std430, binding = 0) buffer FluidInfo {
+	FluidGridInfo gridInfo;
+};
+
+layout(std430, binding = 1) buffer FluidGrid {
+	FluidGridCell grid[];
+};
+
+layout(push_constant) uniform PushConstants {
+	float elapsed;
+	float dt;
+	uint redBlack;
+} pc;
+
+
+float trilinearInterpolation(vec3 gridPoint, float values[6]) {
+    // Ensure gridPoint is within the 0-1 range for each dimension.  If your actual
+    // grid isn't normalized, you'll need to adjust gridPoint accordingly
+    gridPoint = clamp(gridPoint, vec3(0.0), vec3(1.0));
+
+    // Calculate the indices of the 8 surrounding voxels.  We're assuming
+    // the values are arranged in a "cube" where values[0] is the origin
+    // and values[5] is the opposite corner.  The order matters!
+    int x0 = int(floor(gridPoint.x));
+    int x1 = int(ceil(gridPoint.x));
+    int y0 = int(floor(gridPoint.y));
+    int y1 = int(ceil(gridPoint.y));
+    int z0 = int(floor(gridPoint.z));
+    int z1 = int(ceil(gridPoint.z));
+
+    // Calculate interpolation factors (how far along each axis we are)
+    float fx = gridPoint.x - float(x0);
+    float fy = gridPoint.y - float(y0);
+    float fz = gridPoint.z - float(z0);
+
+    // Perform trilinear interpolation.  This is done by interpolating
+    // along one axis, then another, and finally the third.
+
+    // Interpolate along x:
+    float c00 = mix(values[x0 + y0 * 2 + z0 * 4], values[x1 + y0 * 2 + z0 * 4], fx);
+    float c01 = mix(values[x0 + y0 * 2 + z1 * 4], values[x1 + y0 * 2 + z1 * 4], fx);
+    float c10 = mix(values[x0 + y1 * 2 + z0 * 4], values[x1 + y1 * 2 + z0 * 4], fx);
+    float c11 = mix(values[x0 + y1 * 2 + z1 * 4], values[x1 + y1 * 2 + z1 * 4], fx);
+
+    // Interpolate along y:
+    float c0 = mix(c00, c10, fy);
+    float c1 = mix(c01, c11, fy);
+
+    // Interpolate along z:
+    float result = mix(c0, c1, fz);
+    return result;
+}
+
+vec3 traceVelocityField(vec3 pos, vec3 velocity, float dt)
+{
+    // TODO: more sophisticated path trace?
+    return pos + (velocity * -dt);
+}
+
+float sampleDensity(uvec3 center, ivec3 offset)
+{
+	uvec3 cell = center + offset;
+	bool valid = all(greaterThanEqual(cell, uvec3(0))) && all(lessThan(cell, gridInfo.resolution));
+	// if(!valid) {return grid[getGridIndex(cell, gridInfo.resolution)].density;}
+	if(!valid) {return 0.0;}
+	return grid[getGridIndex(cell, gridInfo.resolution)].density;
+}
+
+void main()
+{
+	uint index = getGridIndex(gl_GlobalInvocationID, gridInfo.resolution);
+	FluidGridCell cell = grid[index];
+	// center grid cell position
+	vec3 pos = vec3(gl_GlobalInvocationID) + vec3(0.5, 0.5, 0.5);
+
+	vec3 pastPos = traceVelocityField(pos, cell.velocity, pc.dt);
+	pastPos = clampVector(pastPos, vec3(0, 0, 0), vec3(gridInfo.resolution - 1));
+	uvec3 center = uvec3(pastPos);
+
+	float l = sampleDensity(center, ivec3(-1, 0, 0));
+	float r = sampleDensity(center, ivec3(1, 0, 0));
+	float u = sampleDensity(center, ivec3(0, 1, 0));
+	float d = sampleDensity(center, ivec3(0, -1, 0));
+	float f = sampleDensity(center, ivec3(0, 0, 1));
+	float b = sampleDensity(center, ivec3(0, 0, -1));
+
+	float values[6] = {
+		l, r, d, u, f, b
+	};
+
+	// Perform trilinear interpolation
+	// float interpolatedDensity = 
+	// 	sxl * (syu * (szu * n1 + szd * n2) + syd * (szu * n3 + szd * n4)) +
+	// 	sxr * (syu * (szu * n5 + szd * n6) + syd * (szu * n3 + szd * n4)); 
+	float interpolatedDensity = trilinearInterpolation(vec3(fract(pastPos.x), fract(pastPos.y), fract(pastPos.z)), values);
+
+	atomicExchange(grid[index].density, interpolatedDensity);
+}

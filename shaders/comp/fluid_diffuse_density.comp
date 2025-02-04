@@ -34,9 +34,12 @@ void main()
 	uint index = getGridIndex(center, gridInfo.resolution);
 	FluidGridCell cell = grid[index];
 
+	// Alternate updates in alternating checkerboard pattern to avoid atomics
 	if(mod(center.x + center.y + center.z + pc.redBlack, 2) == 0){
 		return;
 	}
+
+
 
 	float l = sampleDensity(center, ivec3(-1, 0, 0));
 	float r = sampleDensity(center, ivec3(1, 0, 0));

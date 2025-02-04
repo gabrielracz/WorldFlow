@@ -799,7 +799,7 @@ bool Renderer::initCamera()
 
     this->_camera.SetView(Constants::CameraPosition, glm::vec3(0.0, 0.0, 0.0), glm::vec3(0.0, 1.0, 0.0));
     this->_camera.Attach(&this->_origin);
-	this->_camera.OrbitYaw(PI/2);
+	this->_camera.OrbitYaw(PI/2); //TODO: why is this necessary to get proper coords
     this->_camera.SetupViewMatrix();
 
     return true;

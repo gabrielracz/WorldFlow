@@ -38,12 +38,13 @@ private:
 	ComputePipeline _computeRaycastVoxelGrid;
 	ComputePipeline _computeAddSources;
 	ComputePipeline _computeDiffuseDensity;
+	ComputePipeline _computeAdvectDensity;
 
 	Buffer _buffFluidGrid;
 	Buffer _buffFluidInfo;
 
 	bool _shouldAddSources {true};
-	bool _shouldDiffuseDensity {false};
+	bool _shouldDiffuseDensity {true};
 };
 
 
