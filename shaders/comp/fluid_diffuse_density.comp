@@ -28,16 +28,30 @@ float sampleDensity(uvec3 center, ivec3 offset)
 	return grid[getGridIndex(cell, gridInfo.resolution)].density;
 }
 
+uvec3 getRedBlackPosition(uvec3 threadID, uint redBlack) {
+    // For a checkerboard pattern in 3D, we only need to modify X
+    // Y and Z stay the same as the thread ID
+    uint x = threadID.x * 2;  // Double the X position
+    
+    // Offset X based on Y and Z parity
+    bool shouldOffset = ((threadID.y + threadID.z) % 2) == 0;
+    x = x + (shouldOffset ? redBlack : (1 - redBlack));
+    
+    return uvec3(x, threadID.y, threadID.z);
+}
+
+
 void main()
 {
-	uvec3 center = gl_GlobalInvocationID;
+	// uvec3 center = gl_GlobalInvocationID;
+	uvec3 center = getRedBlackPosition(gl_GlobalInvocationID, pc.redBlack);
 	uint index = getGridIndex(center, gridInfo.resolution);
 	FluidGridCell cell = grid[index];
 
 	// Alternate updates in alternating checkerboard pattern to avoid atomics
-	if(mod(center.x + center.y + center.z + pc.redBlack, 2) == 0){
-		return;
-	}
+	// if(mod(center.x + center.y + center.z + pc.redBlack, 2) == 0){
+	// 	return;
+	// }
 
 	float l = sampleDensity(center, ivec3(-1, 0, 0));
 	float r = sampleDensity(center, ivec3(1, 0, 0));
@@ -47,12 +61,12 @@ void main()
 	float b = sampleDensity(center, ivec3(0, 0, -1));
 	float c = cell.density;
 
-    const float diffRate =  0.0005;
+    const float diffRate =  0.001;
 	const float N = gridInfo.resolution.x * gridInfo.resolution.y;
     const float a = diffRate*pc.dt*N; 
 
     const float result = (c + a*(l + r + u + d + f + b)) / (1+6*a); // backwards stable
 
 	// atomicExchange(grid[index].density, result);
-	grid[index].density;
+	grid[index].density = result;
 }
