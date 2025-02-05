@@ -50,7 +50,7 @@ private:
 	Buffer _buffFluidGrid;
 	Buffer _buffFluidInfo;
 
-	bool _shouldAddSources {true};
+	bool _shouldAddSources {false};
 	bool _shouldDiffuseDensity {false};
 };
 

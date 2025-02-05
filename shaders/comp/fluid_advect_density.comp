@@ -53,7 +53,7 @@ void main()
 	float b = sampleDensity(center, ivec3(0, 0, -1));
 
 	float values[6] = {
-		l, r, d, u, f, b
+		r, l, u, d, b, f
 	};
 	float interpolatedDensity = trilinearInterpolation(vec3(fract(pastPos.x), fract(pastPos.y), fract(pastPos.z)), values, cell.density);
 

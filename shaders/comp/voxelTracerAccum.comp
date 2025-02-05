@@ -122,7 +122,8 @@ vec4 traceVoxels(vec3 rayOrigin, vec3 rayDir) {
         
         // Bounds check
         if (all(greaterThanEqual(mapPos, ivec3(0))) && all(lessThan(mapPos, ivec3(pc.gridSize)))) {
-            float density = voxelData[index].divergence;
+            // float density = voxelData[index].divergence;
+            float density = length(voxelData[index].velocity)/200.0;
             
             if (density > 0.0) {
                 float contribution = density * pc.stepSize;

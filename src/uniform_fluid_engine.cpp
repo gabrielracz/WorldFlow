@@ -42,7 +42,7 @@ constexpr float VoxelGridScale = 2.0f;
 
 constexpr uint32_t LocalGroupSize = 8;
 
-constexpr uint32_t NumDiffusionIterations = 6;
+constexpr uint32_t NumDiffusionIterations = 10;
 constexpr uint32_t NumPressureIterations = NumDiffusionIterations;
 
 constexpr glm::vec3 LightPosition = glm::vec4(10.0, 10.0, 10.0, 1.0);
@@ -77,16 +77,17 @@ void UniformFluidEngine::update(VkCommandBuffer cmd, float dt)
 {
 	checkControls(this->_renderer.GetKeyMap(), this->_renderer.GetMouseMap(), this->_renderer.GetMouse(), dt);
 
-	if(this->_shouldAddSources) {
+	// if(this->_shouldAddSources) {
 		addSources(cmd);
-		this->_shouldAddSources = false;
-	}
+	// 	this->_shouldAddSources = false;
+	// }
 
 	diffuseVelocity(cmd, dt);
 	advectVelocity(cmd, dt);
+
 	computeDivergence(cmd);
 	solvePressure(cmd);
-	// projectIncompressible(cmd);
+	projectIncompressible(cmd);
 
 	// if(this->_shouldDiffuseDensity)
 		diffuseDensity(cmd, dt);
@@ -101,7 +102,7 @@ UniformFluidEngine::addSources(VkCommandBuffer cmd)
 {
 	this->_computeAddSources.Bind(cmd);
 
-	FluidPushConstants pc = {.time = this->_renderer.GetElapsedTime()};
+	FluidPushConstants pc = {.time = this->_renderer.GetElapsedTime(), .redBlack = this->_shouldAddSources};
 	vkCmdPushConstants(cmd, this->_computeAddSources.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(pc), &pc);
 
 	const uint32_t groupCount = getFluidDispatchGroupCount();
@@ -208,7 +209,7 @@ UniformFluidEngine::solvePressure(VkCommandBuffer cmd)
 {
 	this->_computeSolvePressure.Bind(cmd);
 
-	for(uint32_t i = 0; i < Constants::NumPressureIterations * 2; i++) {
+	for(uint32_t i = 0; i < Constants::NumPressureIterations * 4; i++) {
 		FluidPushConstants pc = {
 			.redBlack = (i % 2)
 		};

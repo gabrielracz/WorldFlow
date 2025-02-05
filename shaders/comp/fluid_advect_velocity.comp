@@ -58,9 +58,11 @@ void main()
 	const vec3 b = sampleVelocity(center, ivec3(0, 0, -1));
 
 	vec3 values[6] = {
-		l, r, d, u, f, b
+		r, l, u, d, b, f
 	};
-	vec3 interpolatedVelocity = trilinearInterpolation(vec3(fract(pastPos.x), fract(pastPos.y), fract(pastPos.z)), values, cell.velocity);
+	// vec3 interpolatedVelocity = trilinearInterpolation(vec3(fract(pastPos.x), fract(pastPos.y), fract(pastPos.z)), values, cell.velocity);
+	vec3 interpolatedVelocity = grid[getGridIndex(center, gridInfo.resolution)].velocity;
+
 
 	atomicExchange(grid[index].velocity.x, interpolatedVelocity.x);
 	atomicExchange(grid[index].velocity.y, interpolatedVelocity.y);

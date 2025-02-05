@@ -35,17 +35,24 @@ void main()
     // float radius = gridInfo.resolution.x / 2;
     float radius = gridInfo.resolution.x / 5;
     uvec3 gridCenter = gridInfo.resolution / 2;
+	gridCenter.x / 2;
     if(distance(pos, gridCenter) < radius) {
-		// float d = (1 + cnoise(vec3(pos * cellSize * 5.2) + vec3(pc.elapsed * 0.5)))/2.0;
-		// if(d > 0.6) {
-		// 	grid[index].density += 0.05;
-		// }
+		float d = (1 + cnoise(vec3(pos * cellSize * 5.2) + vec3(pc.elapsed * 0.5)))/2.0;
+		if(d > 0.6) {
+			if(pc.redBlack == 1)
+				grid[index].density = 0.2;
+		}
         // grid[index].density = cnoise(vec3(pos * cellSize * 5.2) + vec3(pc.elapsed * 0.5)) * 10.0;
-        grid[index].density = 0.2;
+        // grid[index].density = 0.2;
     }
 
-    if(pos.x < gridInfo.resolution.x / 8) {
-		float v = (1 + cnoise(vec3(pos * cellSize * 10.2) + vec3(pc.elapsed * 1.5)))/2.0 * 100.0;
-        grid[index].velocity = vec3(v, 0.0, 0.0);
+    if(pos.x < gridInfo.resolution.x / 8 && pos.y > gridCenter.y - 20 && pos.y < gridCenter.y + 20
+	   && pos.z > gridInfo.resolution.z - 20 && pos.z < gridInfo.resolution.z + 20) {
+		// float v = (1 + cnoise(vec3(pos * cellSize * 3.2) + vec3(pc.elapsed * 0.2)))/2.0 * 100.0;
+        // grid[index].velocity += vec3(v, 0.0, 0.0);
+		if(pc.redBlack == 1)
+			grid[index].velocity += vec3(40.0, 0.0, 0.0);
+		// if(pc.redBlack == 1)
+		// 	grid[index].density = 0.2;
     }
 }
