@@ -23,7 +23,7 @@ vec3 sampleVelocity(uvec3 center, ivec3 offset)
 {
 	uvec3 cell = center + offset;
 	bool valid = all(greaterThanEqual(cell, uvec3(0))) && all(lessThan(cell, gridInfo.resolution));
-	// if(!valid) {return grid[getGridIndex(cell, gridInfo.resolution)].density;}
+	// if(!valid) {return -grid[getGridIndex(cell, gridInfo.resolution)].velocity;}
 	if(!valid) {return vec3(0.0);}
 	return grid[getGridIndex(cell, gridInfo.resolution)].velocity;
 }
@@ -47,7 +47,7 @@ void main()
 	const vec3 b = sampleVelocity(center, ivec3(0, 0, -1));
 	const vec3 c = cell.velocity;
 
-    const float diffRate =  0.005;
+    const float diffRate =  0.05;
 	const float N = gridInfo.resolution.x * gridInfo.resolution.y;
     const float a = diffRate*pc.dt*N; 
 

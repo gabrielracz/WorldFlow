@@ -2,6 +2,7 @@
 #extension GL_GOOGLE_include_directive : enable
 #extension GL_EXT_shader_atomic_float : enable
 #include "../common/grid.comp"
+#include "../common/utils.comp"
 
 layout(local_size_x = 8, local_size_y = 8, local_size_z = 8) in;
 
@@ -23,21 +24,16 @@ float samplePressure(uvec3 center, ivec3 offset)
 {
 	uvec3 cell = center + offset;
 	bool valid = all(greaterThanEqual(cell, uvec3(0))) && all(lessThan(cell, gridInfo.resolution));
-	if(!valid) {return grid[getGridIndex(cell, gridInfo.resolution)].pressure;}
-	// if(!valid) return 0.0;
+	// if(!valid) {return grid[getGridIndex(cell, gridInfo.resolution)].pressure;}
+	if(!valid) {return 0.0;}
 	return grid[getGridIndex(cell, gridInfo.resolution)].pressure;
 }
 
 void main()
 {
 	uvec3 center = gl_GlobalInvocationID;
-	uint index = getGridIndex(center, gridInfo.resolution);
+	uint index = getGridIndex(gl_GlobalInvocationID, gridInfo.resolution);
 	FluidGridCell cell = grid[index];
-
-	// Alternate updates in alternating checkerboard pattern to avoid atomics
-	if(mod(center.x + center.y + center.z + pc.redBlack, 2) == 0){
-		return;
-	}
 
 	const float l = samplePressure(center, ivec3(-1, 0, 0));
 	const float r = samplePressure(center, ivec3(1, 0, 0));
@@ -46,8 +42,12 @@ void main()
 	const float f = samplePressure(center, ivec3(0, 0, 1));
 	const float b = samplePressure(center, ivec3(0, 0, -1));
 
-    const float pres = (cell.divergence + l + r + d + u + f + b) / 6.0;
+	const float h = gridInfo.cellSize;
 
-    // guarded by red-black
-    grid[index].pressure = pres;
+	float gradX = 0.5 * (r - l) / h;
+	float gradY = 0.5 * (u - d) / h;
+	float gradZ = 0.5 * (b - f) / h;
+
+	vec3 newVelocity = cell.velocity - vec3(gradX, gradY, gradZ);
+	grid[index].velocity = newVelocity;
 }

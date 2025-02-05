@@ -24,6 +24,7 @@ private:
 	void advectVelocity(VkCommandBuffer cmd, float dt);
 	void computeDivergence(VkCommandBuffer cmd);
 	void solvePressure(VkCommandBuffer cmd);
+	void projectIncompressible(VkCommandBuffer cmd);
 	void diffuseDensity(VkCommandBuffer cmd, float dt);
 	void advectDensity(VkCommandBuffer cmd, float dt);
 	void renderVoxelVolume(VkCommandBuffer cmd);
@@ -42,6 +43,7 @@ private:
 	ComputePipeline _computeAdvectVelocity;
 	ComputePipeline _computeDivergence;
 	ComputePipeline _computeSolvePressure;
+	ComputePipeline _computeProjectIncompressible;
 	ComputePipeline _computeDiffuseDensity;
 	ComputePipeline _computeAdvectDensity;
 

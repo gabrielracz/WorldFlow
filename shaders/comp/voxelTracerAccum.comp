@@ -122,7 +122,7 @@ vec4 traceVoxels(vec3 rayOrigin, vec3 rayDir) {
         
         // Bounds check
         if (all(greaterThanEqual(mapPos, ivec3(0))) && all(lessThan(mapPos, ivec3(pc.gridSize)))) {
-            float density = voxelData[index].density;
+            float density = voxelData[index].divergence;
             
             if (density > 0.0) {
                 float contribution = density * pc.stepSize;
@@ -131,7 +131,7 @@ vec4 traceVoxels(vec3 rayOrigin, vec3 rayDir) {
                 // float attenuation = exp(-t * 0.05);
                 // vec4 voxelColor = vec4(vec3(baseColor.rgb * attenuation), contribution);
 
-				contribution = max(contribution, 0.002);
+				contribution = max(contribution, 0.005);
                 vec4 voxelColor = vec4(baseColor.rgb, contribution);
                 
                 voxelColor.rgb *= voxelColor.a;

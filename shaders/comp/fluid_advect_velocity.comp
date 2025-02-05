@@ -28,7 +28,12 @@ vec3 traceVelocityField(vec3 pos, vec3 velocity, float dt)
 vec3 sampleVelocity(uvec3 center, ivec3 offset)
 {
 	uvec3 cell = center + offset;
-	bool valid = all(greaterThanEqual(cell, uvec3(0))) && all(lessThan(cell, gridInfo.resolution));
+	bvec3 ge = greaterThanEqual(cell, uvec3(0));
+	bvec3 le = lessThan(cell, gridInfo.resolution);
+	bool valid = all(ge) && all(le);
+	if(!valid) {
+		return grid[getGridIndex(cell, gridInfo.resolution)].velocity * vec3(ge) * vec3(le);
+	}
 	// if(!valid) {return grid[getGridIndex(cell, gridInfo.resolution)].density;}
 	if(!valid) {return vec3(0.0);}
 	return grid[getGridIndex(cell, gridInfo.resolution)].velocity;

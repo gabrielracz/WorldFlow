@@ -36,13 +36,13 @@ struct alignas(16) FluidPushConstants
 /* CONSTANTS */
 namespace Constants
 {
-constexpr size_t VoxelGridResolution = 256;
+constexpr size_t VoxelGridResolution = 128;
 constexpr size_t VoxelGridSize = VoxelGridResolution * VoxelGridResolution * VoxelGridResolution * sizeof(FluidGridCell);
 constexpr float VoxelGridScale = 2.0f;
 
 constexpr uint32_t LocalGroupSize = 8;
 
-constexpr uint32_t NumDiffusionIterations = 16;
+constexpr uint32_t NumDiffusionIterations = 6;
 constexpr uint32_t NumPressureIterations = NumDiffusionIterations;
 
 constexpr glm::vec3 LightPosition = glm::vec4(10.0, 10.0, 10.0, 1.0);
@@ -82,16 +82,16 @@ void UniformFluidEngine::update(VkCommandBuffer cmd, float dt)
 		this->_shouldAddSources = false;
 	}
 
-	// diffuseVelocity(cmd, dt);
-	// advectVelocity(cmd, dt);
-	// computeDivergence(cmd);
-	// solvePressure(cmd);
-	// projectIncompressible(cmd, dt);
+	diffuseVelocity(cmd, dt);
+	advectVelocity(cmd, dt);
+	computeDivergence(cmd);
+	solvePressure(cmd);
+	// projectIncompressible(cmd);
 
 	// if(this->_shouldDiffuseDensity)
 		diffuseDensity(cmd, dt);
 
-	// advectDensity(cmd, dt);
+	advectDensity(cmd, dt);
 
 	renderVoxelVolume(cmd);
 }
@@ -208,7 +208,7 @@ UniformFluidEngine::solvePressure(VkCommandBuffer cmd)
 {
 	this->_computeSolvePressure.Bind(cmd);
 
-	for(uint32_t i = 0; i < Constants::NumPressureIterations; i++) {
+	for(uint32_t i = 0; i < Constants::NumPressureIterations * 2; i++) {
 		FluidPushConstants pc = {
 			.redBlack = (i % 2)
 		};
@@ -221,6 +221,20 @@ UniformFluidEngine::solvePressure(VkCommandBuffer cmd)
 		};
 		vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, nullptr, ARRLEN(barriers), barriers, 0, nullptr);
 	}
+}
+
+void
+UniformFluidEngine::projectIncompressible(VkCommandBuffer cmd)
+{
+	this->_computeProjectIncompressible.Bind(cmd);
+	FluidPushConstants pc{};
+	vkCmdPushConstants(cmd, this->_computeProjectIncompressible.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(pc), &pc);
+	const uint32_t groupCount = getFluidDispatchGroupCount();
+	vkCmdDispatch(cmd, groupCount, groupCount, groupCount);
+	VkBufferMemoryBarrier barriers[] = {
+		this->_buffFluidGrid.CreateBarrier(VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT)
+	};
+	vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, nullptr, ARRLEN(barriers), barriers, 0, nullptr);
 }
 
 void
@@ -270,8 +284,9 @@ UniformFluidEngine::checkControls(KeyMap& keyMap, MouseMap& mouseMap, Mouse& mou
 	}
 
 	if(keyMap[SDLK_q]) {
-		this->_shouldDiffuseDensity = !this->_shouldDiffuseDensity;
-		keyMap[SDLK_q] = false;
+		this->_shouldAddSources = true;
+	} else {
+		this->_shouldAddSources = false;
 	}
 }
 
@@ -355,6 +370,12 @@ UniformFluidEngine::initPipelines()
 	sizeof(FluidPushConstants));
 
 	this->_renderer.CreateComputePipeline(this->_computeSolvePressure, SHADER_DIRECTORY"/fluid_solve_pressure.comp.spv", {
+		BufferDescriptor(0, 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, this->_buffFluidInfo.bufferHandle, sizeof(FluidGridInfo)),
+		BufferDescriptor(0, 1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, this->_buffFluidGrid.bufferHandle, Constants::VoxelGridSize)
+	},
+	sizeof(FluidPushConstants));
+
+	this->_renderer.CreateComputePipeline(this->_computeProjectIncompressible, SHADER_DIRECTORY"/fluid_project_incompressible.comp.spv", {
 		BufferDescriptor(0, 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, this->_buffFluidInfo.bufferHandle, sizeof(FluidGridInfo)),
 		BufferDescriptor(0, 1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, this->_buffFluidGrid.bufferHandle, Constants::VoxelGridSize)
 	},

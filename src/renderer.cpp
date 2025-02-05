@@ -26,6 +26,7 @@ printDeviceProperties(vkb::PhysicalDevice& dev)
     const uint32_t* wgs = dev.properties.limits.maxComputeWorkGroupCount;
     std::cout << dev.properties.deviceName << "\n" <<
     "WorkGroups:      " << wgs[0] << " x " << wgs[1] << " x " << wgs[2] << ") \n" << 
+    "Compute Invocations:      " << dev.properties.limits.maxComputeWorkGroupInvocations  << '\n' <<
     "PushConstants:   " << dev.properties.limits.maxPushConstantsSize << "\n" <<
     "Uniform Buffers: " << dev.properties.limits.maxUniformBufferRange << std::endl;
 }
