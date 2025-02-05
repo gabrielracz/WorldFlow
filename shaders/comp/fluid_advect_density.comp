@@ -55,7 +55,8 @@ void main()
 	float values[6] = {
 		r, l, u, d, b, f
 	};
-	float interpolatedDensity = trilinearInterpolation(vec3(fract(pastPos.x), fract(pastPos.y), fract(pastPos.z)), values, cell.density);
+	// float interpolatedDensity = trilinearInterpolation(vec3(fract(pastPos.x), fract(pastPos.y), fract(pastPos.z)), values, cell.density);
+	float interpolatedDensity = grid[getGridIndex(center, gridInfo.resolution)].density;
 
 	atomicExchange(grid[index].density, interpolatedDensity);
 }

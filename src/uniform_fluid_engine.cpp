@@ -4,6 +4,8 @@
 #include "path_config.hpp"
 #include "defines.hpp"
 
+#include <glm/gtx/string_cast.hpp>
+
 #include "renderer_structs.hpp"
 #include "vma.hpp"
 
@@ -36,7 +38,7 @@ struct alignas(16) FluidPushConstants
 /* CONSTANTS */
 namespace Constants
 {
-constexpr size_t VoxelGridResolution = 128;
+constexpr size_t VoxelGridResolution = 64 + 32;
 constexpr size_t VoxelGridSize = VoxelGridResolution * VoxelGridResolution * VoxelGridResolution * sizeof(FluidGridCell);
 constexpr float VoxelGridScale = 2.0f;
 
@@ -77,6 +79,7 @@ void UniformFluidEngine::update(VkCommandBuffer cmd, float dt)
 {
 	checkControls(this->_renderer.GetKeyMap(), this->_renderer.GetMouseMap(), this->_renderer.GetMouse(), dt);
 
+	dt = 0.08;
 	// if(this->_shouldAddSources) {
 		addSources(cmd);
 	// 	this->_shouldAddSources = false;
@@ -319,6 +322,7 @@ UniformFluidEngine::initResources()
 		VkBufferCopy copy = {
 			.size = sizeof(FluidGridInfo),
 		};
+		std::cout << glm::to_string(fluidInfo.resolution) << std::endl;
 		vkCmdUpdateBuffer(cmd, this->_buffFluidInfo.bufferHandle, 0, sizeof(FluidGridInfo), &fluidInfo);
 	});
 

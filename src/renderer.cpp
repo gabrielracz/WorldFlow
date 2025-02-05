@@ -9,7 +9,7 @@
 
 namespace Constants
 {
-    constexpr bool IsValidationLayersEnabled = true;
+    constexpr bool IsValidationLayersEnabled = false;
     constexpr bool VSYNCEnabled = false;
 
     constexpr uint32_t FPSMeasurePeriod = 60;
