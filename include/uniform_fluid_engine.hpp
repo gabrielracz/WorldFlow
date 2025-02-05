@@ -22,7 +22,8 @@ private:
 	void addSources(VkCommandBuffer cmd);
 	void diffuseVelocity(VkCommandBuffer cmd, float dt);
 	void advectVelocity(VkCommandBuffer cmd, float dt);
-	void projectIncompressible(VkCommandBuffer cmd, float dt);
+	void computeDivergence(VkCommandBuffer cmd);
+	void solvePressure(VkCommandBuffer cmd);
 	void diffuseDensity(VkCommandBuffer cmd, float dt);
 	void advectDensity(VkCommandBuffer cmd, float dt);
 	void renderVoxelVolume(VkCommandBuffer cmd);
@@ -37,6 +38,10 @@ private:
 
 	ComputePipeline _computeRaycastVoxelGrid;
 	ComputePipeline _computeAddSources;
+	ComputePipeline _computeDiffuseVelocity;
+	ComputePipeline _computeAdvectVelocity;
+	ComputePipeline _computeDivergence;
+	ComputePipeline _computeSolvePressure;
 	ComputePipeline _computeDiffuseDensity;
 	ComputePipeline _computeAdvectDensity;
 
@@ -44,7 +49,7 @@ private:
 	Buffer _buffFluidInfo;
 
 	bool _shouldAddSources {true};
-	bool _shouldDiffuseDensity {true};
+	bool _shouldDiffuseDensity {false};
 };
 
 

@@ -10,7 +10,7 @@
 namespace Constants
 {
     constexpr bool IsValidationLayersEnabled = true;
-    constexpr bool VSYNCEnabled = true;
+    constexpr bool VSYNCEnabled = false;
 
     constexpr uint32_t FPSMeasurePeriod = 60;
     constexpr uint64_t TimeoutNs = 100000000;
@@ -147,11 +147,6 @@ Renderer::render(float dt)
     swapchainImage.Transition(cmd, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
     // vkutil::transition_image(cmd, swapchainImage, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
     vkutil::copy_image_to_image(cmd, drawImage.image, swapchainImage.image, this->_windowExtent, VkExtent3D{.width = this->_swapchainExtent.width, .height = this->_swapchainExtent.height, .depth = 1});
-
-
-    // this->_voxelImage.Transition(cmd, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
-    // vkutil::copy_image_to_image(cmd, this->_voxelImage.image, swapchainImage, this->_voxelImage.imageExtent, VkExtent3D{.width = this->_swapchainExtent.width, .height = this->_swapchainExtent.height, .depth = 1});
-    // this->_voxelImage.Clear(cmd);
 
     // transition to present format
     swapchainImage.Transition(cmd, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);

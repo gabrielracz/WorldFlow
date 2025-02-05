@@ -15,31 +15,35 @@ struct alignas(16) FluidGridCell
 {
 	glm::vec3 velocity;
 	float density;
+	float pressure;
+	float divergence;
+	glm::vec2 padding;
 };
 
 struct alignas(16) FluidGridInfo
 {
 	glm::uvec3 resolution;
-	float scale;
+	float cellSize;
 };
 
 struct alignas(16) FluidPushConstants
 {
 	float time;
 	float dt;
-	uint redBlack;
+	uint32_t redBlack;
 };
 
 /* CONSTANTS */
 namespace Constants
 {
-constexpr size_t VoxelGridResolution = 128;
+constexpr size_t VoxelGridResolution = 256;
 constexpr size_t VoxelGridSize = VoxelGridResolution * VoxelGridResolution * VoxelGridResolution * sizeof(FluidGridCell);
 constexpr float VoxelGridScale = 2.0f;
 
 constexpr uint32_t LocalGroupSize = 8;
 
 constexpr uint32_t NumDiffusionIterations = 10;
+constexpr uint32_t NumPressureIterations = NumDiffusionIterations;
 
 constexpr glm::vec3 LightPosition = glm::vec4(10.0, 10.0, 10.0, 1.0);
 }
@@ -78,8 +82,10 @@ void UniformFluidEngine::update(VkCommandBuffer cmd, float dt)
 		this->_shouldAddSources = false;
 	}
 
-	// diffuseVelocity(cmd, dt);
-	// advectVelocity(cmd, dt);
+	diffuseVelocity(cmd, dt);
+	advectVelocity(cmd, dt);
+	computeDivergence(cmd);
+	solvePressure(cmd);
 	// projectIncompressible(cmd, dt);
 
 	if(this->_shouldDiffuseDensity)
@@ -107,6 +113,27 @@ UniformFluidEngine::addSources(VkCommandBuffer cmd)
 }
 
 void
+UniformFluidEngine::diffuseVelocity(VkCommandBuffer cmd, float dt)
+{
+	this->_computeDiffuseVelocity.Bind(cmd);
+	for(uint32_t i = 0; i < Constants::NumDiffusionIterations; i++) {
+		FluidPushConstants pc = {
+			.time = this->_renderer.GetElapsedTime(),
+			.dt = dt/Constants::NumDiffusionIterations,
+			.redBlack = (i % 2)
+		};
+		vkCmdPushConstants(cmd, this->_computeDiffuseVelocity.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(pc), &pc);
+
+		const uint32_t groupCount = getFluidDispatchGroupCount();
+		vkCmdDispatch(cmd, groupCount, groupCount, groupCount);
+		VkBufferMemoryBarrier barriers[] = {
+			this->_buffFluidGrid.CreateBarrier(VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT)
+		};
+		vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, nullptr, ARRLEN(barriers), barriers, 0, nullptr);
+	}
+}
+
+void
 UniformFluidEngine::diffuseDensity(VkCommandBuffer cmd, float dt)
 {
 	this->_computeDiffuseDensity.Bind(cmd);
@@ -129,6 +156,23 @@ UniformFluidEngine::diffuseDensity(VkCommandBuffer cmd, float dt)
 }
 
 void
+UniformFluidEngine::advectVelocity(VkCommandBuffer cmd, float dt)
+{
+	this->_computeAdvectVelocity.Bind(cmd);
+
+	FluidPushConstants pc = {.dt = dt};
+	vkCmdPushConstants(cmd, this->_computeAdvectVelocity.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(FluidPushConstants), &pc);
+
+	const uint32_t groupCount = getFluidDispatchGroupCount();
+	vkCmdDispatch(cmd, groupCount, groupCount, groupCount);
+
+	VkBufferMemoryBarrier barriers[] = {
+		this->_buffFluidGrid.CreateBarrier(VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT)
+	};
+	vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, nullptr, ARRLEN(barriers), barriers, 0, nullptr);
+}
+
+void
 UniformFluidEngine::advectDensity(VkCommandBuffer cmd, float dt)
 {
 	this->_computeAdvectDensity.Bind(cmd);
@@ -143,6 +187,40 @@ UniformFluidEngine::advectDensity(VkCommandBuffer cmd, float dt)
 		this->_buffFluidGrid.CreateBarrier(VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT)
 	};
 	vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, nullptr, ARRLEN(barriers), barriers, 0, nullptr);
+}
+
+void
+UniformFluidEngine::computeDivergence(VkCommandBuffer cmd)
+{
+	this->_computeDivergence.Bind(cmd);
+	FluidPushConstants pc{};
+	vkCmdPushConstants(cmd, this->_computeDivergence.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(pc), &pc);
+	const uint32_t groupCount = getFluidDispatchGroupCount();
+	vkCmdDispatch(cmd, groupCount, groupCount, groupCount);
+	VkBufferMemoryBarrier barriers[] = {
+		this->_buffFluidGrid.CreateBarrier(VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT)
+	};
+	vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, nullptr, ARRLEN(barriers), barriers, 0, nullptr);
+}
+
+void
+UniformFluidEngine::solvePressure(VkCommandBuffer cmd)
+{
+	this->_computeSolvePressure.Bind(cmd);
+
+	for(uint32_t i = 0; i < Constants::NumPressureIterations; i++) {
+		FluidPushConstants pc = {
+			.redBlack = (i % 2)
+		};
+		vkCmdPushConstants(cmd, this->_computeSolvePressure.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(pc), &pc);
+
+		const uint32_t groupCount = getFluidDispatchGroupCount();
+		vkCmdDispatch(cmd, groupCount, groupCount, groupCount);
+		VkBufferMemoryBarrier barriers[] = {
+			this->_buffFluidGrid.CreateBarrier(VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT)
+		};
+		vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, nullptr, ARRLEN(barriers), barriers, 0, nullptr);
+	}
 }
 
 void
@@ -220,7 +298,7 @@ UniformFluidEngine::initResources()
 	this->_renderer.ImmediateSubmit([this](VkCommandBuffer cmd) {
 		FluidGridInfo fluidInfo = {
 			.resolution = glm::uvec3(Constants::VoxelGridResolution),
-			.scale = 1.0
+			.cellSize = 1.0 / Constants::VoxelGridResolution
 		};
 		VkBufferCopy copy = {
 			.size = sizeof(FluidGridInfo),
@@ -246,7 +324,19 @@ UniformFluidEngine::initPipelines()
 	},
 	sizeof(FluidPushConstants));
 
+	// TODO: Combine these
+	this->_renderer.CreateComputePipeline(this->_computeDiffuseVelocity, SHADER_DIRECTORY"/fluid_diffuse_velocity.comp.spv", {
+		BufferDescriptor(0, 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, this->_buffFluidInfo.bufferHandle, sizeof(FluidGridInfo)),
+		BufferDescriptor(0, 1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, this->_buffFluidGrid.bufferHandle, Constants::VoxelGridSize)
+	},
+	sizeof(FluidPushConstants));
+
 	this->_renderer.CreateComputePipeline(this->_computeDiffuseDensity, SHADER_DIRECTORY"/fluid_diffuse_density.comp.spv", {
+		BufferDescriptor(0, 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, this->_buffFluidInfo.bufferHandle, sizeof(FluidGridInfo)),
+		BufferDescriptor(0, 1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, this->_buffFluidGrid.bufferHandle, Constants::VoxelGridSize)
+	},
+	sizeof(FluidPushConstants));
+	this->_renderer.CreateComputePipeline(this->_computeAdvectVelocity, SHADER_DIRECTORY"/fluid_advect_velocity.comp.spv", {
 		BufferDescriptor(0, 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, this->_buffFluidInfo.bufferHandle, sizeof(FluidGridInfo)),
 		BufferDescriptor(0, 1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, this->_buffFluidGrid.bufferHandle, Constants::VoxelGridSize)
 	},
@@ -258,6 +348,16 @@ UniformFluidEngine::initPipelines()
 	},
 	sizeof(FluidPushConstants));
 
+	this->_renderer.CreateComputePipeline(this->_computeDivergence, SHADER_DIRECTORY"/fluid_compute_divergence.comp.spv", {
+		BufferDescriptor(0, 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, this->_buffFluidInfo.bufferHandle, sizeof(FluidGridInfo)),
+		BufferDescriptor(0, 1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, this->_buffFluidGrid.bufferHandle, Constants::VoxelGridSize)
+	},
+	sizeof(FluidPushConstants));
 
+	this->_renderer.CreateComputePipeline(this->_computeSolvePressure, SHADER_DIRECTORY"/fluid_solve_pressure.comp.spv", {
+		BufferDescriptor(0, 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, this->_buffFluidInfo.bufferHandle, sizeof(FluidGridInfo)),
+		BufferDescriptor(0, 1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, this->_buffFluidGrid.bufferHandle, Constants::VoxelGridSize)
+	},
+	sizeof(FluidPushConstants));
 	return true;	
 }

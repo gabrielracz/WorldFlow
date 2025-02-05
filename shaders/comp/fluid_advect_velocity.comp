@@ -25,13 +25,13 @@ vec3 traceVelocityField(vec3 pos, vec3 velocity, float dt)
     return pos + (velocity * -dt);
 }
 
-float sampleDensity(uvec3 center, ivec3 offset)
+vec3 sampleVelocity(uvec3 center, ivec3 offset)
 {
 	uvec3 cell = center + offset;
 	bool valid = all(greaterThanEqual(cell, uvec3(0))) && all(lessThan(cell, gridInfo.resolution));
 	// if(!valid) {return grid[getGridIndex(cell, gridInfo.resolution)].density;}
-	if(!valid) {return 0.0;}
-	return grid[getGridIndex(cell, gridInfo.resolution)].density;
+	if(!valid) {return vec3(0.0);}
+	return grid[getGridIndex(cell, gridInfo.resolution)].velocity;
 }
 
 void main()
@@ -45,17 +45,19 @@ void main()
 	pastPos = clampVector(pastPos, vec3(0, 0, 0), vec3(gridInfo.resolution - 1));
 	uvec3 center = uvec3(pastPos);
 
-	float l = sampleDensity(center, ivec3(-1, 0, 0));
-	float r = sampleDensity(center, ivec3(1, 0, 0));
-	float u = sampleDensity(center, ivec3(0, 1, 0));
-	float d = sampleDensity(center, ivec3(0, -1, 0));
-	float f = sampleDensity(center, ivec3(0, 0, 1));
-	float b = sampleDensity(center, ivec3(0, 0, -1));
+	const vec3 l = sampleVelocity(center, ivec3(-1, 0, 0));
+	const vec3 r = sampleVelocity(center, ivec3(1, 0, 0));
+	const vec3 u = sampleVelocity(center, ivec3(0, 1, 0));
+	const vec3 d = sampleVelocity(center, ivec3(0, -1, 0));
+	const vec3 f = sampleVelocity(center, ivec3(0, 0, 1));
+	const vec3 b = sampleVelocity(center, ivec3(0, 0, -1));
 
-	float values[6] = {
+	vec3 values[6] = {
 		l, r, d, u, f, b
 	};
-	float interpolatedDensity = trilinearInterpolation(vec3(fract(pastPos.x), fract(pastPos.y), fract(pastPos.z)), values, cell.density);
+	vec3 interpolatedVelocity = trilinearInterpolation(vec3(fract(pastPos.x), fract(pastPos.y), fract(pastPos.z)), values, cell.velocity);
 
-	atomicExchange(grid[index].density, interpolatedDensity);
+	atomicExchange(grid[index].velocity.x, interpolatedVelocity.x);
+	atomicExchange(grid[index].velocity.y, interpolatedVelocity.y);
+	atomicExchange(grid[index].velocity.z, interpolatedVelocity.z);
 }

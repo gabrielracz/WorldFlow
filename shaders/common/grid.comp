@@ -2,12 +2,15 @@ struct FluidGridCell
 {
 	vec3 velocity;
 	float density;
+    float pressure;
+    float divergence;
+    vec2 padding;
 };
 
 struct FluidGridInfo
 {
 	uvec3 resolution;
-	float scale;
+	float cellSize;
 };
 
 bool isWithinGridBounds(uvec3 p, uvec3 gridResolution)

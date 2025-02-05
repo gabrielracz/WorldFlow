@@ -43,5 +43,8 @@ void main()
         // grid[index].density = cnoise(vec3(pos * cellSize * 5.2) + vec3(pc.elapsed * 0.5)) * 10.0;
         // grid[index].density = 1.0;
     }
-	grid[index].velocity = vec3(5.0, 10.0, 0.0);
+
+    if(pos.x < gridInfo.resolution.x / 4) {
+        grid[index].velocity = vec3(50.0, 0.0, 0.0);
+    }
 }
