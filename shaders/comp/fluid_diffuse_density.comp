@@ -61,7 +61,7 @@ void main()
 	float b = sampleDensity(center, ivec3(0, 0, -1));
 	float c = cell.density;
 
-    const float diffRate =  0.000001;
+    const float diffRate =  0.000015;
 	const float N = gridInfo.resolution.x * gridInfo.resolution.y;
     const float a = diffRate*pc.dt*N; 
 

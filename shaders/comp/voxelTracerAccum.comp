@@ -133,7 +133,7 @@ vec4 traceVoxels(vec3 rayOrigin, vec3 rayDir) {
                 // float attenuation = exp(-t * 0.05);
                 // vec4 voxelColor = vec4(vec3(baseColor.rgb * attenuation), contribution);
 
-				contribution = max(contribution, 0.005);
+				contribution = max(contribution, 0.0075);
                 vec4 voxelColor = vec4(baseColor.rgb, contribution);
                 
                 voxelColor.rgb *= voxelColor.a;
