@@ -42,5 +42,5 @@ void main()
 
     const float div = -0.5 * gridInfo.cellSize * (r-l + u-d + b-f);
     grid[index].divergence = div;
-	grid[index].pressure = 0.0;
+	// grid[index].pressure = 0.0;
 }

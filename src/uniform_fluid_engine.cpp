@@ -38,7 +38,7 @@ struct alignas(16) FluidPushConstants
 /* CONSTANTS */
 namespace Constants
 {
-constexpr size_t VoxelGridResolution = 64 + 32;
+constexpr size_t VoxelGridResolution = 256;
 constexpr size_t VoxelGridSize = VoxelGridResolution * VoxelGridResolution * VoxelGridResolution * sizeof(FluidGridCell);
 constexpr float VoxelGridScale = 2.0f;
 
@@ -91,9 +91,12 @@ void UniformFluidEngine::update(VkCommandBuffer cmd, float dt)
 	computeDivergence(cmd);
 	solvePressure(cmd);
 	projectIncompressible(cmd);
+	if(this->_toggle)
+	computeDivergence(cmd);
+
 
 	// if(this->_shouldDiffuseDensity)
-		diffuseDensity(cmd, dt);
+	// diffuseDensity(cmd, dt);
 
 	advectDensity(cmd, dt);
 
@@ -123,7 +126,7 @@ UniformFluidEngine::diffuseVelocity(VkCommandBuffer cmd, float dt)
 	for(uint32_t i = 0; i < Constants::NumDiffusionIterations; i++) {
 		FluidPushConstants pc = {
 			.time = this->_renderer.GetElapsedTime(),
-			.dt = dt/Constants::NumDiffusionIterations,
+			.dt = dt,
 			.redBlack = (i % 2)
 		};
 		vkCmdPushConstants(cmd, this->_computeDiffuseVelocity.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(pc), &pc);
@@ -212,7 +215,7 @@ UniformFluidEngine::solvePressure(VkCommandBuffer cmd)
 {
 	this->_computeSolvePressure.Bind(cmd);
 
-	for(uint32_t i = 0; i < Constants::NumPressureIterations * 4; i++) {
+	for(uint32_t i = 0; i < Constants::NumPressureIterations * 2; i++) {
 		FluidPushConstants pc = {
 			.redBlack = (i % 2)
 		};
@@ -291,6 +294,11 @@ UniformFluidEngine::checkControls(KeyMap& keyMap, MouseMap& mouseMap, Mouse& mou
 		this->_shouldAddSources = true;
 	} else {
 		this->_shouldAddSources = false;
+	}
+
+	if(keyMap[SDLK_w]) {
+		this->_toggle = !this->_toggle;
+		keyMap[SDLK_w] = false;
 	}
 }
 

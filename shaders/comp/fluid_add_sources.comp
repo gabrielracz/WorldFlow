@@ -35,12 +35,12 @@ void main()
     // float radius = gridInfo.resolution.x / 2;
     float radius = gridInfo.resolution.x / 5;
     uvec3 gridCenter = gridInfo.resolution / 2;
-	gridCenter.x /= 6;
+	gridCenter.x = 0;
     if(distance(pos, gridCenter) < radius) {
 		// float d = (1 + cnoise(vec3(pos * cellSize * 5.2) + vec3(pc.elapsed * 0.5)))/2.0;
 		// if(d > 0.6) {
 		if(pc.redBlack == 1) {
-			grid[index].velocity += vec3(40.0, 0.0, 0.0);
+			grid[index].velocity += vec3(10.0, 0.0, 0.0);
 			grid[index].density += 0.1;
 		}
         // grid[index].density = cnoise(vec3(pos * cellSize * 5.2) + vec3(pc.elapsed * 0.5)) * 10.0;
