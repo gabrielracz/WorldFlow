@@ -22,11 +22,12 @@ layout(push_constant) uniform PushConstants {
 
 float samplePressure(uvec3 center, ivec3 offset)
 {
-	uvec3 cell = center + offset;
-	bool valid = all(greaterThanEqual(cell, uvec3(0))) && all(lessThan(cell, gridInfo.resolution));
-	if(!valid) {return grid[getGridIndex(center, gridInfo.resolution)].pressure;}
+	uvec3 nbCell = center + offset;
+	bool valid = all(greaterThanEqual(nbCell, uvec3(0))) && all(lessThan(nbCell, gridInfo.resolution)) && 
+				!(grid[getGridIndex(center, gridInfo.resolution)].occupied > 0);
+	// if(!valid) {return grid[getGridIndex(center, gridInfo.resolution)].pressure;}
 	if(!valid) {return 0.0;}
-	return grid[getGridIndex(cell, gridInfo.resolution)].pressure;
+	return grid[getGridIndex(nbCell, gridInfo.resolution)].pressure;
 }
 
 void main()

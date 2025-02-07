@@ -14,14 +14,24 @@ layout(std430, binding = 1) buffer FluidGrid {
 };
 
 layout(push_constant) uniform PushConstants {
+	vec4 sourcePosition;
+	vec4 velocity;
+	vec4 objectPosition;
 	float elapsed;
 	float dt;
-	uint redBlack;
+	float sourceRadius;
+	int addVelocity;
+	int addDensity;
+    float density;
+	uint objectType;
+	float objectRadius;
+	float decayRate;
 } pc;
 
 float manhattanDistance(vec3 p1, vec3 p2) {
     return abs(p1.x - p2.x) + abs(p1.y - p2.y) + abs(p1.z + p2.z);
 }
+
 
 void main()
 {
@@ -29,39 +39,24 @@ void main()
     if (!isWithinGridBounds(pos, gridInfo.resolution)) {
         return;
     }
-
 	const float cellSize = 1.0 / gridInfo.resolution.x;
     uint index = getGridIndex(pos, gridInfo.resolution);
-    // float radius = gridInfo.resolution.x / 2;
-    float radius = gridInfo.resolution.x / 5;
-    uvec3 gridCenter = gridInfo.resolution / 2;
-	gridCenter.x = 0;
-    if(distance(pos, gridCenter) < radius) {
-		// float d = (1 + cnoise(vec3(pos * cellSize * 5.2) + vec3(pc.elapsed * 0.5)))/2.0;
-		// if(d > 0.6) {
-		if(pc.redBlack == 1) {
-			grid[index].velocity += vec3(10.0, 00.0, 00.0);
-			grid[index].density += 0.25;
-		}
-        // grid[index].density = cnoise(vec3(pos * cellSize * 5.2) + vec3(pc.elapsed * 0.5)) * 10.0;
-        // grid[index].density = 0.2;
 
-		// if(pc.redBlack == 1)
-		// 	grid[index].velocity += vec3(40.0, 0.0, 0.0);
+    if(distance(pos, pc.sourcePosition.xyz) < pc.sourceRadius) {
+        if(pc.addDensity > 0) {
+            grid[index].density += pc.density;
+        }
+
+        if(pc.addVelocity > 0) {
+            grid[index].velocity += pc.velocity.xyz;
+        }
+
     }
 
-    if(pos.x < gridInfo.resolution.x / 8 && pos.y > gridCenter.y - 20 && pos.y < gridCenter.y + 20
-	   && pos.z > gridInfo.resolution.z - 20 && pos.z < gridInfo.resolution.z + 20) {
-		// float v = (1 + cnoise(vec3(pos * cellSize * 3.2) + vec3(pc.elapsed * 0.2)))/2.0 * 100.0;
-        // grid[index].velocity += vec3(v, 0.0, 0.0);
-		if(pc.redBlack == 1) {
-			// grid[index].velocity += vec3(40.0, 0.0, 0.0);
-			// grid[index].density += 0.1;
-		}
-		// if(pc.redBlack == 1)
-		// 	grid[index].density = 0.2;
+    grid[index].occupied = 0;
+    if(distance(pos, pc.objectPosition.xyz) < pc.objectRadius && pc.objectType > 0) {
+        grid[index].occupied = pc.objectType;
     }
 
-    const float decayRate = 0.99;
-    grid[index].density *= decayRate;
+    grid[index].density *= pc.decayRate;
 }

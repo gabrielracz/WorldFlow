@@ -132,7 +132,7 @@ vec4 traceVoxels(vec3 rayOrigin, vec3 rayDir) {
                 density = voxelData[index].divergence * 8;
             }
             else if(pc.renderType == 3) {
-                density = voxelData[index].pressure * 0.5;
+                density = voxelData[index].pressure * 3.0;
             }
             else if(pc.renderType == 4) {
                 density = length(voxelData[index].velocity)/200.0;

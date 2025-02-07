@@ -4,7 +4,8 @@ struct FluidGridCell
 	float density;
     float pressure;
     float divergence;
-    vec2 padding;
+    uint occupied;
+    float padding;
 };
 
 struct FluidGridInfo

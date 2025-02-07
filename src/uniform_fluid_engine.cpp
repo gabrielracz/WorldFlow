@@ -19,7 +19,8 @@ struct alignas(16) FluidGridCell
 	float density;
 	float pressure;
 	float divergence;
-	glm::vec2 padding;
+	int occupied;
+	float padding;
 };
 
 struct alignas(16) FluidGridInfo
@@ -35,12 +36,31 @@ struct alignas(16) FluidPushConstants
 	uint32_t redBlack;
 };
 
+struct alignas(16) AddFluidPropertiesPushConstants
+{
+	glm::vec4 sourcePosition;
+	glm::vec4 velocity;
+	glm::vec4 objectPosition;
+	float elapsed;
+	float dt;
+	float sourceRadius;
+	int addVelocity;
+	int addDensity;
+    float density;
+	uint32_t objectType;
+	float objectRadius;
+	float decayRate;
+};
+const auto s = sizeof(AddFluidPropertiesPushConstants);
+
+
 /* CONSTANTS */
 namespace Constants
 {
 constexpr size_t VoxelGridResolution = 64;
 constexpr size_t VoxelGridSize = VoxelGridResolution * VoxelGridResolution * VoxelGridResolution * sizeof(FluidGridCell);
 constexpr float VoxelGridScale = 2.0f;
+constexpr glm::vec3 VoxelGridCenter = glm::vec3(Constants::VoxelGridResolution/2, Constants::VoxelGridResolution/2, Constants::VoxelGridResolution/2);
 
 constexpr uint32_t LocalGroupSize = 8;
 
@@ -80,10 +100,7 @@ void UniformFluidEngine::update(VkCommandBuffer cmd, float dt)
 	checkControls(this->_renderer.GetKeyMap(), this->_renderer.GetMouseMap(), this->_renderer.GetMouse(), dt);
 
 	dt = 0.08;
-	// if(this->_shouldAddSources) {
-		addSources(cmd);
-	// 	this->_shouldAddSources = false;
-	// }
+	addSources(cmd);
 
 	diffuseVelocity(cmd, dt);
 	advectVelocity(cmd, dt);
@@ -93,10 +110,9 @@ void UniformFluidEngine::update(VkCommandBuffer cmd, float dt)
 	projectIncompressible(cmd);
 
 	if(this->_toggle)
-	computeDivergence(cmd);
+		computeDivergence(cmd);
 
 
-	// if(this->_shouldDiffuseDensity)
 	diffuseDensity(cmd, dt);
 
 	advectDensity(cmd, dt);
@@ -109,7 +125,19 @@ UniformFluidEngine::addSources(VkCommandBuffer cmd)
 {
 	this->_computeAddSources.Bind(cmd);
 
-	FluidPushConstants pc = {.time = this->_renderer.GetElapsedTime(), .redBlack = this->_shouldAddSources};
+	const AddFluidPropertiesPushConstants pc = {
+		.sourcePosition = glm::vec4(this->_sourcePosition, 1.0),
+		.velocity = glm::vec4(this->_velocitySourceAmount, 1.0),
+		.objectPosition = glm::vec4(this->_objectPosition, 1.0),
+		.elapsed = this->_renderer.GetElapsedTime(),
+		.sourceRadius = Constants::VoxelGridResolution / 5.0,
+		.addVelocity = this->_shouldAddSources,
+		.addDensity = this->_shouldAddSources,
+		.density = this->_densityAmount,
+		.objectType = (uint32_t) this->_shouldAddObstacle > 0,
+		.objectRadius = Constants::VoxelGridResolution/5.0,
+		.decayRate = 0.99
+	};
 	vkCmdPushConstants(cmd, this->_computeAddSources.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(pc), &pc);
 
 	const uint32_t groupCount = getFluidDispatchGroupCount();
@@ -292,18 +320,36 @@ UniformFluidEngine::checkControls(KeyMap& keyMap, MouseMap& mouseMap, Mouse& mou
 		mouse.scroll = 0.0;
 	}
 
+	float v = 10.0;
+	constexpr glm::vec3 c = Constants::VoxelGridCenter;
+	this->_objectPosition = Constants::VoxelGridCenter;
+	this->_shouldAddSources = false;
 	if(keyMap[SDLK_q]) {
 		this->_shouldAddSources = true;
-	} else {
-		this->_shouldAddSources = false;
+		this->_velocitySourceAmount = glm::vec3(v, 0, 0);
+		this->_sourcePosition = glm::vec3(0, c.y, c.z);
 	}
-
-
-
 	if(keyMap[SDLK_w]) {
-		this->_toggle = !this->_toggle;
-		keyMap[SDLK_w] = false;
+		this->_shouldAddSources = true;
+		this->_velocitySourceAmount = glm::vec3(0, v, 0);
+		this->_sourcePosition = glm::vec3(c.x, 0, c.z);
 	}
+	if(keyMap[SDLK_e]) {
+		this->_shouldAddSources = true;
+		this->_velocitySourceAmount = glm::vec3(-v, 0, 0);
+		this->_sourcePosition = glm::vec3(c.x*2 - 1, c.y, c.z);
+	}
+	if(keyMap[SDLK_r]) {
+		this->_shouldAddSources = true;
+		this->_velocitySourceAmount = glm::vec3(0, -v, 0);
+		this->_sourcePosition = glm::vec3(c.x, c.y*2 - 1, c.z);
+	}
+
+	if(keyMap[SDLK_f]) {
+		this->_shouldAddObstacle = !this->_shouldAddObstacle;
+		keyMap[SDLK_f] = false;
+	}
+
 
 	for(int i = 1; i <= 4; i++) {
 		if(keyMap[SDLK_0 + i]) {
@@ -361,9 +407,9 @@ UniformFluidEngine::initPipelines()
 		BufferDescriptor(0, 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, this->_buffFluidInfo.bufferHandle, sizeof(FluidGridInfo)),
 		BufferDescriptor(0, 1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, this->_buffFluidGrid.bufferHandle, Constants::VoxelGridSize)
 	},
-	sizeof(FluidPushConstants));
+	sizeof(AddFluidPropertiesPushConstants));
 
-	// TODO: Combine these
+	// TODO: Refactor these to return Descriptor IDS and use those.
 	this->_renderer.CreateComputePipeline(this->_computeDiffuseVelocity, SHADER_DIRECTORY"/fluid_diffuse_velocity.comp.spv", {
 		BufferDescriptor(0, 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, this->_buffFluidInfo.bufferHandle, sizeof(FluidGridInfo)),
 		BufferDescriptor(0, 1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, this->_buffFluidGrid.bufferHandle, Constants::VoxelGridSize)

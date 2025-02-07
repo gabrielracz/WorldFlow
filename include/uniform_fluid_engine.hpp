@@ -53,7 +53,12 @@ private:
 	bool _shouldAddSources {false};
 	bool _shouldDiffuseDensity {false};
 	bool _toggle {false};
+	bool _shouldAddObstacle {false};
+	glm::vec3 _objectPosition{};
 	int _renderType = 1;
+	glm::vec3 _sourcePosition {};
+	glm::vec3 _velocitySourceAmount {};
+	float _densityAmount = 0.25;
 };
 
 
