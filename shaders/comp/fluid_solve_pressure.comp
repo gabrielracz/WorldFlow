@@ -35,9 +35,9 @@ void main()
 	FluidGridCell cell = grid[index];
 
 	// Alternate updates in alternating checkerboard pattern to avoid atomics
-	if(mod(center.x + center.y + center.z + pc.redBlack, 2) == 0){
-		return;
-	}
+	// if(mod(center.x + center.y + center.z + pc.redBlack, 2) == 0){
+	// 	return;
+	// }
 
 	const float l = samplePressure(center, ivec3(-1, 0, 0));
 	const float r = samplePressure(center, ivec3(1, 0, 0));
@@ -49,7 +49,7 @@ void main()
     const float pres = (cell.divergence + l + r + d + u + f + b) / 6.0;
 
     // guarded by red-black
-    grid[index].pressure = pres;
+    // grid[index].pressure = pres;
 
-    // atomicExchange(grid[index].pressure, pres);
+    atomicExchange(grid[index].pressure, pres);
 }

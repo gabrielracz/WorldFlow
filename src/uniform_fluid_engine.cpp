@@ -91,12 +91,13 @@ void UniformFluidEngine::update(VkCommandBuffer cmd, float dt)
 	computeDivergence(cmd);
 	solvePressure(cmd);
 	projectIncompressible(cmd);
+
 	if(this->_toggle)
 	computeDivergence(cmd);
 
 
 	// if(this->_shouldDiffuseDensity)
-	// diffuseDensity(cmd, dt);
+	diffuseDensity(cmd, dt);
 
 	advectDensity(cmd, dt);
 
@@ -154,7 +155,7 @@ UniformFluidEngine::diffuseDensity(VkCommandBuffer cmd, float dt)
 		vkCmdPushConstants(cmd, this->_computeDiffuseDensity.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(pc), &pc);
 
 		const uint32_t groupCount = getFluidDispatchGroupCount();
-		vkCmdDispatch(cmd, groupCount/2, groupCount, groupCount);
+		vkCmdDispatch(cmd, groupCount, groupCount, groupCount);
 		VkBufferMemoryBarrier barriers[] = {
 			this->_buffFluidGrid.CreateBarrier(VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT)
 		};
@@ -266,7 +267,8 @@ UniformFluidEngine::renderVoxelVolume(VkCommandBuffer cmd)
 		.gridSize = glm::vec3(Constants::VoxelGridResolution),
 		.gridScale = Constants::VoxelGridScale,
 		.lightSource = glm::vec4(30.0, 50.0, 20.0, 1.0),
-		.baseColor = glm::vec4(0.8, 0.8, 0.8, 1.0)
+		.baseColor = glm::vec4(0.8, 0.8, 0.8, 1.0),
+		.renderType = this->_renderType
 	};
 	vkCmdPushConstants(cmd, this->_computeRaycastVoxelGrid.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(RayTracerPushConstants), &rtpc);
 	VkExtent3D groupCounts = this->_renderer.GetWorkgroupCounts(8);
@@ -299,6 +301,19 @@ UniformFluidEngine::checkControls(KeyMap& keyMap, MouseMap& mouseMap, Mouse& mou
 	if(keyMap[SDLK_w]) {
 		this->_toggle = !this->_toggle;
 		keyMap[SDLK_w] = false;
+	}
+
+	if(keyMap[SDLK_1]) {
+		this->_renderType = 1;
+		keyMap[SDLK_1] = false;
+	}
+	if(keyMap[SDLK_2]) {
+		this->_renderType = 2;
+		keyMap[SDLK_2] = false;
+	}
+	if(keyMap[SDLK_3]) {
+		this->_renderType = 3;
+		keyMap[SDLK_3] = false;
 	}
 }
 

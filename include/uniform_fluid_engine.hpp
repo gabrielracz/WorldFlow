@@ -53,6 +53,7 @@ private:
 	bool _shouldAddSources {false};
 	bool _shouldDiffuseDensity {false};
 	bool _toggle {false};
+	int _renderType = 1;
 };
 
 

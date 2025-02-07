@@ -23,7 +23,7 @@ float sampleDensity(uvec3 center, ivec3 offset)
 {
 	uvec3 cell = center + offset;
 	bool valid = all(greaterThanEqual(cell, uvec3(0))) && all(lessThan(cell, gridInfo.resolution));
-	// if(!valid) {return grid[getGridIndex(cell, gridInfo.resolution)].density;}
+	if(!valid) {return grid[getGridIndex(center, gridInfo.resolution)].density;}
 	if(!valid) {return 0.0;}
 	return grid[getGridIndex(cell, gridInfo.resolution)].density;
 }
@@ -49,9 +49,9 @@ void main()
 	FluidGridCell cell = grid[index];
 
 	// Alternate updates in alternating checkerboard pattern to avoid atomics
-	// if(mod(center.x + center.y + center.z + pc.redBlack, 2) == 0){
-	// 	return;
-	// }
+	if(mod(center.x + center.y + center.z + pc.redBlack, 2) == 0){
+		return;
+	}
 
 	float l = sampleDensity(center, ivec3(-1, 0, 0));
 	float r = sampleDensity(center, ivec3(1, 0, 0));

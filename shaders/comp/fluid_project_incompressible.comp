@@ -46,7 +46,7 @@ void main()
 
 	float gradX = 0.5 * (r - l) / h;
 	float gradY = 0.5 * (u - d) / h;
-	float gradZ = 0.5 * (b - f) / h;
+	float gradZ = 0.5 * (f - b) / h;
 
 	vec3 newVelocity = cell.velocity - vec3(gradX, gradY, gradZ);
 	grid[index].velocity = newVelocity;

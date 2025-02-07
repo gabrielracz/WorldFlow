@@ -26,6 +26,7 @@ layout(push_constant) uniform constants {
     float gridScale;        // Scale factor for the grid (new parameter)
     vec4 lightSource;        // Scale factor for the grid (new parameter)
     vec4 baseColor;        // Scale factor for the grid (new parameter)
+    int renderType;
 } pc;
 
 // Helper function to convert 3D position to linear buffer index
@@ -122,10 +123,24 @@ vec4 traceVoxels(vec3 rayOrigin, vec3 rayDir) {
         
         // Bounds check
         if (all(greaterThanEqual(mapPos, ivec3(0))) && all(lessThan(mapPos, ivec3(pc.gridSize)))) {
-            // float density = voxelData[index].density;
-            float density = length(voxelData[index].velocity)/200.0;
-            // float density = voxelData[index].divergence * 4;
+            
+            float density;
+            if(pc.renderType == 1) {
+                density = voxelData[index].density;
+            }
+            else if(pc.renderType == 2) {
+                density = voxelData[index].divergence * 8;
+            }
+            else if(pc.renderType == 3) {
+                density = voxelData[index].pressure;
+            }
+            // float density = length(voxelData[index].velocity)/200.0;
+            // float density = voxelData[index].pressure ;
             vec4 baseColor = density > 0.0 ? pc.baseColor : vec4(0.8, 0.0, 0.0, 1.0);
+
+            // vec3 vel = voxelData[index].velocity/10;
+            // vec4 baseColor = vec4(vel.x, vel.y, vel.z, 1.0);
+
 
             // if (density > 0.0) {
                 float contribution = density * pc.stepSize;

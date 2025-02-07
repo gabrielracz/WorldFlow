@@ -22,8 +22,10 @@ layout(push_constant) uniform PushConstants {
 vec3 sampleVelocity(uvec3 center, ivec3 offset)
 {
 	uvec3 cell = center + offset;
-	bool valid = all(greaterThanEqual(cell, uvec3(0))) && all(lessThan(cell, gridInfo.resolution));
-	// if(!valid) {return grid[getGridIndex(cell, gridInfo.resolution)].density;}
+	bvec3 ge = greaterThanEqual(cell, uvec3(0));
+	bvec3 le = lessThan(cell, gridInfo.resolution);
+	bool valid = all(ge) && all(le);
+	if(!valid) {return grid[getGridIndex(center, gridInfo.resolution)].velocity * vec3(ge) * vec3(le);}
 	if(!valid) {return vec3(0.0);}
 	return grid[getGridIndex(cell, gridInfo.resolution)].velocity;
 }
@@ -40,7 +42,7 @@ void main()
 	const float f = sampleVelocity(center, ivec3(0, 0, 1 )).z;
 	const float b = sampleVelocity(center, ivec3(0, 0, -1)).z;
 
-    const float div = -0.5 * gridInfo.cellSize * (r-l + u-d + b-f);
+    const float div = -0.5 * gridInfo.cellSize * (r-l + u-d + f-b);
     grid[index].divergence = div;
 	// grid[index].pressure = 0.0;
 }

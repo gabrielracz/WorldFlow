@@ -53,6 +53,7 @@ struct alignas(16) RayTracerPushConstants
     float gridScale;          // Size of the voxel grid in each dimension
     glm::vec4 lightSource;
     glm::vec4 baseColor;
+    int renderType;
 };
 
 // push constants for our mesh object draws
