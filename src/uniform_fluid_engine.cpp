@@ -45,7 +45,7 @@ constexpr float VoxelGridScale = 2.0f;
 constexpr uint32_t LocalGroupSize = 8;
 
 constexpr uint32_t NumDiffusionIterations = 10;
-constexpr uint32_t NumPressureIterations = NumDiffusionIterations;
+constexpr uint32_t NumPressureIterations = NumDiffusionIterations * 4;
 
 constexpr glm::vec3 LightPosition = glm::vec4(10.0, 10.0, 10.0, 1.0);
 }
@@ -216,7 +216,7 @@ UniformFluidEngine::solvePressure(VkCommandBuffer cmd)
 {
 	this->_computeSolvePressure.Bind(cmd);
 
-	for(uint32_t i = 0; i < Constants::NumPressureIterations * 4; i++) {
+	for(uint32_t i = 0; i < Constants::NumPressureIterations; i++) {
 		FluidPushConstants pc = {
 			.redBlack = (i % 2)
 		};

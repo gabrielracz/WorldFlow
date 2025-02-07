@@ -132,7 +132,7 @@ vec4 traceVoxels(vec3 rayOrigin, vec3 rayDir) {
                 density = voxelData[index].divergence * 8;
             }
             else if(pc.renderType == 3) {
-                density = voxelData[index].pressure * 0.1;
+                density = voxelData[index].pressure * 0.5;
             }
             else if(pc.renderType == 4) {
                 density = length(voxelData[index].velocity)/200.0;
@@ -148,7 +148,7 @@ vec4 traceVoxels(vec3 rayOrigin, vec3 rayDir) {
             // if (density > 0.0) {
                 float contribution = density * pc.stepSize;
 
-                float attenuation = exp(-t * 0.05);
+                float attenuation = exp(-t * 0.07);
                 vec4 voxelColor = vec4(vec3(baseColor.rgb * attenuation), contribution);
 
 				// contribution = max(contribution, 0.004);
