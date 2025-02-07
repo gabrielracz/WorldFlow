@@ -41,7 +41,7 @@ void main()
 		// if(d > 0.6) {
 		if(pc.redBlack == 1) {
 			grid[index].velocity += vec3(10.0, 00.0, 00.0);
-			grid[index].density += 0.0025;
+			grid[index].density += 0.25;
 		}
         // grid[index].density = cnoise(vec3(pos * cellSize * 5.2) + vec3(pc.elapsed * 0.5)) * 10.0;
         // grid[index].density = 0.2;
@@ -61,4 +61,7 @@ void main()
 		// if(pc.redBlack == 1)
 		// 	grid[index].density = 0.2;
     }
+
+    const float decayRate = 0.99;
+    grid[index].density *= decayRate;
 }

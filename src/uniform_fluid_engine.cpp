@@ -38,7 +38,7 @@ struct alignas(16) FluidPushConstants
 /* CONSTANTS */
 namespace Constants
 {
-constexpr size_t VoxelGridResolution = 256;
+constexpr size_t VoxelGridResolution = 64;
 constexpr size_t VoxelGridSize = VoxelGridResolution * VoxelGridResolution * VoxelGridResolution * sizeof(FluidGridCell);
 constexpr float VoxelGridScale = 2.0f;
 
@@ -216,7 +216,7 @@ UniformFluidEngine::solvePressure(VkCommandBuffer cmd)
 {
 	this->_computeSolvePressure.Bind(cmd);
 
-	for(uint32_t i = 0; i < Constants::NumPressureIterations * 2; i++) {
+	for(uint32_t i = 0; i < Constants::NumPressureIterations * 4; i++) {
 		FluidPushConstants pc = {
 			.redBlack = (i % 2)
 		};
@@ -298,22 +298,18 @@ UniformFluidEngine::checkControls(KeyMap& keyMap, MouseMap& mouseMap, Mouse& mou
 		this->_shouldAddSources = false;
 	}
 
+
+
 	if(keyMap[SDLK_w]) {
 		this->_toggle = !this->_toggle;
 		keyMap[SDLK_w] = false;
 	}
 
-	if(keyMap[SDLK_1]) {
-		this->_renderType = 1;
-		keyMap[SDLK_1] = false;
-	}
-	if(keyMap[SDLK_2]) {
-		this->_renderType = 2;
-		keyMap[SDLK_2] = false;
-	}
-	if(keyMap[SDLK_3]) {
-		this->_renderType = 3;
-		keyMap[SDLK_3] = false;
+	for(int i = 1; i <= 4; i++) {
+		if(keyMap[SDLK_0 + i]) {
+			this->_renderType = i;
+			keyMap[SDLK_0 + i] = false;
+		}
 	}
 }
 
