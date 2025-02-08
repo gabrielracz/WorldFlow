@@ -279,7 +279,7 @@ FluidEngine::rayCastVoxelVolume(VkCommandBuffer cmd)
 		.cameraPos = invView * glm::vec4(0.0, 0.0, 0.0, 1.0),
 		.nearPlane = 0.1f,
 		.screenSize = glm::vec2(this->_renderer.GetWindowExtent2D().width, this->_renderer.GetWindowExtent2D().height),
-		.maxDistance = 2000.0f,
+		.maxDistance = 128,
 		.stepSize = 0.1,
 		.gridSize = glm::vec3(Constants::VoxelGridResolution),
 		.gridScale = Constants::VoxelGridScale,

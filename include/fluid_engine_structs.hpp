@@ -47,7 +47,7 @@ struct alignas(16) RayTracerPushConstants
     glm::vec3 cameraPos;         // Camera position in world space
     float nearPlane;        // Near plane distance
     glm::vec2 screenSize;        // Width and height of output image
-    float maxDistance;      // Maximum ray travel distance
+    uint32_t maxDistance;      // Maximum ray travel distance
     float stepSize;         // Base color accumulation per step
     glm::vec3 gridSize;          // Size of the voxel grid in each dimension
     float gridScale;          // Size of the voxel grid in each dimension

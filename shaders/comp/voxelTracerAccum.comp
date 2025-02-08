@@ -20,7 +20,7 @@ layout(push_constant) uniform constants {
     vec3 cameraPos;         // Camera position in world space
     float nearPlane;        // Near plane distance
     vec2 screenSize;        // Width and height of output image
-    float maxDistance;      // Maximum ray travel distance
+    uint maxDistance;      // Maximum ray travel distance
     float stepSize;         // Base color accumulation per step
     vec3 gridSize;          // Size of the voxel grid in each dimension
     float gridScale;        // Scale factor for the grid (new parameter)
@@ -115,7 +115,7 @@ vec4 traceVoxels(vec3 rayOrigin, vec3 rayDir) {
     }
     
     // Main ray traversal loop
-    for (int i = 0; i < 4096 && t < pc.maxDistance; i++) {
+    for (int i = 0; i < pc.maxDistance; i++) {
         // Convert current position to grid index
         uint index = mapPos.z * uint(pc.gridSize.x) * uint(pc.gridSize.y) +
                     mapPos.y * uint(pc.gridSize.x) +
@@ -125,6 +125,7 @@ vec4 traceVoxels(vec3 rayOrigin, vec3 rayDir) {
         if (all(greaterThanEqual(mapPos, ivec3(0))) && all(lessThan(mapPos, ivec3(pc.gridSize)))) {
             
             float density;
+            vec4 color = pc.baseColor;
             if(pc.renderType == 1) {
                 density = voxelData[index].density;
             }
@@ -132,13 +133,11 @@ vec4 traceVoxels(vec3 rayOrigin, vec3 rayDir) {
                 density = voxelData[index].divergence * 8;
             }
             else if(pc.renderType == 3) {
-                density = voxelData[index].pressure * 3.0;
+                density = voxelData[index].pressure * 2.0;
             }
             else if(pc.renderType == 4) {
                 density = length(voxelData[index].velocity)/200.0;
             }
-            // float density = length(voxelData[index].velocity)/200.0;
-            // float density = voxelData[index].pressure ;
             vec4 baseColor = density > 0.0 ? pc.baseColor : vec4(0.8, 0.0, 0.0, 1.0);
 
             // vec3 vel = voxelData[index].velocity/10;

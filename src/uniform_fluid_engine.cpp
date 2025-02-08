@@ -69,9 +69,10 @@ enum Timestamps : uint32_t
 /* CONSTANTS */
 namespace Constants
 {
-constexpr size_t VoxelGridResolution = 64;
+constexpr size_t VoxelGridResolution = 32;
 constexpr size_t VoxelGridSize = VoxelGridResolution * VoxelGridResolution * VoxelGridResolution * sizeof(FluidGridCell);
 constexpr float VoxelGridScale = 2.0f;
+const uint32_t VoxelDiagonal = std::sqrt(VoxelGridResolution*VoxelGridResolution * 3);
 constexpr glm::vec3 VoxelGridCenter = glm::vec3(Constants::VoxelGridResolution/2, Constants::VoxelGridResolution/2, Constants::VoxelGridResolution/2);
 
 constexpr uint32_t LocalGroupSize = 8;
@@ -318,7 +319,7 @@ UniformFluidEngine::renderVoxelVolume(VkCommandBuffer cmd)
 		.cameraPos = invView * glm::vec4(0.0, 0.0, 0.0, 1.0),
 		.nearPlane = 0.1f,
 		.screenSize = glm::vec2(this->_renderer.GetWindowExtent2D().width, this->_renderer.GetWindowExtent2D().height),
-		.maxDistance = 2000.0f,
+		.maxDistance = Constants::VoxelDiagonal,
 		.stepSize = 0.1,
 		.gridSize = glm::vec3(Constants::VoxelGridResolution),
 		.gridScale = Constants::VoxelGridScale,
