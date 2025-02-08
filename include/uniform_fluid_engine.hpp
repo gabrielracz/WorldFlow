@@ -18,6 +18,7 @@ public:
 	bool Init();
 
 private:
+	void ui();
 	void preFrame();
 	void update(VkCommandBuffer cmd, float dt);
 	void addSources(VkCommandBuffer cmd);
@@ -29,7 +30,7 @@ private:
 	void diffuseDensity(VkCommandBuffer cmd, float dt);
 	void advectDensity(VkCommandBuffer cmd, float dt);
 	void renderVoxelVolume(VkCommandBuffer cmd);
-	void getTimestampQueries();
+	// void getTimestampQueries();
 
 	void checkControls(KeyMap& keyMap, MouseMap& mouseMap, Mouse& mouse, float dt);
 
@@ -51,6 +52,7 @@ private:
 	float _densityAmount = 0.25;
 	// std::vector<uint64_t> _timestamps;
 	TimestampQueryPool _timestamps;
+	std::vector<float> _timestampAverages;
 
 	ComputePipeline _computeRaycastVoxelGrid;
 	ComputePipeline _computeAddSources;

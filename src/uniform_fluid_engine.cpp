@@ -8,6 +8,7 @@
 
 #include "renderer_structs.hpp"
 #include "vma.hpp"
+#include "imgui.h"
 
 #include <functional>
 #include <vulkan/vulkan_core.h>
@@ -57,7 +58,11 @@ const auto s = sizeof(AddFluidPropertiesPushConstants);
 enum Timestamps : uint32_t
 {
 	StartFrame = 0,
+	AddFluidProperties,
+	VelocityUpdate,
 	PressureSolve,
+	DensityUpdate,
+	FluidRender,
 	NumTimestamps
 };
 
@@ -84,6 +89,12 @@ getFluidDispatchGroupCount(uint32_t localGroupSize = Constants::LocalGroupSize)
 	return Constants::VoxelGridResolution / localGroupSize;
 }
 
+static void
+rollingAverage(float& currentValue, float newValue) {
+	const float alpha = 0.15;
+	currentValue = alpha * newValue + (1.0f - alpha) * currentValue;
+}
+
 /* CLASS */
 UniformFluidEngine::UniformFluidEngine(Renderer& renderer)
 	: _renderer(renderer) {}
@@ -102,15 +113,8 @@ UniformFluidEngine::Init()
 
 	this->_renderer.RegisterPreFrameCallback(std::bind(&UniformFluidEngine::preFrame, this));
 	this->_renderer.RegisterUpdateCallback(std::bind(&UniformFluidEngine::update, this, std::placeholders::_1, std::placeholders::_2));
+	this->_renderer.RegisterUICallback(std::bind(&UniformFluidEngine::ui, this));
 	return true;
-}
-
-void
-UniformFluidEngine::preFrame()
-{
-	this->_timestamps.nextFrame();
-	getTimestampQueries();
-	this->_timestamps.reset(this->_renderer.GetDevice());
 }
 
 void
@@ -119,12 +123,16 @@ UniformFluidEngine::update(VkCommandBuffer cmd, float dt)
 	checkControls(this->_renderer.GetKeyMap(), this->_renderer.GetMouseMap(), this->_renderer.GetMouse(), dt);
 
 	dt = 0.08;
+	// this->_timestamps.reset(this->_renderer.GetDevice());
+	this->_timestamps.reset(this->_renderer.GetDevice());
+	this->_timestamps.write(cmd, Timestamps::StartFrame, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT);
 	addSources(cmd);
+	this->_timestamps.write(cmd, Timestamps::AddFluidProperties, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
 
 	diffuseVelocity(cmd, dt);
 	advectVelocity(cmd, dt);
+	this->_timestamps.write(cmd, Timestamps::VelocityUpdate, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
 
-	this->_timestamps.write(cmd, Timestamps::StartFrame, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
 	computeDivergence(cmd);
 	solvePressure(cmd);
 	projectIncompressible(cmd);
@@ -134,8 +142,10 @@ UniformFluidEngine::update(VkCommandBuffer cmd, float dt)
 
 	diffuseDensity(cmd, dt);
 	advectDensity(cmd, dt);
+	this->_timestamps.write(cmd, Timestamps::DensityUpdate, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
 
 	renderVoxelVolume(cmd);
+	this->_timestamps.write(cmd, Timestamps::FluidRender, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
 }
 
 void
@@ -322,11 +332,36 @@ UniformFluidEngine::renderVoxelVolume(VkCommandBuffer cmd)
 }
 
 void
-UniformFluidEngine::getTimestampQueries()
+UniformFluidEngine::preFrame()
 {
 	this->_timestamps.collect(this->_renderer.GetDevice());
-	float pressureDelta = this->_timestamps.getDelta(Timestamps::StartFrame, Timestamps::PressureSolve);
-	std::cout << "Pressure: " << pressureDelta << std::endl;
+	this->_timestamps.nextFrame();
+
+	const uint32_t statReportPeriod = 7;
+	this->_timestampAverages[Timestamps::StartFrame] = this->_timestamps.getDelta(Timestamps::StartFrame, Timestamps::FluidRender);
+	this->_timestampAverages[Timestamps::AddFluidProperties] = this->_timestamps.getDelta(Timestamps::StartFrame, Timestamps::AddFluidProperties);
+	this->_timestampAverages[Timestamps::VelocityUpdate] =  this->_timestamps.getDelta(Timestamps::AddFluidProperties, Timestamps::VelocityUpdate);
+	this->_timestampAverages[Timestamps::PressureSolve] =  this->_timestamps.getDelta(Timestamps::VelocityUpdate, Timestamps::PressureSolve);
+	this->_timestampAverages[Timestamps::DensityUpdate] =  this->_timestamps.getDelta(Timestamps::PressureSolve, Timestamps::DensityUpdate);
+	this->_timestampAverages[Timestamps::FluidRender] =  this->_timestamps.getDelta(Timestamps::DensityUpdate, Timestamps::FluidRender);
+}
+
+void
+UniformFluidEngine::ui()
+{
+    ImGuiIO& io = ImGui::GetIO();
+    ImGuiViewport* viewport = ImGui::GetMainViewport(); // Use GetMainViewport for multi-viewport support
+    ImGui::SetNextWindowPos(ImVec2(0, 0), ImGuiCond_Always);
+    ImGui::SetNextWindowSize(ImVec2(0, 0)); // Auto-sizing
+	if(ImGui::Begin("stats", nullptr, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize)) {
+		ImGui::Text("Total:    %3.2f ms", this->_timestampAverages[Timestamps::StartFrame]);
+		ImGui::Text("Add:      %3.2f ms", this->_timestampAverages[Timestamps::AddFluidProperties]);
+		ImGui::Text("Velocity: %3.2f ms", this->_timestampAverages[Timestamps::VelocityUpdate]);
+		ImGui::Text("Pressure: %3.2f ms", this->_timestampAverages[Timestamps::PressureSolve]);
+		ImGui::Text("Density:  %3.2f ms", this->_timestampAverages[Timestamps::DensityUpdate]);
+		ImGui::Text("Render:   %3.2f ms", this->_timestampAverages[Timestamps::FluidRender]);
+	}
+	ImGui::End();
 }
 
 void
@@ -389,6 +424,7 @@ bool
 UniformFluidEngine::initRendererOptions()
 {
 	this->_timestamps.init(this->_renderer.GetDevice(), Timestamps::NumTimestamps, Constants::FrameOverlap);
+	this->_timestampAverages.resize(Timestamps::NumTimestamps, 0);
 	return true;
 }
 

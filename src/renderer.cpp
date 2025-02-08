@@ -4,11 +4,11 @@
 #include "vk_initializers.h"
 #include "vk_pipelines.h"
 #include "vk_images.h"
-#include "imgui.h"
-#include "imgui_impl_sdl2.h"
-#include "imgui_impl_vulkan.h"
 #include "defines.hpp"
 
+#include "imgui.h"
+#include "imgui_impl_vulkan.h"
+#include "imgui_impl_sdl2.h"
 
 namespace Constants
 {
@@ -98,6 +98,12 @@ Renderer::RegisterUpdateCallback(std::function<void(VkCommandBuffer, float)>&& c
 }
 
 void
+Renderer::RegisterUICallback(std::function<void()>&& callback)
+{
+    this->_userUI = callback;
+}
+
+void
 Renderer::Update(float dt)
 {
     this->_elapsed += dt;
@@ -118,18 +124,22 @@ Renderer::Update(float dt)
 bool
 Renderer::render(float dt)
 {
-    ImGui_ImplVulkan_NewFrame();
-    ImGui_ImplSDL2_NewFrame();
-    ImGui::NewFrame();
-    ImGui::ShowDemoWindow();
-    ImGui::Render();
-
     // wait for gpu to be done with last frame and clean
     VK_ASSERT(vkWaitForFences(this->_device, 1, &getCurrentFrame().renderFence, true, Constants::TimeoutNs));
     VK_ASSERT(vkResetFences(this->_device, 1, &getCurrentFrame().renderFence));
     getCurrentFrame().deletionQueue.flush(); // delete per-frame objects
 
-    this->_userPreFrame();
+    if(this->_userPreFrame) {
+        this->_userPreFrame();
+    }
+
+    if(this->_userUI) {
+        ImGui_ImplVulkan_NewFrame();
+        ImGui_ImplSDL2_NewFrame();
+        ImGui::NewFrame();
+        this->_userUI();
+        ImGui::Render();
+    }
 
     // register the semaphore to be signalled once the next frame (result of this call) is ready. does not block
     VkResult res;
@@ -167,8 +177,10 @@ Renderer::render(float dt)
     // vkutil::transition_image(cmd, swapchainImage, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
     vkutil::copy_image_to_image(cmd, drawImage.image, swapchainImage.image, this->_windowExtent, VkExtent3D{.width = this->_swapchainExtent.width, .height = this->_swapchainExtent.height, .depth = 1});
 
-    swapchainImage.Transition(cmd, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
-    drawUI(cmd, swapchainImage.imageView);
+    if(this->_userUI) {
+        swapchainImage.Transition(cmd, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+        drawUI(cmd, swapchainImage.imageView);
+    }
 
     // transition to present format
     swapchainImage.Transition(cmd, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
@@ -1119,6 +1131,12 @@ float
 Renderer::GetElapsedTime()
 {
     return this->_elapsed;
+}
+
+uint32_t
+Renderer::GetFrameNumber()
+{
+    return this->_frameNumber;
 }
 
 VkExtent3D

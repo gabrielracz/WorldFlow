@@ -39,6 +39,7 @@ public:
 
     void RegisterPreFrameCallback(std::function<void()>&& callback);
     void RegisterUpdateCallback(std::function<void(VkCommandBuffer,float)>&& callback);
+    void RegisterUICallback(std::function<void()>&& callback);
 
     void Update(float dt);
     bool ImmediateSubmit(std::function<void(VkCommandBuffer)>&& immediateFunction);
@@ -57,6 +58,7 @@ public:
     VkRect2D GetWindowScissor();
     VkExtent2D GetWindowExtent2D();
     float GetElapsedTime();
+    uint32_t GetFrameNumber();
 
 	VkDevice GetDevice();
     VkExtent3D GetWorkgroupCounts(uint32_t localGroupSize = 16);
@@ -116,6 +118,7 @@ private:
 
     std::function<void()> _userPreFrame;
     std::function<void(VkCommandBuffer, float)> _userUpdate;
+    std::function<void()> _userUI;
 
     /* RENDER DATA */
     Camera _camera;
