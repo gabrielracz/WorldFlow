@@ -1,4 +1,4 @@
-assets/*.glb
+*.glb
 shaders/bin/*
 build/*
 bin/*

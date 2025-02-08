@@ -69,12 +69,14 @@ public:
 
 private:
     bool render(float dt);
+    void drawUI(VkCommandBuffer cmd, VkImageView targetImageView);
 
     bool initWindow();
     bool initVulkan();
     bool initSwapchain();
     bool initCommands();
     bool initSyncStructures();
+    bool initUI();
     bool initResources();
     bool initDescriptorPool();
     bool initCamera();

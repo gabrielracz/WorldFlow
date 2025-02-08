@@ -3,7 +3,7 @@ set(PROJ_NAME "engine")
 project (PROJ_NAME)
 # set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${PROJECT_SOURCE_DIR}/bin")
 # set(CMAKE_LIBRARY_OUTPUT_DIRECTORY "${PROJECT_SOURCE_DIR}/bin")
- add_compile_options("-O3")
+#  add_compile_options("-O3")
 set(CMAKE_CXX_STANDARD 20)
 set(LIBRARY_PATH ${CMAKE_CURRENT_SOURCE_DIR}/libs)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
@@ -23,6 +23,7 @@ target_include_directories(${PROJ_NAME} PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/inclu
 target_include_directories(${PROJ_NAME} PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/libs/vulkan")
 target_include_directories(${PROJ_NAME} PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/libs/glfw")
 target_include_directories(${PROJ_NAME} PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/libs/fastgltf/include")
+target_include_directories(${PROJ_NAME} PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/libs/imgui/")
 # target_include_directories(${PROJ_NAME} PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/libs/fmt/include")
 
 # libraries
