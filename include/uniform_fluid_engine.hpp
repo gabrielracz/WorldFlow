@@ -45,7 +45,9 @@ private:
 	bool _shouldDiffuseDensity {false};
 	bool _toggle {false};
 	bool _shouldAddObstacle {false};
+	bool _shouldCollapseUI {true};
 	glm::vec3 _objectPosition{};
+	float _objectRadius;
 	int _renderType = 1;
 	glm::vec3 _sourcePosition {};
 	glm::vec3 _velocitySourceAmount {};

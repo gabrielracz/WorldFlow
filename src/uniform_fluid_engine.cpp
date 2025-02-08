@@ -9,6 +9,7 @@
 #include "renderer_structs.hpp"
 #include "vma.hpp"
 #include "imgui.h"
+#include "ui_tools.hpp"
 
 #include <functional>
 #include <vulkan/vulkan_core.h>
@@ -69,10 +70,10 @@ enum Timestamps : uint32_t
 /* CONSTANTS */
 namespace Constants
 {
-constexpr size_t VoxelGridResolution = 32;
+constexpr size_t VoxelGridResolution = 64 + 32;
 constexpr size_t VoxelGridSize = VoxelGridResolution * VoxelGridResolution * VoxelGridResolution * sizeof(FluidGridCell);
 constexpr float VoxelGridScale = 2.0f;
-const uint32_t VoxelDiagonal = std::sqrt(VoxelGridResolution*VoxelGridResolution * 3);
+const uint32_t VoxelDiagonal = std::sqrt(VoxelGridResolution*VoxelGridResolution * 1);
 constexpr glm::vec3 VoxelGridCenter = glm::vec3(Constants::VoxelGridResolution/2, Constants::VoxelGridResolution/2, Constants::VoxelGridResolution/2);
 
 constexpr uint32_t LocalGroupSize = 8;
@@ -164,7 +165,7 @@ UniformFluidEngine::addSources(VkCommandBuffer cmd)
 		.addDensity = this->_shouldAddSources,
 		.density = this->_densityAmount,
 		.objectType = (uint32_t) this->_shouldAddObstacle > 0,
-		.objectRadius = Constants::VoxelGridResolution/5.0,
+		.objectRadius = this->_objectRadius * Constants::VoxelGridResolution,
 		.decayRate = 0.99
 	};
 	vkCmdPushConstants(cmd, this->_computeAddSources.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(pc), &pc);
@@ -351,24 +352,44 @@ void
 UniformFluidEngine::ui()
 {
     ImGuiIO& io = ImGui::GetIO();
+
     ImGuiViewport* viewport = ImGui::GetMainViewport(); // Use GetMainViewport for multi-viewport support
-    ImGui::SetNextWindowPos(ImVec2(0, 0), ImGuiCond_Always);
+
+	float pad = 10.0;
+    ImGui::SetNextWindowPos(ImVec2(pad, pad), ImGuiCond_Always);
     ImGui::SetNextWindowSize(ImVec2(0, 0)); // Auto-sizing
-	if(ImGui::Begin("stats", nullptr, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize)) {
+
+	ImVec2 windowSize;
+
+	if(ImGui::Begin("stats", nullptr, ImGuiWindowFlags_NoTitleBar)) {
 		ImGui::Text("Total:    %3.2f ms", this->_timestampAverages[Timestamps::StartFrame]);
 		ImGui::Text("Add:      %3.2f ms", this->_timestampAverages[Timestamps::AddFluidProperties]);
 		ImGui::Text("Velocity: %3.2f ms", this->_timestampAverages[Timestamps::VelocityUpdate]);
 		ImGui::Text("Pressure: %3.2f ms", this->_timestampAverages[Timestamps::PressureSolve]);
 		ImGui::Text("Density:  %3.2f ms", this->_timestampAverages[Timestamps::DensityUpdate]);
 		ImGui::Text("Render:   %3.2f ms", this->_timestampAverages[Timestamps::FluidRender]);
+		windowSize = ImGui::GetWindowSize();
 	}
+	ImGui::End();
+
+    ImGui::SetNextWindowPos(ImVec2(pad, windowSize.y + pad), ImGuiCond_Always);
+    ImGui::SetNextWindowSize(ImVec2(windowSize.x, 0)); // Auto-sizing
+	if(ImGui::Begin("controls", nullptr, ImGuiWindowFlags_NoTitleBar)) {
+		ImGui::SliderFloat("obj", &this->_objectRadius, 0.01, 0.5);
+	}
+
+	if(this->_shouldCollapseUI) {
+		uitools::CollapseAllWindows();
+		this->_shouldCollapseUI = false;
+	}
+
 	ImGui::End();
 }
 
 void
 UniformFluidEngine::checkControls(KeyMap& keyMap, MouseMap& mouseMap, Mouse& mouse, float dt)
 {
-	if(mouseMap[SDL_BUTTON_LEFT]) {
+	if(mouseMap[SDL_BUTTON_RIGHT]) {
 		const float mouse_sens = -0.1875f;
 		glm::vec2 look = mouse.move * mouse_sens * dt;
 		this->_renderer.GetCamera().OrbitYaw(-look.x);
@@ -411,6 +432,11 @@ UniformFluidEngine::checkControls(KeyMap& keyMap, MouseMap& mouseMap, Mouse& mou
 		this->_shouldAddObstacle = !this->_shouldAddObstacle;
 		keyMap[SDLK_f] = false;
 	}
+	
+	if(keyMap[SDLK_TAB]) {
+		this->_shouldCollapseUI = true;
+		keyMap[SDLK_TAB] = false;
+	}
 
 
 	for(int i = 1; i <= 4; i++) {
@@ -426,6 +452,11 @@ UniformFluidEngine::initRendererOptions()
 {
 	this->_timestamps.init(this->_renderer.GetDevice(), Timestamps::NumTimestamps, Constants::FrameOverlap);
 	this->_timestampAverages.resize(Timestamps::NumTimestamps, 0);
+
+	this->_objectRadius = 0.2;
+
+	// uitools::SetAmberRedTheme();
+	uitools::SetDarkRedTheme();
 	return true;
 }
 
@@ -468,7 +499,8 @@ UniformFluidEngine::initPipelines()
 {
     this->_renderer.CreateComputePipeline(this->_computeRaycastVoxelGrid, SHADER_DIRECTORY"/voxelTracerAccum.comp.spv", {
         BufferDescriptor(0, 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, this->_buffFluidGrid.bufferHandle, Constants::VoxelGridSize),
-        ImageDescriptor(0, 1, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, this->_renderer.GetDrawImage().imageView, VK_NULL_HANDLE, this->_renderer.GetDrawImage().layout)
+        ImageDescriptor(0, 1, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, this->_renderer.GetDrawImage().imageView, VK_NULL_HANDLE, this->_renderer.GetDrawImage().layout),
+		BufferDescriptor(0, 2, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, this->_buffFluidInfo.bufferHandle, sizeof(FluidGridInfo)),
     },
     sizeof(RayTracerPushConstants));
 

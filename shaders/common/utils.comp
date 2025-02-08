@@ -200,3 +200,34 @@ float cnoise(vec3 P){
   float n_xyz = mix(n_yz.x, n_yz.y, fade_xyz.x); 
   return 2.2 * n_xyz;
 }
+
+vec4 flameHeatmapColor(float temperature) {
+    // Normalize temperature to 0-1 range for typical "heat" visualization
+    // Assuming input range of 0-1, where 1 represents maximum temperature
+    
+    // Colors based on black-body radiation spectrum
+    vec3 color;
+    
+    // Start with dark red, progress through orange, yellow, and finally blue-white
+    if (temperature < 0.33) {
+        // Dark red to bright red
+        float t = temperature * 3.0;
+        color = vec3(t * 0.7, 0.0, 0.0);
+    } else if (temperature < 0.66) {
+        // Red to orange/yellow
+        float t = (temperature - 0.33) * 3.0;
+        color = vec3(0.7 + (0.3 * t), 0.4 * t, 0.0);
+    } else {
+        // Yellow to white with blue tint
+        float t = (temperature - 0.66) * 3.0;
+        color = vec3(1.0, 0.4 + (0.6 * t), t * 0.8);
+    }
+    
+    // Add glow effect for higher temperatures
+    float glow = max(0.0, temperature - 0.5) * 2.0;
+    color += vec3(glow) * 0.5;
+    color = clamp(color, 0.0, 1.0);
+    
+    // Ensure colors stay in valid range
+    return vec4(color.rgb, 1.0);
+}
