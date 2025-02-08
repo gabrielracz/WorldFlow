@@ -37,6 +37,7 @@ public:
     bool ShouldClose() const;
     void Close();
 
+    void RegisterPreFrameCallback(std::function<void()>&& callback);
     void RegisterUpdateCallback(std::function<void(VkCommandBuffer,float)>&& callback);
 
     void Update(float dt);
@@ -111,6 +112,7 @@ private:
     MouseMap _mouseMap;
     KeyMap _keyMap;
 
+    std::function<void()> _userPreFrame;
     std::function<void(VkCommandBuffer, float)> _userUpdate;
 
     /* RENDER DATA */
@@ -133,8 +135,6 @@ private:
     VkSwapchainKHR _swapchain;
     VkFormat _swapchainImageFormat;
     std::vector<Image> _swapchainImages;
-    // std::vector<VkImage> _swapchainImages;
-    // std::vector<VkImageView> _swapchainImageViews;
     VkExtent2D _swapchainExtent;
 
     //immediate submit structures

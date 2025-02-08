@@ -18,6 +18,7 @@ public:
 	bool Init();
 
 private:
+	void preFrame();
 	void update(VkCommandBuffer cmd, float dt);
 	void addSources(VkCommandBuffer cmd);
 	void diffuseVelocity(VkCommandBuffer cmd, float dt);
@@ -28,14 +29,28 @@ private:
 	void diffuseDensity(VkCommandBuffer cmd, float dt);
 	void advectDensity(VkCommandBuffer cmd, float dt);
 	void renderVoxelVolume(VkCommandBuffer cmd);
+	void getTimestampQueries();
 
 	void checkControls(KeyMap& keyMap, MouseMap& mouseMap, Mouse& mouse, float dt);
 
+	bool initRendererOptions();
 	bool initResources();
 	bool initPipelines();
 
 private:
 	Renderer& _renderer;
+
+	bool _shouldAddSources {false};
+	bool _shouldDiffuseDensity {false};
+	bool _toggle {false};
+	bool _shouldAddObstacle {false};
+	glm::vec3 _objectPosition{};
+	int _renderType = 1;
+	glm::vec3 _sourcePosition {};
+	glm::vec3 _velocitySourceAmount {};
+	float _densityAmount = 0.25;
+	// std::vector<uint64_t> _timestamps;
+	TimestampQueryPool _timestamps;
 
 	ComputePipeline _computeRaycastVoxelGrid;
 	ComputePipeline _computeAddSources;
@@ -49,16 +64,6 @@ private:
 
 	Buffer _buffFluidGrid;
 	Buffer _buffFluidInfo;
-
-	bool _shouldAddSources {false};
-	bool _shouldDiffuseDensity {false};
-	bool _toggle {false};
-	bool _shouldAddObstacle {false};
-	glm::vec3 _objectPosition{};
-	int _renderType = 1;
-	glm::vec3 _sourcePosition {};
-	glm::vec3 _velocitySourceAmount {};
-	float _densityAmount = 0.25;
 };
 
 

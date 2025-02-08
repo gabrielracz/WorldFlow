@@ -82,6 +82,12 @@ Renderer::Init()
 }
 
 void
+Renderer::RegisterPreFrameCallback(std::function<void()>&& callback)
+{
+    this->_userPreFrame = callback;
+}
+
+void
 Renderer::RegisterUpdateCallback(std::function<void(VkCommandBuffer, float)>&& callback)
 {
     this->_userUpdate = callback;
@@ -112,6 +118,8 @@ Renderer::render(float dt)
     VK_ASSERT(vkWaitForFences(this->_device, 1, &getCurrentFrame().renderFence, true, Constants::TimeoutNs));
     VK_ASSERT(vkResetFences(this->_device, 1, &getCurrentFrame().renderFence));
     getCurrentFrame().deletionQueue.flush(); // delete per-frame objects
+
+    this->_userPreFrame();
 
     // register the semaphore to be signalled once the next frame (result of this call) is ready. does not block
     VkResult res;
@@ -598,7 +606,8 @@ Renderer::initVulkan()
     VkPhysicalDeviceVulkan12Features features12 {
         .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES,
         .descriptorIndexing = true,
-        .bufferDeviceAddress = true
+        .hostQueryReset = true,
+        .bufferDeviceAddress = true,
     };
 
     VkPhysicalDeviceFeatures featuresBase {

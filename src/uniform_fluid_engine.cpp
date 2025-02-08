@@ -54,6 +54,13 @@ struct alignas(16) AddFluidPropertiesPushConstants
 const auto s = sizeof(AddFluidPropertiesPushConstants);
 
 
+enum Timestamps : uint32_t
+{
+	StartFrame = 0,
+	PressureSolve,
+	NumTimestamps
+};
+
 /* CONSTANTS */
 namespace Constants
 {
@@ -83,19 +90,31 @@ UniformFluidEngine::UniformFluidEngine(Renderer& renderer)
 
 UniformFluidEngine::~UniformFluidEngine() {}
 
-bool UniformFluidEngine::Init()
+bool
+UniformFluidEngine::Init()
 {
-	const bool initSuccess = initResources() &&
+	const bool initSuccess = initRendererOptions() &&
+							 initResources() &&
 							 initPipelines();
 	if(!initSuccess) {
 		return false;
 	}
 
+	this->_renderer.RegisterPreFrameCallback(std::bind(&UniformFluidEngine::preFrame, this));
 	this->_renderer.RegisterUpdateCallback(std::bind(&UniformFluidEngine::update, this, std::placeholders::_1, std::placeholders::_2));
 	return true;
 }
 
-void UniformFluidEngine::update(VkCommandBuffer cmd, float dt)
+void
+UniformFluidEngine::preFrame()
+{
+	this->_timestamps.nextFrame();
+	getTimestampQueries();
+	this->_timestamps.reset(this->_renderer.GetDevice());
+}
+
+void
+UniformFluidEngine::update(VkCommandBuffer cmd, float dt)
 {
 	checkControls(this->_renderer.GetKeyMap(), this->_renderer.GetMouseMap(), this->_renderer.GetMouse(), dt);
 
@@ -105,16 +124,15 @@ void UniformFluidEngine::update(VkCommandBuffer cmd, float dt)
 	diffuseVelocity(cmd, dt);
 	advectVelocity(cmd, dt);
 
+	this->_timestamps.write(cmd, Timestamps::StartFrame, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
 	computeDivergence(cmd);
 	solvePressure(cmd);
 	projectIncompressible(cmd);
-
 	if(this->_toggle)
 		computeDivergence(cmd);
-
+	this->_timestamps.write(cmd, Timestamps::PressureSolve, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
 
 	diffuseDensity(cmd, dt);
-
 	advectDensity(cmd, dt);
 
 	renderVoxelVolume(cmd);
@@ -304,6 +322,14 @@ UniformFluidEngine::renderVoxelVolume(VkCommandBuffer cmd)
 }
 
 void
+UniformFluidEngine::getTimestampQueries()
+{
+	this->_timestamps.collect(this->_renderer.GetDevice());
+	float pressureDelta = this->_timestamps.getDelta(Timestamps::StartFrame, Timestamps::PressureSolve);
+	std::cout << "Pressure: " << pressureDelta << std::endl;
+}
+
+void
 UniformFluidEngine::checkControls(KeyMap& keyMap, MouseMap& mouseMap, Mouse& mouse, float dt)
 {
 	if(mouseMap[SDL_BUTTON_LEFT]) {
@@ -360,9 +386,15 @@ UniformFluidEngine::checkControls(KeyMap& keyMap, MouseMap& mouseMap, Mouse& mou
 }
 
 bool
+UniformFluidEngine::initRendererOptions()
+{
+	this->_timestamps.init(this->_renderer.GetDevice(), Timestamps::NumTimestamps, Constants::FrameOverlap);
+	return true;
+}
+
+bool
 UniformFluidEngine::initResources()
 {
-
 	this->_renderer.CreateBuffer(
 		this->_buffFluidGrid,
 		Constants::VoxelGridSize,
