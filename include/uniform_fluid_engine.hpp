@@ -50,6 +50,7 @@ private:
 	float _objectRadius;
 	int _renderType = 1;
 	glm::vec3 _sourcePosition {};
+	float _sourceRadius {};
 	glm::vec3 _velocitySourceAmount {};
 	float _densityAmount = 0.25;
 	// std::vector<uint64_t> _timestamps;

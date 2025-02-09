@@ -15,6 +15,10 @@ layout(set = 0, binding = 0) readonly buffer GridBuffer {
 
 layout(rgba32f, set = 0, binding = 1) uniform image2D outputImage;
 
+layout(binding = 2) readonly buffer FluidInfo {
+    FluidGridInfo gridInfo;
+};
+
 layout(push_constant) uniform constants {
     mat4 inverseProjection;  // Inverse projection matrix
     mat4 inverseView;        // Inverse view matrix
@@ -116,7 +120,7 @@ vec4 traceVoxels(vec3 rayOrigin, vec3 rayDir) {
     }
     
     // Main ray traversal loop
-    for (int i = 0; i < 256; i++) {
+    for (int i = 0; i < 156; i++) {
         // Convert current position to grid index
         uint index = mapPos.z * uint(pc.gridSize.x) * uint(pc.gridSize.y) +
                     mapPos.y * uint(pc.gridSize.x) +
@@ -134,12 +138,12 @@ vec4 traceVoxels(vec3 rayOrigin, vec3 rayDir) {
                 density = voxelData[index].divergence * 8;
             }
             else if(pc.renderType == 3) {
-                density = voxelData[index].pressure * 2.0;
+                density = voxelData[index].pressure * 10.0;
             }
             else if(pc.renderType == 4) {
                 density = length(voxelData[index].velocity)/200.0;
             }
-            vec4 baseColor = density > 0.0 ? pc.baseColor : vec4(0.8, 0.0, 0.0, 1.0);
+            // vec4 baseColor = density > 0.0 ? pc.baseColor : 
 
             // vec3 vel = voxelData[index].velocity/10;
             // vec4 baseColor = vec4(vel.x, vel.y, vel.z, 1.0);
@@ -149,7 +153,11 @@ vec4 traceVoxels(vec3 rayOrigin, vec3 rayDir) {
                 float contribution = density * pc.stepSize;
 
                 float attenuation = exp(-t * 0.07);
-                vec4 heatColor = flameHeatmapColor(density);
+                vec4 heatColor = flameHeatmapColor(abs(density));
+                if(density < 0.0) {
+                    heatColor.rgb = 1.0 - heatColor.rgb;
+                }
+                // vec4 heatColor = viridisColor(density);
                 vec4 voxelColor = vec4(vec3(heatColor.rgb * attenuation), contribution);
 
 				// contribution = max(contribution, 0.004);

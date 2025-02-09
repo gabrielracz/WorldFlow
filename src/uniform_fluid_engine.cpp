@@ -73,7 +73,7 @@ namespace Constants
 constexpr size_t VoxelGridResolution = 64 + 32;
 constexpr size_t VoxelGridSize = VoxelGridResolution * VoxelGridResolution * VoxelGridResolution * sizeof(FluidGridCell);
 constexpr float VoxelGridScale = 2.0f;
-const uint32_t VoxelDiagonal = std::sqrt(VoxelGridResolution*VoxelGridResolution * 1);
+const uint32_t VoxelDiagonal = std::sqrt(VoxelGridResolution*VoxelGridResolution * 3);
 constexpr glm::vec3 VoxelGridCenter = glm::vec3(Constants::VoxelGridResolution/2, Constants::VoxelGridResolution/2, Constants::VoxelGridResolution/2);
 
 constexpr uint32_t LocalGroupSize = 8;
@@ -160,7 +160,7 @@ UniformFluidEngine::addSources(VkCommandBuffer cmd)
 		.velocity = glm::vec4(this->_velocitySourceAmount, 1.0),
 		.objectPosition = glm::vec4(this->_objectPosition, 1.0),
 		.elapsed = this->_renderer.GetElapsedTime(),
-		.sourceRadius = Constants::VoxelGridResolution / 5.0,
+		.sourceRadius = this->_sourceRadius * Constants::VoxelGridResolution,
 		.addVelocity = this->_shouldAddSources,
 		.addDensity = this->_shouldAddSources,
 		.density = this->_densityAmount,
@@ -376,6 +376,7 @@ UniformFluidEngine::ui()
     ImGui::SetNextWindowSize(ImVec2(windowSize.x, 0)); // Auto-sizing
 	if(ImGui::Begin("controls", nullptr, ImGuiWindowFlags_NoTitleBar)) {
 		ImGui::SliderFloat("obj", &this->_objectRadius, 0.01, 0.5);
+		ImGui::SliderFloat("src", &this->_sourceRadius, 0.01, 0.5);
 	}
 
 	if(this->_shouldCollapseUI) {
@@ -454,9 +455,11 @@ UniformFluidEngine::initRendererOptions()
 	this->_timestampAverages.resize(Timestamps::NumTimestamps, 0);
 
 	this->_objectRadius = 0.2;
+	this->_sourceRadius = 0.15;
 
 	// uitools::SetAmberRedTheme();
-	uitools::SetDarkRedTheme();
+	// uitools::SetDarkRedTheme();
+	uitools::SetTheme();
 	return true;
 }
 
