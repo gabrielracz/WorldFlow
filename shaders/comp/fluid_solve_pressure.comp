@@ -51,12 +51,12 @@ void main()
     const float newPres = (cell.divergence + l + r + d + u + f + b) / 6.0;
 
 	// SOR
-	// const float alpha = 2 / (1 + sin(3.14159 / gridInfo.resolution.x)); // theoretically optimal
+	const float alpha = 2 / (1 + sin(3.14159 / gridInfo.resolution.x)); // theoretically optimal
 	// const float alpha = 1.1;
-	// const float result = alpha * newPres + (1 - alpha) * oldPres;
+	const float result = alpha * newPres + (1 - alpha) * oldPres;
 
     // guarded by red-black
-    grid[index].pressure = newPres;
+    grid[index].pressure = result;
 
     // atomicExchange(grid[index].pressure, newPres);
 }

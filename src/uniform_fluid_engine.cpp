@@ -79,7 +79,7 @@ constexpr glm::vec3 VoxelGridCenter = glm::vec3(Constants::VoxelGridResolution/2
 constexpr uint32_t LocalGroupSize = 8;
 
 constexpr uint32_t NumDiffusionIterations = 10;
-constexpr uint32_t NumPressureIterations = NumDiffusionIterations * 4;
+constexpr uint32_t NumPressureIterations = NumDiffusionIterations * 1;
 
 constexpr glm::vec3 LightPosition = glm::vec4(10.0, 10.0, 10.0, 1.0);
 }
