@@ -2,6 +2,7 @@
 #extension GL_GOOGLE_include_directive : enable
 #extension GL_EXT_shader_atomic_float : enable
 #include "../common/grid.comp"
+#include "../common/utils.comp"
 
 layout(local_size_x = 8, local_size_y = 8, local_size_z = 8) in;
 
@@ -18,6 +19,11 @@ layout(push_constant) uniform PushConstants {
 	float dt;
 	uint redBlack;
 } pc;
+vec3 traceVelocityField(vec3 pos, vec3 velocity, float dt)
+{
+    // TODO: more sophisticated path trace?
+    return pos + (velocity * -dt);
+}
 
 vec3 sampleVelocity(uvec3 center, ivec3 offset)
 {
@@ -29,18 +35,15 @@ vec3 sampleVelocity(uvec3 center, ivec3 offset)
 	// if(!valid) {return grid[getGridIndex(center, gridInfo.resolution)].velocity * vec3(ge) * vec3(le);}
 	if(!valid) {return vec3(0.0);}
 	return grid[getGridIndex(cell, gridInfo.resolution)].velocity;
+
 }
 
 void main()
 {
-	uvec3 center = gl_GlobalInvocationID;
-	uint index = getGridIndex(center, gridInfo.resolution);
+	uint index = getGridIndex(gl_GlobalInvocationID, gridInfo.resolution);
 	FluidGridCell cell = grid[index];
-
-	// Alternate updates in alternating checkerboard pattern to avoid atomics
-	// if(mod(center.x + center.y + center.z + pc.redBlack, 2) == 0){
-	// 	return;
-	// }
+	// center grid cell position
+	vec3 pos = vec3(gl_GlobalInvocationID) + vec3(0.5, 0.5, 0.5);
 
 	const vec3 l = sampleVelocity(center, ivec3(-1, 0, 0));
 	const vec3 r = sampleVelocity(center, ivec3(1, 0, 0));
@@ -48,18 +51,20 @@ void main()
 	const vec3 d = sampleVelocity(center, ivec3(0, -1, 0));
 	const vec3 f = sampleVelocity(center, ivec3(0, 0, 1));
 	const vec3 b = sampleVelocity(center, ivec3(0, 0, -1));
-	const vec3 c = cell.velocity;
+	const vec3 oldVel = cell.velocity;
 
-    const float diffRate =  0.0000010;
-	const float N = gridInfo.resolution.x * gridInfo.resolution.y;
-    const float a = diffRate*pc.dt*N; 
+    float dx = gridInfo.resolution.x;
+    vec3 flux = vec3(0);
+    
+    // X-direction flux
+    flux.x = (v_right.x * v_right.x - v_left.x * v_left.x) / (2.0 * dx);
+    
+    // Y-direction flux
+    flux.y = (v_up.y * v_up.y - v_down.y * v_down.y) / (2.0 * dx);
+    
+    // Z-direction flux
+    flux.z = (v_forward.z * v_forward.z - v_back.z * v_back.z) / (2.0 * dx);
 
-    const vec3 result = (c + a*(l + r + u + d + f + b)) / (1+6*a);
+    vec3 newVel = oldVel - flux * pc.dt;
 
-    // guarded by red-black
-    // grid[index].velocity = result;
-
-    atomicExchange(grid[index].velocity.x, result.x);
-    atomicExchange(grid[index].velocity.y, result.y);
-    atomicExchange(grid[index].velocity.z, result.z);
 }

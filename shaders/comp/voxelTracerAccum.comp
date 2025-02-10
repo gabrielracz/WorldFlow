@@ -158,6 +158,7 @@ vec4 traceVoxels(vec3 rayOrigin, vec3 rayDir) {
                     heatColor.rgb = 1.0 - heatColor.rgb;
                 }
                 // vec4 heatColor = viridisColor(density);
+                contribution = clamp(contribution, 0.0, 1.0);
                 vec4 voxelColor = vec4(vec3(heatColor.rgb * attenuation), contribution);
 
 				// contribution = max(contribution, 0.004);

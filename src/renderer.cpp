@@ -9,6 +9,7 @@
 #include "imgui.h"
 #include "imgui_impl_vulkan.h"
 #include "imgui_impl_sdl2.h"
+#include "ui_tools.hpp"
 
 namespace Constants
 {
@@ -1006,13 +1007,16 @@ Renderer::eventCallback(void* userdata, SDL_Event* event)
 	else if(event->type == SDL_MOUSEWHEEL) {
 		renderer->_mouse.scroll += event->wheel.preciseY;
 	}
-
-	else if(event->type == SDL_KEYDOWN) {
-		renderer->_keyMap[event->key.keysym.sym] = true;
+    
+    SDL_Keycode key = event->key.keysym.sym;
+	if(event->type == SDL_KEYDOWN) {
+		renderer->_keyMap[key] = true;
+        io.KeysDown[uitools::SDLKeyToImGuiKey(key)] = true;
 	}
 
 	else if(event->type == SDL_KEYUP) {
-		renderer->_keyMap[event->key.keysym.sym] = false;
+		renderer->_keyMap[key] = false;
+        io.KeysDown[uitools::SDLKeyToImGuiKey(key)]  = false;
 	}
 	return 1;
 }

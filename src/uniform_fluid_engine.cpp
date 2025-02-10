@@ -70,16 +70,16 @@ enum Timestamps : uint32_t
 /* CONSTANTS */
 namespace Constants
 {
-constexpr size_t VoxelGridResolution = 64 + 32;
+constexpr size_t VoxelGridResolution = 96;
 constexpr size_t VoxelGridSize = VoxelGridResolution * VoxelGridResolution * VoxelGridResolution * sizeof(FluidGridCell);
 constexpr float VoxelGridScale = 2.0f;
-const uint32_t VoxelDiagonal = std::sqrt(VoxelGridResolution*VoxelGridResolution * 3);
+constexpr uint32_t VoxelDiagonal = Constants::VoxelGridResolution * 3;
 constexpr glm::vec3 VoxelGridCenter = glm::vec3(Constants::VoxelGridResolution/2, Constants::VoxelGridResolution/2, Constants::VoxelGridResolution/2);
 
 constexpr uint32_t LocalGroupSize = 8;
 
 constexpr uint32_t NumDiffusionIterations = 10;
-constexpr uint32_t NumPressureIterations = NumDiffusionIterations * 1;
+constexpr uint32_t NumPressureIterations = NumDiffusionIterations * 4;
 
 constexpr glm::vec3 LightPosition = glm::vec4(10.0, 10.0, 10.0, 1.0);
 }
@@ -213,7 +213,7 @@ UniformFluidEngine::diffuseDensity(VkCommandBuffer cmd, float dt)
 		vkCmdPushConstants(cmd, this->_computeDiffuseDensity.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(pc), &pc);
 
 		const uint32_t groupCount = getFluidDispatchGroupCount();
-		vkCmdDispatch(cmd, groupCount, groupCount, groupCount);
+		vkCmdDispatch(cmd, groupCount/2, groupCount, groupCount);
 		VkBufferMemoryBarrier barriers[] = {
 			this->_buffFluidGrid.CreateBarrier(VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT)
 		};
@@ -377,6 +377,8 @@ UniformFluidEngine::ui()
 	if(ImGui::Begin("controls", nullptr, ImGuiWindowFlags_NoTitleBar)) {
 		ImGui::SliderFloat("obj", &this->_objectRadius, 0.01, 0.5);
 		ImGui::SliderFloat("src", &this->_sourceRadius, 0.01, 0.5);
+		ImGui::InputFloat("vel", &this->_velocitySpeed, 1.0, 150.0);
+		ImGui::SliderFloat("dns", &this->_densityAmount, 0.01, 1.0);
 	}
 
 	if(this->_shouldCollapseUI) {
@@ -404,7 +406,7 @@ UniformFluidEngine::checkControls(KeyMap& keyMap, MouseMap& mouseMap, Mouse& mou
 		mouse.scroll = 0.0;
 	}
 
-	float v = 10.0;
+	float v = this->_velocitySpeed;
 	constexpr glm::vec3 c = Constants::VoxelGridCenter;
 	this->_objectPosition = Constants::VoxelGridCenter;
 	this->_shouldAddSources = false;

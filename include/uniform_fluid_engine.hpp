@@ -53,6 +53,7 @@ private:
 	float _sourceRadius {};
 	glm::vec3 _velocitySourceAmount {};
 	float _densityAmount = 0.25;
+	float _velocitySpeed = 10.0;
 	// std::vector<uint64_t> _timestamps;
 	TimestampQueryPool _timestamps;
 	std::vector<float> _timestampAverages;
