@@ -2,4 +2,5 @@
 shaders/bin/*
 build/*
 bin/*
+path_config.hpp
 
