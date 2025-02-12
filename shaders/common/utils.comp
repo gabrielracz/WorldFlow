@@ -95,19 +95,19 @@ vec3 trilinearInterpolation(vec3 fracPos, vec3 values[6], vec3 cellValue) {
 
 
 vec3 triInterp(vec3 c000, vec3 c100, vec3 c010, vec3 c110,
-                           vec3 c001, vec3 c101, vec3 c011, vec3 c111,
-                           vec3 weights) {
-    // First interpolate along x axis
+               vec3 c001, vec3 c101, vec3 c011, vec3 c111,
+               vec3 weights) {
+    // Interpolate along x
     vec3 c00 = mix(c000, c100, weights.x);
     vec3 c10 = mix(c010, c110, weights.x);
     vec3 c01 = mix(c001, c101, weights.x);
     vec3 c11 = mix(c011, c111, weights.x);
     
-    // Then interpolate along y axis
+    // Interpolate along y
     vec3 c0 = mix(c00, c10, weights.y);
     vec3 c1 = mix(c01, c11, weights.y);
     
-    // Finally interpolate along z axis
+    // Interpolate along z
     return mix(c0, c1, weights.z);
 }
 

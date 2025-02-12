@@ -5,6 +5,7 @@
 #include "defines.hpp"
 
 #include <glm/gtx/string_cast.hpp>
+#include <glm/gtc/type_ptr.hpp>
 
 #include "renderer_structs.hpp"
 #include "vma.hpp"
@@ -77,7 +78,7 @@ namespace Constants
 {
 constexpr size_t VoxelGridResolution = 64;
 // constexpr glm::uvec4 VoxelGridDimensions = glm::uvec4(VoxelGridResolution, VoxelGridResolution, VoxelGridResolution, 1);
-constexpr glm::uvec4 VoxelGridDimensions = glm::uvec4(256, 32, 32, 1);
+constexpr glm::uvec4 VoxelGridDimensions = glm::uvec4(256, 32, 16, 1);
 
 const size_t VoxelGridSize = VoxelGridDimensions.x * VoxelGridDimensions.y * VoxelGridDimensions.z * sizeof(FluidGridCell);
 const float VoxelGridScale = 2.0f;
@@ -421,6 +422,7 @@ UniformFluidEngine::ui()
 		const uint32_t step = 1;
 		ImGui::InputScalar("diffiter", ImGuiDataType_U32, &this->_diffusionIterations, &step);
 		ImGui::InputScalar("presiter", ImGuiDataType_U32, &this->_pressureIterations, &step);
+		ImGui::InputFloat3("sourcePos", glm::value_ptr(this->_sourcePosition));
 	}
 
 	if(this->_shouldCollapseUI) {

@@ -26,7 +26,8 @@ vec3 sampleVelocity(uvec3 center, ivec3 offset)
 	bvec3 le = lessThan(cell, gridInfo.resolution.xyz);
 	bool occ = grid[getGridIndex(cell, gridInfo.resolution)].occupied > 0;
 	bool valid = all(ge) && all(le) && !occ;
-	// if(!valid) {return grid[getGridIndex(center, gridInfo.resolution)].velocity * vec3(ge) * vec3(le);}
+	if(!valid) {return grid[getGridIndex(center, gridInfo.resolution)].velocity * vec3(1 - abs(offset));} // set normal component to 0
+	// if(!valid) {return grid[getGridIndex(center, gridInfo.resolution)].velocity;}
 	if(!valid) {return vec3(0.0);}
 	return grid[getGridIndex(cell, gridInfo.resolution)].velocity;
 }
@@ -51,7 +52,7 @@ void main()
 	const vec3 b = sampleVelocity(center, ivec3(0, 0, -1));
 	const vec3 c = cell.velocity;
 
-    const float diffRate =  0.0000010;
+    const float diffRate =  0.000010;
 	const float N = gridInfo.resolution.x * gridInfo.resolution.y;
     const float a = diffRate*pc.dt*N; 
 

@@ -32,7 +32,8 @@ vec3 sampleVelocity(uvec3 center, ivec3 offset)
 	bvec3 le = lessThan(cell, gridInfo.resolution.xyz);
 	bool occ = grid[getGridIndex(cell, gridInfo.resolution)].occupied > 0;
 	bool valid = all(ge) && all(le) && !occ;
-	// if(!valid) {return grid[getGridIndex(center, gridInfo.resolution)].velocity * vec3(ge) * vec3(le);}
+	if(!valid) {return grid[getGridIndex(center, gridInfo.resolution)].velocity * vec3(1 - abs(offset));} // set normal component to 0
+	// if(!valid) {return grid[getGridIndex(center, gridInfo.resolution)].velocity;}
 	if(!valid) {return vec3(0.0);}
 	return grid[getGridIndex(cell, gridInfo.resolution)].velocity;
 }
@@ -46,7 +47,7 @@ void main()
 	vec3 pos = vec3(gl_GlobalInvocationID) + vec3(0.5, 0.5, 0.5);
 
 	vec3 pastPos = traceVelocityField(pos, cell.velocity, pc.dt);
-	pastPos = clampVector(pastPos, vec3(0, 0, 0), vec3(gridInfo.resolution - 1));
+	pastPos = clampVector(pastPos, vec3(0), vec3(gridInfo.resolution - 1));
 	uvec3 center = uvec3(pastPos);
 
 	vec3 cellPos = fract(pastPos);
@@ -73,9 +74,10 @@ void main()
     weights.x = (cellPos.x < 0.5) ? (0.5 - cellPos.x) : (cellPos.x - 0.5);
     weights.y = (cellPos.y < 0.5) ? (0.5 - cellPos.y) : (cellPos.y - 0.5);
     weights.z = (cellPos.z < 0.5) ? (0.5 - cellPos.z) : (cellPos.z - 0.5);
-    
+	
     // Normalize weights to [0,1] range
     weights *= 2.0;
+	// weights = cellPos;
 
 	// vec3 interpolatedVelocity = trilinearInterpolation(vec3(fract(pastPos.x), fract(pastPos.y), fract(pastPos.z)), values, cell.velocity);
 	vec3 interpolatedVelocity = triInterp(c000, c100, c010, c110,
