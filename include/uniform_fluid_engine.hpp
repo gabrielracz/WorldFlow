@@ -21,7 +21,7 @@ private:
 	void ui();
 	void preFrame();
 	void update(VkCommandBuffer cmd, float dt);
-	void addSources(VkCommandBuffer cmd);
+	void addSources(VkCommandBuffer cmd, float dt);
 	void diffuseVelocity(VkCommandBuffer cmd, float dt);
 	void advectVelocity(VkCommandBuffer cmd, float dt);
 	void computeDivergence(VkCommandBuffer cmd);
@@ -55,6 +55,7 @@ private:
 	glm::vec3 _velocitySourceAmount {};
 	float _densityAmount = 0.25;
 	float _velocitySpeed = 10.0;
+	float _decayRate = 0.1;
 
 	uint32_t _diffusionIterations;
 	uint32_t _pressureIterations;

@@ -11,6 +11,7 @@ struct FluidGridCell
 struct FluidGridInfo
 {
 	uvec4 resolution;
+	vec4 position;
 	float cellSize;
 };
 

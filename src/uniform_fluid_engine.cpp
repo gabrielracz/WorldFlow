@@ -30,6 +30,7 @@ struct alignas(16) FluidGridCell
 struct alignas(16) FluidGridInfo
 {
 	glm::uvec4 resolution;
+	glm::vec4 position;
 	float cellSize;
 };
 
@@ -75,6 +76,8 @@ enum Timestamps : uint32_t
 namespace Constants
 {
 constexpr size_t VoxelGridResolution = 64;
+constexpr glm::uvec4 VoxelGridDimensions = glm::uvec4(VoxelGridResolution, VoxelGridResolution, VoxelGridResolution, 1);
+const glm::vec4 VoxelCellDimensions = glm::vec4(1.0) / glm::vec4(VoxelGridDimensions);
 constexpr size_t VoxelGridSize = VoxelGridResolution * VoxelGridResolution * VoxelGridResolution * sizeof(FluidGridCell);
 constexpr float VoxelGridScale = 2.0f;
 constexpr uint32_t VoxelDiagonal = Constants::VoxelGridResolution * 3;
@@ -82,8 +85,8 @@ constexpr glm::vec3 VoxelGridCenter = glm::vec3(Constants::VoxelGridResolution/2
 
 constexpr uint32_t LocalGroupSize = 8;
 
-constexpr uint32_t NumDiffusionIterations = 6;
-constexpr uint32_t NumPressureIterations = NumDiffusionIterations * 1;
+constexpr uint32_t NumDiffusionIterations = 4;
+constexpr uint32_t NumPressureIterations = 6;
 
 constexpr glm::vec3 LightPosition = glm::vec4(10.0, 10.0, 10.0, 1.0);
 }
@@ -132,7 +135,7 @@ UniformFluidEngine::update(VkCommandBuffer cmd, float dt)
 	// this->_timestamps.reset(this->_renderer.GetDevice());
 	this->_timestamps.reset(this->_renderer.GetDevice());
 	this->_timestamps.write(cmd, Timestamps::StartFrame, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT);
-	addSources(cmd);
+	addSources(cmd, dt);
 	this->_timestamps.write(cmd, Timestamps::AddFluidProperties, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
 
 	diffuseVelocity(cmd, dt);
@@ -157,7 +160,7 @@ UniformFluidEngine::update(VkCommandBuffer cmd, float dt)
 }
 
 void
-UniformFluidEngine::addSources(VkCommandBuffer cmd)
+UniformFluidEngine::addSources(VkCommandBuffer cmd, float dt)
 {
 	this->_computeAddSources.Bind(cmd);
 
@@ -166,13 +169,14 @@ UniformFluidEngine::addSources(VkCommandBuffer cmd)
 		.velocity = glm::vec4(this->_velocitySourceAmount, 1.0),
 		.objectPosition = glm::vec4(this->_objectPosition, 1.0),
 		.elapsed = this->_renderer.GetElapsedTime(),
+		.dt = dt,
 		.sourceRadius = this->_sourceRadius * Constants::VoxelGridResolution,
 		.addVelocity = this->_shouldAddSources,
 		.addDensity = this->_shouldAddSources,
 		.density = this->_densityAmount,
 		.objectType = (uint32_t) this->_shouldAddObstacle > 0,
 		.objectRadius = this->_objectRadius * Constants::VoxelGridResolution,
-		.decayRate = 0.99
+		.decayRate = this->_decayRate
 	};
 	vkCmdPushConstants(cmd, this->_computeAddSources.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(pc), &pc);
 
@@ -417,6 +421,7 @@ UniformFluidEngine::ui()
 		ImGui::SliderFloat("obj", &this->_objectRadius, 0.01, 0.5);
 		ImGui::SliderFloat("src", &this->_sourceRadius, 0.01, 0.5);
 		ImGui::SliderFloat("dns", &this->_densityAmount, 0.01, 1.0);
+		ImGui::SliderFloat("decay", &this->_decayRate, 0.00, 0.5);
 		ImGui::InputFloat("vel", &this->_velocitySpeed, 1.0, 150.0);
 		const uint32_t step = 1;
 		ImGui::InputScalar("diffiter", ImGuiDataType_U32, &this->_diffusionIterations, &step);
@@ -528,7 +533,8 @@ UniformFluidEngine::initResources()
 	);
 	this->_renderer.ImmediateSubmit([this](VkCommandBuffer cmd) {
 		FluidGridInfo fluidInfo = {
-			.resolution = glm::uvec4(Constants::VoxelGridResolution),
+			.resolution = Constants::VoxelGridDimensions,
+			.position = glm::uvec4(0),
 			.cellSize = 1.0 / Constants::VoxelGridResolution
 		};
 		VkBufferCopy copy = {

@@ -58,5 +58,6 @@ void main()
         grid[index].occupied = pc.objectType;
     }
 
-    grid[index].density *= pc.decayRate;
+    grid[index].density *= exp(-pc.decayRate * pc.dt);
+    // grid[index].density *= 0.99;
 }
