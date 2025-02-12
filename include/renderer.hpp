@@ -50,7 +50,8 @@ public:
                                uint32_t pushConstantsSize = 0, bool autoCleanup = true);
     bool CreateGraphicsPipeline(GraphicsPipeline &pipeline, const std::string &vertexShaderFile, const std::string &fragmentShaderFile, const std::string &geometryShaderFile = "", 
                                 std::vector<std::variant<BufferDescriptor, ImageDescriptor>> descriptors = {}, VkShaderStageFlags descriptorShaderStages = VK_SHADER_STAGE_ALL_GRAPHICS, uint32_t pushConstantsSize = 0, GraphicsPipelineOptions options = {}, bool autoCleanup = true);
-	void UploadMesh(GPUMesh& mesh, std::span<Vertex> vertices, std::span<uint32_t> indices);
+	void UploadMesh(Mesh& mesh, std::span<Vertex> vertices, std::span<uint32_t> indices);
+	void CreateTimestampQueryPool(TimestampQueryPool& pool, uint32_t numTimestamps);
 
     Camera& GetCamera();
     Image& GetDrawImage();
@@ -129,6 +130,7 @@ private:
     VkInstance _instance {};
     VkDebugUtilsMessengerEXT _debugMessenger {};
     VkPhysicalDevice _gpu {};
+	vkb::PhysicalDevice _vkbDev {};
     VkDevice _device {};
     VkSurfaceKHR _surface {};
     VkQueue _graphicsQueue {};

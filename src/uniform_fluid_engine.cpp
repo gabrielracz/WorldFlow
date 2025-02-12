@@ -14,6 +14,8 @@
 #include <functional>
 #include <vulkan/vulkan_core.h>
 
+#include "vk_initializers.h"
+
 /* STRUCTS */
 struct alignas(16) FluidGridCell
 {
@@ -27,7 +29,7 @@ struct alignas(16) FluidGridCell
 
 struct alignas(16) FluidGridInfo
 {
-	glm::uvec3 resolution;
+	glm::uvec4 resolution;
 	float cellSize;
 };
 
@@ -60,9 +62,11 @@ enum Timestamps : uint32_t
 {
 	StartFrame = 0,
 	AddFluidProperties,
-	VelocityUpdate,
+	VelocityDiffusion,
+	VelocityAdvect,
 	PressureSolve,
-	DensityUpdate,
+	DensityDiffusion,
+	DensityAdvect,
 	FluidRender,
 	NumTimestamps
 };
@@ -70,7 +74,7 @@ enum Timestamps : uint32_t
 /* CONSTANTS */
 namespace Constants
 {
-constexpr size_t VoxelGridResolution = 96;
+constexpr size_t VoxelGridResolution = 64;
 constexpr size_t VoxelGridSize = VoxelGridResolution * VoxelGridResolution * VoxelGridResolution * sizeof(FluidGridCell);
 constexpr float VoxelGridScale = 2.0f;
 constexpr uint32_t VoxelDiagonal = Constants::VoxelGridResolution * 3;
@@ -78,8 +82,8 @@ constexpr glm::vec3 VoxelGridCenter = glm::vec3(Constants::VoxelGridResolution/2
 
 constexpr uint32_t LocalGroupSize = 8;
 
-constexpr uint32_t NumDiffusionIterations = 10;
-constexpr uint32_t NumPressureIterations = NumDiffusionIterations * 4;
+constexpr uint32_t NumDiffusionIterations = 6;
+constexpr uint32_t NumPressureIterations = NumDiffusionIterations * 1;
 
 constexpr glm::vec3 LightPosition = glm::vec4(10.0, 10.0, 10.0, 1.0);
 }
@@ -99,7 +103,7 @@ rollingAverage(float& currentValue, float newValue) {
 
 /* CLASS */
 UniformFluidEngine::UniformFluidEngine(Renderer& renderer)
-	: _renderer(renderer) {}
+	: _renderer(renderer), _diffusionIterations(Constants::NumDiffusionIterations), _pressureIterations(Constants::NumPressureIterations) {}
 
 UniformFluidEngine::~UniformFluidEngine() {}
 
@@ -132,8 +136,9 @@ UniformFluidEngine::update(VkCommandBuffer cmd, float dt)
 	this->_timestamps.write(cmd, Timestamps::AddFluidProperties, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
 
 	diffuseVelocity(cmd, dt);
+	this->_timestamps.write(cmd, Timestamps::VelocityDiffusion, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
 	advectVelocity(cmd, dt);
-	this->_timestamps.write(cmd, Timestamps::VelocityUpdate, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
+	this->_timestamps.write(cmd, Timestamps::VelocityAdvect, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
 
 	computeDivergence(cmd);
 	solvePressure(cmd);
@@ -143,8 +148,9 @@ UniformFluidEngine::update(VkCommandBuffer cmd, float dt)
 	this->_timestamps.write(cmd, Timestamps::PressureSolve, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
 
 	diffuseDensity(cmd, dt);
+	this->_timestamps.write(cmd, Timestamps::DensityDiffusion, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
 	advectDensity(cmd, dt);
-	this->_timestamps.write(cmd, Timestamps::DensityUpdate, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
+	this->_timestamps.write(cmd, Timestamps::DensityAdvect, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
 
 	renderVoxelVolume(cmd);
 	this->_timestamps.write(cmd, Timestamps::FluidRender, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
@@ -182,7 +188,7 @@ void
 UniformFluidEngine::diffuseVelocity(VkCommandBuffer cmd, float dt)
 {
 	this->_computeDiffuseVelocity.Bind(cmd);
-	for(uint32_t i = 0; i < Constants::NumDiffusionIterations; i++) {
+	for(uint32_t i = 0; i < this->_diffusionIterations; i++) {
 		FluidPushConstants pc = {
 			.time = this->_renderer.GetElapsedTime(),
 			.dt = dt,
@@ -193,7 +199,7 @@ UniformFluidEngine::diffuseVelocity(VkCommandBuffer cmd, float dt)
 		const uint32_t groupCount = getFluidDispatchGroupCount();
 		vkCmdDispatch(cmd, groupCount, groupCount, groupCount);
 		VkBufferMemoryBarrier barriers[] = {
-			this->_buffFluidGrid.CreateBarrier(VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT)
+			this->_buffFluidGrid.CreateBarrier(VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT)
 		};
 		vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, nullptr, ARRLEN(barriers), barriers, 0, nullptr);
 	}
@@ -204,7 +210,7 @@ UniformFluidEngine::diffuseDensity(VkCommandBuffer cmd, float dt)
 {
 	this->_computeDiffuseDensity.Bind(cmd);
 
-	for(uint32_t i = 0; i < Constants::NumDiffusionIterations; i++) {
+	for(uint32_t i = 0; i < this->_diffusionIterations; i++) {
 		FluidPushConstants pc = {
 			.time = this->_renderer.GetElapsedTime(),
 			.dt = dt,
@@ -213,7 +219,7 @@ UniformFluidEngine::diffuseDensity(VkCommandBuffer cmd, float dt)
 		vkCmdPushConstants(cmd, this->_computeDiffuseDensity.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(pc), &pc);
 
 		const uint32_t groupCount = getFluidDispatchGroupCount();
-		vkCmdDispatch(cmd, groupCount/2, groupCount, groupCount);
+		vkCmdDispatch(cmd, groupCount, groupCount, groupCount);
 		VkBufferMemoryBarrier barriers[] = {
 			this->_buffFluidGrid.CreateBarrier(VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT)
 		};
@@ -274,7 +280,7 @@ UniformFluidEngine::solvePressure(VkCommandBuffer cmd)
 {
 	this->_computeSolvePressure.Bind(cmd);
 
-	for(uint32_t i = 0; i < Constants::NumPressureIterations; i++) {
+	for(uint32_t i = 0; i < this->_pressureIterations; i++) {
 		FluidPushConstants pc = {
 			.redBlack = (i % 2)
 		};
@@ -334,6 +340,33 @@ UniformFluidEngine::renderVoxelVolume(VkCommandBuffer cmd)
 }
 
 void
+UniformFluidEngine::renderMesh(VkCommandBuffer cmd, Mesh& mesh, const glm::mat4& transform)
+{
+	this->_renderer.GetDrawImage().Transition(cmd, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+	VkRenderingAttachmentInfo colorAttachmentInfo = vkinit::attachment_info(this->_renderer.GetDrawImage().imageView, nullptr, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+	VkRenderingInfo renderInfo = vkinit::rendering_info(this->_renderer.GetWindowExtent2D(), &colorAttachmentInfo, nullptr);
+	vkCmdBeginRendering(cmd, &renderInfo);
+
+	vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, this->_graphicsRenderMesh.pipeline);
+	const VkViewport viewport = this->_renderer.GetWindowViewport();
+	const VkRect2D scissor = this->_renderer.GetWindowScissor();
+	vkCmdSetViewport(cmd, 0, 1, &viewport);
+	vkCmdSetScissor(cmd, 0, 1, &scissor);
+
+	GraphicsPushConstants pc = {
+		.worldMatrix = this->_renderer.GetCamera().GetProjectionMatrix() * this->_renderer.GetCamera().GetViewMatrix() * transform,
+		.vertexBuffer = mesh.vertexBufferAddress
+	};
+
+	vkCmdPushConstants(cmd, this->_graphicsRenderMesh.layout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(GraphicsPushConstants), &pc);
+	vkCmdBindIndexBuffer(cmd, mesh.indexBuffer.bufferHandle, 0, VK_INDEX_TYPE_UINT32);
+	vkCmdDrawIndexed(cmd, mesh.numIndices, 1, 0, 0, 0);
+	vkCmdEndRendering(cmd);
+}
+
+
+
+void
 UniformFluidEngine::preFrame()
 {
 	this->_timestamps.collect(this->_renderer.GetDevice());
@@ -342,10 +375,12 @@ UniformFluidEngine::preFrame()
 	const uint32_t statReportPeriod = 7;
 	this->_timestampAverages[Timestamps::StartFrame] = this->_timestamps.getDelta(Timestamps::StartFrame, Timestamps::FluidRender);
 	this->_timestampAverages[Timestamps::AddFluidProperties] = this->_timestamps.getDelta(Timestamps::StartFrame, Timestamps::AddFluidProperties);
-	this->_timestampAverages[Timestamps::VelocityUpdate] =  this->_timestamps.getDelta(Timestamps::AddFluidProperties, Timestamps::VelocityUpdate);
-	this->_timestampAverages[Timestamps::PressureSolve] =  this->_timestamps.getDelta(Timestamps::VelocityUpdate, Timestamps::PressureSolve);
-	this->_timestampAverages[Timestamps::DensityUpdate] =  this->_timestamps.getDelta(Timestamps::PressureSolve, Timestamps::DensityUpdate);
-	this->_timestampAverages[Timestamps::FluidRender] =  this->_timestamps.getDelta(Timestamps::DensityUpdate, Timestamps::FluidRender);
+	this->_timestampAverages[Timestamps::VelocityDiffusion] =  this->_timestamps.getDelta(Timestamps::AddFluidProperties, Timestamps::VelocityDiffusion);
+	this->_timestampAverages[Timestamps::VelocityAdvect] =  this->_timestamps.getDelta(Timestamps::VelocityDiffusion, Timestamps::VelocityAdvect);
+	this->_timestampAverages[Timestamps::PressureSolve] =  this->_timestamps.getDelta(Timestamps::VelocityAdvect, Timestamps::PressureSolve);
+	this->_timestampAverages[Timestamps::DensityDiffusion] =  this->_timestamps.getDelta(Timestamps::PressureSolve, Timestamps::DensityDiffusion);
+	this->_timestampAverages[Timestamps::DensityAdvect] =  this->_timestamps.getDelta(Timestamps::DensityDiffusion, Timestamps::DensityAdvect);
+	this->_timestampAverages[Timestamps::FluidRender] =  this->_timestamps.getDelta(Timestamps::DensityAdvect, Timestamps::FluidRender);
 }
 
 void
@@ -362,23 +397,30 @@ UniformFluidEngine::ui()
 	ImVec2 windowSize;
 
 	if(ImGui::Begin("stats", nullptr, ImGuiWindowFlags_NoTitleBar)) {
-		ImGui::Text("Total:    %3.2f ms", this->_timestampAverages[Timestamps::StartFrame]);
-		ImGui::Text("Add:      %3.2f ms", this->_timestampAverages[Timestamps::AddFluidProperties]);
-		ImGui::Text("Velocity: %3.2f ms", this->_timestampAverages[Timestamps::VelocityUpdate]);
-		ImGui::Text("Pressure: %3.2f ms", this->_timestampAverages[Timestamps::PressureSolve]);
-		ImGui::Text("Density:  %3.2f ms", this->_timestampAverages[Timestamps::DensityUpdate]);
-		ImGui::Text("Render:   %3.2f ms", this->_timestampAverages[Timestamps::FluidRender]);
+		const float frameTime = this->_timestampAverages[Timestamps::StartFrame];
+		ImGui::Text("FPS:       %3.2f", 1.0/(frameTime/1000.0));
+		ImGui::Text("Total:     %3.2f ms", frameTime);
+		ImGui::Text("Add:       %3.2f ms", this->_timestampAverages[Timestamps::AddFluidProperties]);
+		ImGui::Text("VelDiff:   %3.2f ms", this->_timestampAverages[Timestamps::VelocityDiffusion]);
+		ImGui::Text("VelAdvect: %3.2f ms", this->_timestampAverages[Timestamps::VelocityAdvect]);
+		ImGui::Text("Pressure:  %3.2f ms", this->_timestampAverages[Timestamps::PressureSolve]);
+		ImGui::Text("DnsDiff:   %3.2f ms", this->_timestampAverages[Timestamps::DensityDiffusion]);
+		ImGui::Text("DnsAdvect: %3.2f ms", this->_timestampAverages[Timestamps::DensityAdvect]);
+		ImGui::Text("Render:    %3.2f ms", this->_timestampAverages[Timestamps::FluidRender]);
 		windowSize = ImGui::GetWindowSize();
 	}
 	ImGui::End();
 
     ImGui::SetNextWindowPos(ImVec2(pad, windowSize.y + pad), ImGuiCond_Always);
-    ImGui::SetNextWindowSize(ImVec2(windowSize.x, 0)); // Auto-sizing
+    ImGui::SetNextWindowSize(ImVec2(0, 0)); // Auto-sizing
 	if(ImGui::Begin("controls", nullptr, ImGuiWindowFlags_NoTitleBar)) {
 		ImGui::SliderFloat("obj", &this->_objectRadius, 0.01, 0.5);
 		ImGui::SliderFloat("src", &this->_sourceRadius, 0.01, 0.5);
-		ImGui::InputFloat("vel", &this->_velocitySpeed, 1.0, 150.0);
 		ImGui::SliderFloat("dns", &this->_densityAmount, 0.01, 1.0);
+		ImGui::InputFloat("vel", &this->_velocitySpeed, 1.0, 150.0);
+		const uint32_t step = 1;
+		ImGui::InputScalar("diffiter", ImGuiDataType_U32, &this->_diffusionIterations, &step);
+		ImGui::InputScalar("presiter", ImGuiDataType_U32, &this->_pressureIterations, &step);
 	}
 
 	if(this->_shouldCollapseUI) {
@@ -393,7 +435,7 @@ void
 UniformFluidEngine::checkControls(KeyMap& keyMap, MouseMap& mouseMap, Mouse& mouse, float dt)
 {
 	if(mouseMap[SDL_BUTTON_RIGHT]) {
-		const float mouse_sens = -0.1875f;
+		const float mouse_sens = -1.2;
 		glm::vec2 look = mouse.move * mouse_sens * dt;
 		this->_renderer.GetCamera().OrbitYaw(-look.x);
 		this->_renderer.GetCamera().OrbitPitch(-look.y);
@@ -453,7 +495,7 @@ UniformFluidEngine::checkControls(KeyMap& keyMap, MouseMap& mouseMap, Mouse& mou
 bool
 UniformFluidEngine::initRendererOptions()
 {
-	this->_timestamps.init(this->_renderer.GetDevice(), Timestamps::NumTimestamps, Constants::FrameOverlap);
+	this->_renderer.CreateTimestampQueryPool(this->_timestamps, Timestamps::NumTimestamps);
 	this->_timestampAverages.resize(Timestamps::NumTimestamps, 0);
 
 	this->_objectRadius = 0.2;
@@ -486,7 +528,7 @@ UniformFluidEngine::initResources()
 	);
 	this->_renderer.ImmediateSubmit([this](VkCommandBuffer cmd) {
 		FluidGridInfo fluidInfo = {
-			.resolution = glm::uvec3(Constants::VoxelGridResolution),
+			.resolution = glm::uvec4(Constants::VoxelGridResolution),
 			.cellSize = 1.0 / Constants::VoxelGridResolution
 		};
 		VkBufferCopy copy = {
@@ -502,6 +544,9 @@ UniformFluidEngine::initResources()
 bool
 UniformFluidEngine::initPipelines()
 {
+    this->_renderer.CreateGraphicsPipeline(this->_graphicsRenderMesh, SHADER_DIRECTORY"/mesh.vert.spv", SHADER_DIRECTORY"/mesh.frag.spv", "", {}, 0, 
+                                           sizeof(GraphicsPushConstants), {.blendMode = BlendMode::Additive});
+
     this->_renderer.CreateComputePipeline(this->_computeRaycastVoxelGrid, SHADER_DIRECTORY"/voxelTracerAccum.comp.spv", {
         BufferDescriptor(0, 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, this->_buffFluidGrid.bufferHandle, Constants::VoxelGridSize),
         ImageDescriptor(0, 1, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, this->_renderer.GetDrawImage().imageView, VK_NULL_HANDLE, this->_renderer.GetDrawImage().layout),

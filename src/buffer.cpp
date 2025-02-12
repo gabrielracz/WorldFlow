@@ -37,7 +37,7 @@ Buffer::CreateBarrier(VkAccessFlags srcAccess, VkAccessFlags dstAccess)
 }
 
 void
-GPUMesh::Destroy(VmaAllocator allocator)
+Mesh::Destroy(VmaAllocator allocator)
 {
 	this->vertexBuffer.Destroy(allocator);
 	this->indexBuffer.Destroy(allocator);

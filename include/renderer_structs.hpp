@@ -121,19 +121,20 @@ struct TimestampQueryPool
 {
     VkQueryPool queryPool;
     uint32_t queryCount;
-    std::vector<uint64_t> resultsWithAvailability;
+    std::vector<uint64_t> pendingResults;
     std::vector<uint64_t> results;
     uint32_t currentFrame;
     uint32_t framesInFlight;
     float timestampPeriod = 1; //nanoseconds
 
-    void init(VkDevice device, uint32_t maxQueries, uint32_t framesInFlight)
+    void init(VkDevice device, uint32_t maxQueries, uint32_t framesInFlight, float timestampPeriod)
     {
         this->queryCount = maxQueries;
         this->results.resize(maxQueries, 0);
-        this->resultsWithAvailability.resize(maxQueries * framesInFlight * 2, 1);
+        this->pendingResults.resize(maxQueries * framesInFlight * 2, 1);
         this->currentFrame = 0;
         this->framesInFlight = framesInFlight;
+		this->timestampPeriod = timestampPeriod;
         VkQueryPoolCreateInfo qpoolInfo = {
             .sType = VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO,
             .queryType = VK_QUERY_TYPE_TIMESTAMP,
@@ -150,30 +151,27 @@ struct TimestampQueryPool
 
     void write(VkCommandBuffer cmd, uint32_t queryIndex, VkPipelineStageFlagBits pipelineStage) {
         uint32_t actualQuery = this->currentFrame * this->queryCount + queryIndex;
-        // if(resultsWithAvailability[this->currentFrame * this->queryCount + queryIndex + 1] != 0) {
-            vkCmdWriteTimestamp(cmd, pipelineStage, this->queryPool, actualQuery);
-        // }
+		vkCmdWriteTimestamp(cmd, pipelineStage, this->queryPool, actualQuery);
     }
 
     void collect(VkDevice device) {
         uint32_t firstQuery = this->currentFrame * this->queryCount;
         
         // Each query result will be followed by its availability value
-        
         VkResult result = vkGetQueryPoolResults(
             device, 
             this->queryPool,
             0,
             this->queryCount,
-            this->resultsWithAvailability.size() * sizeof(uint64_t),
-            this->resultsWithAvailability.data() + (firstQuery * 2),
+            this->pendingResults.size() * sizeof(uint64_t),
+            this->pendingResults.data() + (firstQuery * 2),
             sizeof(uint64_t) * 2,  // Stride includes both timestamp and availability
             VK_QUERY_RESULT_64_BIT | VK_QUERY_RESULT_WITH_AVAILABILITY_BIT);
         
         for(int i = 0; i < queryCount; i++) {
             uint32_t qix = firstQuery * 2 + i * 2;
-            if(resultsWithAvailability[qix + 1] != 0) {
-                results[i] = resultsWithAvailability[qix];
+            if(pendingResults[qix + 1] != 0) {
+                results[i] = pendingResults[qix]; // push to results if availability is 1
             }
         }
     }
@@ -186,14 +184,10 @@ struct TimestampQueryPool
         uint32_t prevFrame = (this->currentFrame == 0) ? this->framesInFlight - 1 : this->currentFrame - 1;
         uint32_t baseQuery = prevFrame * this->queryCount * 2;
 
-        // uint64_t startTime = this->resultsWithAvailability[baseQuery + (startIndex * 2)];
-        // uint64_t endTime = this->resultsWithAvailability[baseQuery + (endIndex * 2)];
-
         uint64_t startTime = this->results[startIndex];
         uint64_t endTime = this->results[endIndex];
 
-        // Convert to milliseconds for readability
-        float deltaMs = (float)(endTime - startTime) / 1000000.0f;
+        float deltaMs = (float)(endTime - startTime)  * (timestampPeriod / 1000000.0f);
         return deltaMs;
     }
 };

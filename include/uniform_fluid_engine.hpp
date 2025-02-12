@@ -30,6 +30,7 @@ private:
 	void diffuseDensity(VkCommandBuffer cmd, float dt);
 	void advectDensity(VkCommandBuffer cmd, float dt);
 	void renderVoxelVolume(VkCommandBuffer cmd);
+	void renderMesh(VkCommandBuffer cmd, Mesh& mesh, const glm::mat4& transform = glm::mat4());
 	// void getTimestampQueries();
 
 	void checkControls(KeyMap& keyMap, MouseMap& mouseMap, Mouse& mouse, float dt);
@@ -54,10 +55,14 @@ private:
 	glm::vec3 _velocitySourceAmount {};
 	float _densityAmount = 0.25;
 	float _velocitySpeed = 10.0;
+
+	uint32_t _diffusionIterations;
+	uint32_t _pressureIterations;
 	// std::vector<uint64_t> _timestamps;
 	TimestampQueryPool _timestamps;
 	std::vector<float> _timestampAverages;
 
+	GraphicsPipeline _graphicsRenderMesh;
 	ComputePipeline _computeRaycastVoxelGrid;
 	ComputePipeline _computeAddSources;
 	ComputePipeline _computeDiffuseVelocity;

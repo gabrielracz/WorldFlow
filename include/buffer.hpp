@@ -18,7 +18,7 @@ public:
 	VmaAllocationInfo info {};
 };
 
-struct GPUMesh
+struct Mesh
 {
     Buffer indexBuffer;
     Buffer vertexBuffer;

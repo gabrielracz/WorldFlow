@@ -10,6 +10,7 @@
 #include "imgui_impl_vulkan.h"
 #include "imgui_impl_sdl2.h"
 #include "ui_tools.hpp"
+#include <vulkan/vulkan_core.h>
 
 namespace Constants
 {
@@ -59,7 +60,7 @@ Renderer::~Renderer()
         frame.deletionQueue.flush();
     }
 
-    // for(GPUMesh& mesh : this->_testMeshes) {
+    // for(Mesh& mesh : this->_testMeshes) {
     //     mesh.Destroy(this->_allocator);
     // }
 
@@ -441,6 +442,7 @@ Renderer::CreateGraphicsPipeline(GraphicsPipeline &newPipeline, const std::strin
     } else {
         builder.set_shaders(vertShader, fragShader, geomShader);
     }
+
     builder
         .set_input_topology(options.inputTopology)
         .set_polygon_mode(options.polygonMode)
@@ -449,6 +451,7 @@ Renderer::CreateGraphicsPipeline(GraphicsPipeline &newPipeline, const std::strin
         .enable_depthtest(options.depthTestEnabled , options.depthTestOp)
         .set_color_attachment_format(options.colorAttachmentFormat)
         .set_depth_format(options.depthFormat);
+
     switch(options.blendMode) {
         case BlendMode::Additive:
             builder.enable_blending_additive();
@@ -527,7 +530,7 @@ void Renderer::createPipelineDescriptors(PipelineType& pipeline, VkShaderStageFl
 
 
 void
-Renderer::UploadMesh(GPUMesh& mesh, std::span<Vertex> vertices, std::span<uint32_t> indices)
+Renderer::UploadMesh(Mesh& mesh, std::span<Vertex> vertices, std::span<uint32_t> indices)
 {
 	// Initialize GPU buffers to store mesh data (vertex attributes + triangle indices)
 	const size_t vertexBufferSize = vertices.size() * sizeof(Vertex);
@@ -589,6 +592,16 @@ Renderer::UploadMesh(GPUMesh& mesh, std::span<Vertex> vertices, std::span<uint32
         mesh.vertexBuffer.Destroy(this->_allocator);
         mesh.indexBuffer.Destroy(this->_allocator);
     });
+}
+
+void
+Renderer::CreateTimestampQueryPool(TimestampQueryPool &pool, uint32_t numTimestamps)
+{
+	std::cout << this->_vkbDev.properties.limits.timestampPeriod << std::endl;
+	pool.init(this->_device, numTimestamps, Constants::FrameOverlap, this->_vkbDev.properties.limits.timestampPeriod);
+	this->_deletionQueue.push([this, pool](){
+		vkDestroyQueryPool(this->_device, pool.queryPool, nullptr);
+	});
 }
 
 bool
@@ -676,6 +689,7 @@ Renderer::initVulkan()
     this->_gpu = physDevice.physical_device;
     // print gpu properties
     printDeviceProperties(physDevice);
+	this->_vkbDev = physDevice;
 
     this->_graphicsQueue = vkbDevice.get_queue(vkb::QueueType::graphics).value();
     this->_graphicsQueueFamily = vkbDevice.get_queue_index(vkb::QueueType::graphics).value();
@@ -863,10 +877,12 @@ Renderer::initUI()
 
 	ImGui_ImplVulkan_CreateFontsTexture();
 
+	ImGui::GetIO().WantCaptureMouse = false;
+
 	// add the destroy the imgui created structures
-	this->_deletionQueue.push([=]() {
+	this->_deletionQueue.push([this, imguiPool]() {
 		ImGui_ImplVulkan_Shutdown();
-		vkDestroyDescriptorPool(_device, imguiPool, nullptr);
+		vkDestroyDescriptorPool(this->_device, imguiPool, nullptr);
 	});
     return true;
 }
@@ -981,17 +997,13 @@ void Renderer::updatePerformanceCounters(float dt)
 int
 Renderer::eventCallback(void* userdata, SDL_Event* event)
 {
-	// std::cout << "event callback" << std::endl;
 	Renderer* renderer = (Renderer*) userdata;
-    ImGuiIO& io = ImGui::GetIO();
 	if(event->type == SDL_MOUSEBUTTONDOWN) {
         int button = event->button.button;
 		renderer->_mouseMap[button] = true;
-        io.MouseDown[button - SDL_BUTTON_LEFT] = (event->type == SDL_MOUSEBUTTONDOWN);
 	} else if(event->type == SDL_MOUSEBUTTONUP) {
 		renderer->_mouseMap[event->button.button] = false;
         int button = event->button.button;
-        io.MouseDown[button - SDL_BUTTON_LEFT] = (event->type == SDL_MOUSEBUTTONDOWN);
 	}
 	
 	else if(event->type == SDL_MOUSEMOTION) {
@@ -1011,12 +1023,10 @@ Renderer::eventCallback(void* userdata, SDL_Event* event)
     SDL_Keycode key = event->key.keysym.sym;
 	if(event->type == SDL_KEYDOWN) {
 		renderer->_keyMap[key] = true;
-        io.KeysDown[uitools::SDLKeyToImGuiKey(key)] = true;
 	}
 
 	else if(event->type == SDL_KEYUP) {
 		renderer->_keyMap[key] = false;
-        io.KeysDown[uitools::SDLKeyToImGuiKey(key)]  = false;
 	}
 	return 1;
 }
@@ -1025,37 +1035,10 @@ void Renderer::pollEvents()
 {
     SDL_Event event;
     while(SDL_PollEvent(&event)) {
+		ImGui_ImplSDL2_ProcessEvent(&event);
         if(event.type == SDL_QUIT) {
             this->_shouldClose = true;
         } 
-        
-        // else if(event.type == SDL_MOUSEBUTTONDOWN) {
-        //     this->_mouseMap[event.button.button] = true;
-        // } else if(event.type == SDL_MOUSEBUTTONUP) {
-        //     this->_mouseMap[event.button.button] = false;
-        // }
-        
-        // else if(event.type == SDL_MOUSEMOTION) {
-        //     Mouse& mouse = this->_mouse;
-        //     if (mouse.first_captured) {
-        //         mouse.prev = {event.motion.x, event.motion.y};
-        //         mouse.first_captured = false;
-        //     }
-        //     mouse.move = glm::vec2(event.motion.x, event.motion.y) - mouse.prev;
-        //     mouse.prev = {event.motion.x, event.motion.y};
-        // }
-
-        // else if(event.type == SDL_MOUSEWHEEL) {
-        //     this->_mouse.scroll += event.wheel.preciseY;
-        // }
-
-        // else if(event.type == SDL_KEYDOWN) {
-        //     this->_keyMap[event.key.keysym.sym] = true;
-        // }
-
-        // else if(event.type == SDL_KEYUP) {
-        //     this->_keyMap[event.key.keysym.sym] = false;
-        // }
     }
 }
 

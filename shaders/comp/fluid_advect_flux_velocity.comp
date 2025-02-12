@@ -29,7 +29,7 @@ vec3 sampleVelocity(uvec3 center, ivec3 offset)
 {
 	uvec3 cell = center + offset;
 	bvec3 ge = greaterThanEqual(cell, uvec3(0));
-	bvec3 le = lessThan(cell, gridInfo.resolution);
+	bvec3 le = lessThan(cell, gridInfo.resolution.xyz);
 	bool occ = grid[getGridIndex(cell, gridInfo.resolution)].occupied > 0;
 	bool valid = all(ge) && all(le) && !occ;
 	// if(!valid) {return grid[getGridIndex(center, gridInfo.resolution)].velocity * vec3(ge) * vec3(le);}
@@ -44,6 +44,7 @@ void main()
 	FluidGridCell cell = grid[index];
 	// center grid cell position
 	vec3 pos = vec3(gl_GlobalInvocationID) + vec3(0.5, 0.5, 0.5);
+	uvec3 center = gl_GlobalInvocationID;
 
 	const vec3 l = sampleVelocity(center, ivec3(-1, 0, 0));
 	const vec3 r = sampleVelocity(center, ivec3(1, 0, 0));
@@ -57,13 +58,13 @@ void main()
     vec3 flux = vec3(0);
     
     // X-direction flux
-    flux.x = (v_right.x * v_right.x - v_left.x * v_left.x) / (2.0 * dx);
+    flux.x = (r.x * r.x - l.x * l.x) / (2.0 * dx);
     
     // Y-direction flux
-    flux.y = (v_up.y * v_up.y - v_down.y * v_down.y) / (2.0 * dx);
+    flux.y = (u.y * u.y - d.y * d.y) / (2.0 * dx);
     
     // Z-direction flux
-    flux.z = (v_forward.z * v_forward.z - v_back.z * v_back.z) / (2.0 * dx);
+    flux.z = (f.z * f.z - b.z * b.z) / (2.0 * dx);
 
     vec3 newVel = oldVel - flux * pc.dt;
 

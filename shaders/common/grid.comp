@@ -10,20 +10,49 @@ struct FluidGridCell
 
 struct FluidGridInfo
 {
-	uvec3 resolution;
+	uvec4 resolution;
 	float cellSize;
 };
 
-bool isWithinGridBounds(uvec3 p, uvec3 gridResolution)
+bool isWithinGridBounds(uvec3 p, uvec4 gridResolution)
 {
     return p.x < gridResolution.x || 
            p.y < gridResolution.y || 
            p.z < gridResolution.z;
 }
 
-uint getGridIndex(uvec3 p, uvec3 gridResolution)
+uint getGridIndex(uvec3 p, uvec4 gridResolution)
 {
     return p.z * uint(gridResolution.x) * uint(gridResolution.y) +
            p.y * uint(gridResolution.x) +
            p.x;
 }
+
+uvec3 getRedBlackPosition(uvec3 threadID, uint redBlack) {
+    // For a checkerboard pattern in 3D, we only need to modify X
+    // Y and Z stay the same as the thread ID
+    // uint x = threadID.x * 2;  // Double the X position
+    uint z = threadID.z * 2;  // Double the X position
+    
+    // Offset X based on Y and Z parity
+    bool shouldOffset = ((threadID.x + threadID.y) % 2) == 0;
+
+    z = z + (shouldOffset ? redBlack : (1 - redBlack));
+    
+    return uvec3(threadID.x, threadID.y, z);
+}
+
+float SOR(float old, float new, uint N)
+{
+	float alpha = 2.0 / (1.0 + sin(3.14159 / N));
+	float result = alpha * new + (1 - alpha) * old;
+	return result;
+}
+
+vec3 SOR(vec3 old, vec3 new, uint N)
+{
+	float alpha = 2.0 / (1.0 + sin(3.14159 / N));
+	vec3 result = alpha * new + (1 - alpha) * old;
+	return result;
+}
+

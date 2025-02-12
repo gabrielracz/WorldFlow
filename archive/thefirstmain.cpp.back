@@ -204,7 +204,7 @@ public:
             frame.deletionQueue.flush();
         }
 
-        for(GPUMesh& mesh : this->_testMeshes) {
+        for(Mesh& mesh : this->_testMeshes) {
 			mesh.Destroy(this->_allocator);
         }
 
@@ -1034,12 +1034,12 @@ private:
         return true;
     }
 
-    GPUMesh uploadMesh(std::span<Vertex> vertices, std::span<uint32_t> indices)
+    Mesh uploadMesh(std::span<Vertex> vertices, std::span<uint32_t> indices)
     {
         // Initialize GPU buffers to store mesh data (vertex attributes + triangle indices)
         const size_t vertexBufferSize = vertices.size() * sizeof(Vertex);
         const size_t indexBufferSize = indices.size() * sizeof(uint32_t);
-        GPUMesh mesh;
+        Mesh mesh;
         mesh.vertexBuffer.Allocate(this->_allocator,
             vertexBufferSize, 
             VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
@@ -1701,9 +1701,9 @@ private:
 
     uint32_t _fragmentListCount = 0;
     // Meshes
-    std::vector<GPUMesh> _testMeshes;
+    std::vector<Mesh> _testMeshes;
 
-    GPUMesh _treeMesh;
+    Mesh _treeMesh;
     Buffer _treeVertices;
     Buffer _treeIndices;
 };

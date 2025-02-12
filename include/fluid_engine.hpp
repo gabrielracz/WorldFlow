@@ -75,8 +75,8 @@ private:
     Buffer _treeFlaggerIndirectDispatchBuffer;
     Buffer _treeInfoBuffer;
 
-	std::vector<GPUMesh> _testMeshes;
-	GPUMesh _treeMesh;
+	std::vector<Mesh> _testMeshes;
+	Mesh _treeMesh;
 	Buffer _treeVertices;
 	Buffer _treeIndices;
 };

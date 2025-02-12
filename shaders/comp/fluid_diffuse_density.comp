@@ -22,36 +22,23 @@ layout(push_constant) uniform PushConstants {
 float sampleDensity(uvec3 center, ivec3 offset)
 {
 	uvec3 cell = center + offset;
-	bool valid = all(greaterThanEqual(cell, uvec3(0))) && all(lessThan(cell, gridInfo.resolution)) && !(grid[getGridIndex(cell, gridInfo.resolution)].occupied > 0);
+	bool valid = all(greaterThanEqual(cell, uvec3(0))) && all(lessThan(cell, gridInfo.resolution.xyz)) && !(grid[getGridIndex(cell, gridInfo.resolution)].occupied > 0);
 	if(!valid) {return grid[getGridIndex(center, gridInfo.resolution)].density;}
 	if(!valid) {return 0.0;}
 	return grid[getGridIndex(cell, gridInfo.resolution)].density;
 }
 
-uvec3 getRedBlackPosition(uvec3 threadID, uint redBlack) {
-    // For a checkerboard pattern in 3D, we only need to modify X
-    // Y and Z stay the same as the thread ID
-    uint x = threadID.x * 2;  // Double the X position
-    
-    // Offset X based on Y and Z parity
-    bool shouldOffset = ((threadID.y + threadID.z) % 2) == 0;
-    x = x + (shouldOffset ? redBlack : (1 - redBlack));
-    
-    return uvec3(x, threadID.y, threadID.z);
-}
-
-
 void main()
 {
-	// uvec3 center = gl_GlobalInvocationID;
-	uvec3 center = getRedBlackPosition(gl_GlobalInvocationID, pc.redBlack);
+	uvec3 center = gl_GlobalInvocationID;
+	// uvec3 center = getRedBlackPosition(gl_GlobalInvocationID, pc.redBlack);
 	uint index = getGridIndex(center, gridInfo.resolution);
 	FluidGridCell cell = grid[index];
 
 	// Alternate updates in alternating checkerboard pattern to avoid atomics
-	// if(mod(center.x + center.y + center.z + pc.redBlack, 2) == 0){
-	// 	return;
-	// }
+	if(mod(center.x + center.y + center.z + pc.redBlack, 2) == 0){
+		return;
+	}
 
 	float l = sampleDensity(center, ivec3(-1, 0, 0));
 	float r = sampleDensity(center, ivec3(1, 0, 0));
@@ -62,10 +49,11 @@ void main()
 	float c = cell.density;
 
     const float diffRate =  0.000015;
-	const float N = gridInfo.resolution.x * gridInfo.resolution.y;
+	const float N = 1.0/(gridInfo.cellSize*gridInfo.cellSize);
     const float a = diffRate*pc.dt*N; 
 
-    const float result = (c + a*(l + r + u + d + f + b)) / (1+6*a); // backwards stable
+    const float newDns = (c + a*(l + r + u + d + f + b)) / (1+6*a); // backwards stable
+	const float result = SOR(cell.density, newDns, gridInfo.resolution.x);
 
 	// atomicExchange(grid[index].density, result);
 	grid[index].density = result;

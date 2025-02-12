@@ -23,7 +23,7 @@ layout(push_constant) uniform PushConstants {
 float samplePressure(uvec3 center, ivec3 offset)
 {
 	uvec3 nbCell = center + offset;
-	bool valid = all(greaterThanEqual(nbCell, uvec3(0))) && all(lessThan(nbCell, gridInfo.resolution)) && 
+	bool valid = all(greaterThanEqual(nbCell, uvec3(0))) && all(lessThan(nbCell, gridInfo.resolution.xyz)) && 
 				!(grid[getGridIndex(center, gridInfo.resolution)].occupied > 0);
 	if(!valid) {return grid[getGridIndex(center, gridInfo.resolution)].pressure;}
 	// if(!valid) {return 0.0;}

@@ -23,7 +23,7 @@ vec3 sampleVelocity(uvec3 center, ivec3 offset)
 {
 	uvec3 cell = center + offset;
 	bvec3 ge = greaterThanEqual(cell, uvec3(0));
-	bvec3 le = lessThan(cell, gridInfo.resolution);
+	bvec3 le = lessThan(cell, gridInfo.resolution.xyz);
 	bool occ = grid[getGridIndex(cell, gridInfo.resolution)].occupied > 0;
 	bool valid = all(ge) && all(le) && !occ;
 	// if(!valid) {return grid[getGridIndex(center, gridInfo.resolution)].velocity * vec3(ge) * vec3(le);}
@@ -34,13 +34,14 @@ vec3 sampleVelocity(uvec3 center, ivec3 offset)
 void main()
 {
 	uvec3 center = gl_GlobalInvocationID;
+	// uvec3 center = getRedBlackPosition(gl_GlobalInvocationID, pc.redBlack);
 	uint index = getGridIndex(center, gridInfo.resolution);
 	FluidGridCell cell = grid[index];
 
 	// Alternate updates in alternating checkerboard pattern to avoid atomics
-	// if(mod(center.x + center.y + center.z + pc.redBlack, 2) == 0){
-	// 	return;
-	// }
+	if(mod(center.x + center.y + center.z + pc.redBlack, 2) == 0){
+		return;
+	}
 
 	const vec3 l = sampleVelocity(center, ivec3(-1, 0, 0));
 	const vec3 r = sampleVelocity(center, ivec3(1, 0, 0));
@@ -54,12 +55,14 @@ void main()
 	const float N = gridInfo.resolution.x * gridInfo.resolution.y;
     const float a = diffRate*pc.dt*N; 
 
-    const vec3 result = (c + a*(l + r + u + d + f + b)) / (1+6*a);
+    const vec3 newVel = (c + a*(l + r + u + d + f + b)) / (1+6*a);
+
+	const vec3 result = SOR(cell.velocity, newVel, gridInfo.resolution.x);
 
     // guarded by red-black
-    // grid[index].velocity = result;
+    grid[index].velocity = result;
 
-    atomicExchange(grid[index].velocity.x, result.x);
-    atomicExchange(grid[index].velocity.y, result.y);
-    atomicExchange(grid[index].velocity.z, result.z);
+    // atomicExchange(grid[index].velocity.x, result.x);
+    // atomicExchange(grid[index].velocity.y, result.y);
+    // atomicExchange(grid[index].velocity.z, result.z);
 }

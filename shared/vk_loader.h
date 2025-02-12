@@ -19,7 +19,7 @@ struct MeshAsset {
     std::string name;
    
     std::vector<GeoSurface> surfaces;
-    GPUMesh meshBuffers;
+    Mesh meshBuffers;
 };
 
 
