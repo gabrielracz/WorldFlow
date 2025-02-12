@@ -34,22 +34,6 @@ layout(push_constant) uniform constants {
     int renderType;
 } pc;
 
-// Helper function to convert 3D position to linear buffer index
-uint getVoxelIndex(vec3 pos) {
-    // Convert from scaled world space to grid space (0 to gridSize-1)
-    vec3 normalizedPos = pos / pc.gridScale;  // First normalize by scale
-    vec3 gridPos = (normalizedPos + 0.5) * pc.gridSize;
-    ivec3 index = ivec3(floor(gridPos));
-    
-    // Clamp to grid bounds
-    index = clamp(index, ivec3(0), ivec3(pc.gridSize) - 1);
-    
-    // Convert to linear index using the same formula as construction
-    return index.z * uint(pc.gridSize.x) * uint(pc.gridSize.y) +
-           index.y * uint(pc.gridSize.x) +
-           index.x;
-}
-
 // Helper function to get ray direction from pixel coordinates
 vec3 getRayDirection(vec2 pixelPos) {
     // Convert pixel position to NDC space (-1 to 1)
@@ -68,13 +52,12 @@ vec3 getRayDirection(vec2 pixelPos) {
 vec4 traceVoxels(vec3 rayOrigin, vec3 rayDir) {
     vec4 accumColor = vec4(0.0);
     
-    // Calculate voxel size in world space (now scaled)
-    vec3 voxelSize = (vec3(1.0) / pc.gridSize) * pc.gridScale;
+    // Calculate world-space dimensions of the grid
+    vec3 worldSize = pc.gridSize * gridInfo.cellSize;
+    vec3 gridMin = -worldSize * 0.5;
+    vec3 gridMax = worldSize * 0.5;
     
-    // Calculate initial intersection with scaled grid bounds
-    vec3 gridMin = vec3(-0.5) * pc.gridScale;
-    vec3 gridMax = vec3(0.5) * pc.gridScale;
-    
+    // Calculate initial intersection with grid bounds
     vec3 tMin = (gridMin - rayOrigin) / rayDir;
     vec3 tMax = (gridMax - rayOrigin) / rayDir;
     vec3 t1 = min(tMin, tMax);
@@ -94,41 +77,38 @@ vec4 traceVoxels(vec3 rayOrigin, vec3 rayDir) {
     vec3 pos = rayOrigin + t * rayDir;
     vec3 step = sign(rayDir);
     
-    // Calculate current voxel indices
-    vec3 normalizedPos = pos / pc.gridScale;  // Normalize position by scale
-    vec3 voxelPos = (normalizedPos + 0.5) * pc.gridSize;
-    ivec3 mapPos = ivec3(floor(voxelPos));
+    // Calculate voxel indices considering non-square grid
+    vec3 normalizedPos = (pos - gridMin) / worldSize;  // Normalize to [0,1]
+    vec3 voxelPos = normalizedPos * pc.gridSize;
+    ivec3 mapPos = clamp(ivec3(floor(voxelPos)), ivec3(0), ivec3(pc.gridSize - 1));
     
     // Calculate delta t for moving one voxel in each direction
-    vec3 tDelta = abs(voxelSize / rayDir);
+    vec3 tDelta = abs(gridInfo.cellSize / rayDir);
     
     // Calculate next crossing points
-    vec3 nextCrossing = vec3(mapPos) + max(step, 0.0);  // Next voxel boundaries
+    vec3 nextCrossing = vec3(mapPos) + max(step, 0.0);
     vec3 tMaxAxis;
     
     // Calculate accurate tMax values for each axis
     for (int i = 0; i < 3; i++) {
         if (rayDir[i] > 0.0) {
-            float worldCrossing = (nextCrossing[i] / pc.gridSize[i] - 0.5) * pc.gridScale;
+            float worldCrossing = gridMin[i] + (nextCrossing[i] * gridInfo.cellSize);
             tMaxAxis[i] = tNear + (worldCrossing - rayOrigin[i]) / rayDir[i];
         } else if (rayDir[i] < 0.0) {
-            float worldCrossing = ((nextCrossing[i] - 1.0) / pc.gridSize[i] - 0.5) * pc.gridScale;
+            float worldCrossing = gridMin[i] + ((nextCrossing[i] - 1.0) * gridInfo.cellSize);
             tMaxAxis[i] = tNear + (worldCrossing - rayOrigin[i]) / rayDir[i];
         } else {
             tMaxAxis[i] = FLT_MAX;
         }
     }
     
+    int missteps = 0;
     // Main ray traversal loop
     for (int i = 0; i < 156; i++) {
-        // Convert current position to grid index
-        uint index = mapPos.z * uint(pc.gridSize.x) * uint(pc.gridSize.y) +
-                    mapPos.y * uint(pc.gridSize.x) +
-                    mapPos.x;
+        uint index = getGridIndex(uvec3(mapPos), gridInfo.resolution);
         
         // Bounds check
         if (all(greaterThanEqual(mapPos, ivec3(0))) && all(lessThan(mapPos, ivec3(pc.gridSize)))) {
-            
             float density;
             vec4 color = pc.baseColor;
             if(pc.renderType == 1) {
@@ -143,35 +123,23 @@ vec4 traceVoxels(vec3 rayOrigin, vec3 rayDir) {
             else if(pc.renderType == 4) {
                 density = length(voxelData[index].velocity)/200.0;
             }
-            // vec4 baseColor = density > 0.0 ? pc.baseColor : 
 
-            // vec3 vel = voxelData[index].velocity/10;
-            // vec4 baseColor = vec4(vel.x, vel.y, vel.z, 1.0);
+            float contribution = density * pc.stepSize;
+            float attenuation = exp(-t * 0.07);
 
+            vec4 heatColor = flameHeatmapColor(abs(density));
+            if(density < 0.0) {
+                heatColor.rgb = 1.0 - heatColor.rgb;
+            }
 
-            // if (density > 0.0) {
-                float contribution = density * pc.stepSize;
-
-                float attenuation = exp(-t * 0.07);
-                vec4 heatColor = flameHeatmapColor(abs(density));
-                if(density < 0.0) {
-                    heatColor.rgb = 1.0 - heatColor.rgb;
-                }
-                // vec4 heatColor = viridisColor(density);
-                contribution = clamp(contribution, 0.0, 1.0);
-                vec4 voxelColor = vec4(vec3(heatColor.rgb * attenuation), contribution);
-
-				// contribution = max(contribution, 0.004);
-                // vec4 voxelColor = vec4(baseColor.rgb, contribution);
-                
-                voxelColor.rgb *= voxelColor.a;
-                accumColor += voxelColor * (1.0 - accumColor.a);
-                // accumColor = vec4(voxelColor.rgb, 0.8);
-                // break;
-
-                
-                if (accumColor.a > 0.99) break;
-            // }
+            contribution = clamp(contribution, 0.0, 1.0);
+            vec4 voxelColor = vec4(vec3(heatColor.rgb * attenuation), contribution);
+            
+            voxelColor.rgb *= voxelColor.a;
+            accumColor += voxelColor * (1.0 - accumColor.a);
+            if (accumColor.a > 0.99) break;
+        } else {
+            missteps += 1;
         }
         
         // Find axis of next crossing

@@ -31,6 +31,8 @@ private:
 	void advectDensity(VkCommandBuffer cmd, float dt);
 	void renderVoxelVolume(VkCommandBuffer cmd);
 	void renderMesh(VkCommandBuffer cmd, Mesh& mesh, const glm::mat4& transform = glm::mat4());
+
+	void dispatchFluid(VkCommandBuffer cmd, const glm::uvec3& factor = {1, 1, 1});
 	// void getTimestampQueries();
 
 	void checkControls(KeyMap& keyMap, MouseMap& mouseMap, Mouse& mouse, float dt);
