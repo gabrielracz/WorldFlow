@@ -162,7 +162,7 @@ Renderer::render(float dt)
     };
     VK_ASSERT(vkBeginCommandBuffer(cmd, &cmdBeginInfo));
 
-    this->_drawImage.Clear(cmd);
+    this->_drawImage.Clear(cmd, VkClearColorValue{.float32{0.0, 0.0, 0.0, 0.5}});
 
     /* BEGIN USER COMMANDS */
 
@@ -281,6 +281,13 @@ void
 Renderer::CreateBuffer(Buffer &newBuffer, uint64_t allocSize, VkBufferUsageFlags usage, VmaMemoryUsage memoryUsage, bool autoCleanup)
 {
     newBuffer.Allocate(this->_allocator, allocSize, usage, memoryUsage);
+	if(usage & VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT) {
+		VkBufferDeviceAddressInfo deviceAddressInfo = {
+			.sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO,
+			.buffer = newBuffer.bufferHandle
+		};
+		newBuffer.deviceAddress = vkGetBufferDeviceAddress(this->_device, &deviceAddressInfo);
+	}
     if(autoCleanup) {
         this->_deletionQueue.push([this, &newBuffer]() {
             newBuffer.Destroy(this->_allocator);
@@ -662,6 +669,7 @@ Renderer::initVulkan()
     VkPhysicalDeviceFeatures featuresBase {
         .geometryShader = true,
         .wideLines = true,
+		.vertexPipelineStoresAndAtomics = true,
         .fragmentStoresAndAtomics = true,
         .shaderInt64 = true
     };

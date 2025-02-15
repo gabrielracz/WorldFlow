@@ -4,6 +4,7 @@
 #include "path_config.hpp"
 #include "defines.hpp"
 
+#include <cstdlib>
 #include <glm/gtx/string_cast.hpp>
 #include <glm/gtc/type_ptr.hpp>
 
@@ -59,6 +60,14 @@ struct alignas(16) AddFluidPropertiesPushConstants
 };
 const auto s = sizeof(AddFluidPropertiesPushConstants);
 
+struct alignas(16) ParticlesPushConstants
+{
+    glm::mat4 cameraMatrix;
+	float dt;
+	float elapsed;
+	float maxLifetime;
+};
+
 
 enum Timestamps : uint32_t
 {
@@ -71,6 +80,13 @@ enum Timestamps : uint32_t
 	DensityAdvect,
 	FluidRender,
 	NumTimestamps
+};
+
+struct alignas(16) Particle
+{
+	glm::vec4 position {};
+	float mass {};
+	float lifetime {}; 
 };
 
 /* CONSTANTS */
@@ -92,6 +108,9 @@ constexpr uint32_t NumDiffusionIterations = 4;
 constexpr uint32_t NumPressureIterations = 6;
 
 constexpr glm::vec3 LightPosition = glm::vec4(10.0, 10.0, 10.0, 1.0);
+
+constexpr uint32_t NumParticles = 2024;
+constexpr float MaxParticleLifetime = 120.0;
 }
 
 /* FUNCTIONS */
@@ -152,8 +171,12 @@ UniformFluidEngine::update(VkCommandBuffer cmd, float dt)
 	advectDensity(cmd, dt);
 	this->_timestamps.write(cmd, Timestamps::DensityAdvect, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
 
-	renderVoxelVolume(cmd);
+	// renderVoxelVolume(cmd);
+	renderParticles(cmd, dt);
 	this->_timestamps.write(cmd, Timestamps::FluidRender, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
+
+
+
 }
 
 void
@@ -360,6 +383,39 @@ UniformFluidEngine::renderMesh(VkCommandBuffer cmd, Mesh& mesh, const glm::mat4&
 }
 
 void
+UniformFluidEngine::renderParticles(VkCommandBuffer cmd, float dt)
+{
+
+	this->_renderer.GetDrawImage().Transition(cmd, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+	VkRenderingAttachmentInfo colorAttachmentInfo = vkinit::attachment_info(this->_renderer.GetDrawImage().imageView, nullptr, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+	VkRenderingInfo renderInfo = vkinit::rendering_info(this->_renderer.GetWindowExtent2D(), &colorAttachmentInfo, nullptr);
+	vkCmdBeginRendering(cmd, &renderInfo);
+
+	this->_graphicsParticles.Bind(cmd);
+	const VkViewport viewport = this->_renderer.GetWindowViewport();
+	const VkRect2D scissor = this->_renderer.GetWindowScissor();
+	vkCmdSetViewport(cmd, 0, 1, &viewport);
+	vkCmdSetScissor(cmd, 0, 1, &scissor);
+
+	ParticlesPushConstants pc = {
+		.cameraMatrix = this->_renderer.GetCamera().GetProjectionMatrix() * this->_renderer.GetCamera().GetViewMatrix(),
+		.dt = dt,
+		.elapsed = this->_renderer.GetElapsedTime(),
+		.maxLifetime = Constants::MaxParticleLifetime
+	};
+	vkCmdPushConstants(cmd, this->_graphicsParticles.layout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(pc), &pc);
+
+	vkCmdDraw(cmd, Constants::NumParticles, 1, 0, 0);
+	vkCmdEndRendering(cmd);
+
+	VkBufferMemoryBarrier barriers[] = {
+		this->_buffFluidGrid.CreateBarrier(VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT)
+	};
+	vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_ALL_GRAPHICS_BIT, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, 0, 0, nullptr, ARRLEN(barriers), barriers, 0, nullptr);
+
+}
+
+void
 UniformFluidEngine::dispatchFluid(VkCommandBuffer cmd, const glm::uvec3& factor)
 {
 	const glm::uvec4 groups = (Constants::VoxelGridDimensions / Constants::LocalGroupSize) / glm::uvec4(factor, 1.0);
@@ -541,6 +597,23 @@ UniformFluidEngine::initResources()
 		vkCmdUpdateBuffer(cmd, this->_buffFluidInfo.bufferHandle, 0, sizeof(FluidGridInfo), &fluidInfo);
 	});
 
+	this->_renderer.CreateBuffer(
+		this->_buffParticles,
+		Constants::NumParticles * sizeof(Particle),
+		VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
+		VMA_MEMORY_USAGE_GPU_ONLY
+	);
+
+	Particle particles[Constants::NumParticles];
+	for(int i = 0; i < Constants::NumParticles; i++) {
+		particles[i].position = glm::vec4((glm::vec3(rand(), rand(), rand()) / (float)RAND_MAX - 0.5f) * glm::vec3(Constants::VoxelGridDimensions) * (float)Constants::VoxelCellSize, 1.0);
+		particles[i].mass = 0.01;
+		particles[i].lifetime = (float)rand() / (float)RAND_MAX * Constants::MaxParticleLifetime;
+	}
+	this->_renderer.ImmediateSubmit([&particles, this](VkCommandBuffer cmd) {
+		vkCmdUpdateBuffer(cmd, this->_buffParticles.bufferHandle, 0, sizeof(particles), &particles);
+	});
+
 	return true;
 }
 
@@ -549,6 +622,12 @@ UniformFluidEngine::initPipelines()
 {
     this->_renderer.CreateGraphicsPipeline(this->_graphicsRenderMesh, SHADER_DIRECTORY"/mesh.vert.spv", SHADER_DIRECTORY"/mesh.frag.spv", "", {}, 0, 
                                            sizeof(GraphicsPushConstants), {.blendMode = BlendMode::Additive});
+    this->_renderer.CreateGraphicsPipeline(this->_graphicsParticles, SHADER_DIRECTORY"/particles.vert.spv", SHADER_DIRECTORY"/particles.frag.spv", "", {
+		BufferDescriptor(0, 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, this->_buffFluidInfo.bufferHandle, sizeof(FluidGridInfo)),
+		BufferDescriptor(0, 1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, this->_buffFluidGrid.bufferHandle, Constants::VoxelGridSize),
+		BufferDescriptor(0, 2, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, this->_buffParticles.bufferHandle, Constants::NumParticles * sizeof(Particle))
+	}, VK_SHADER_STAGE_VERTEX_BIT, sizeof(ParticlesPushConstants),
+	{.inputTopology = VK_PRIMITIVE_TOPOLOGY_POINT_LIST, .blendMode = BlendMode::Additive, .pushConstantsStages = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT});
 
     this->_renderer.CreateComputePipeline(this->_computeRaycastVoxelGrid, SHADER_DIRECTORY"/voxelTracerAccum.comp.spv", {
         BufferDescriptor(0, 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, this->_buffFluidGrid.bufferHandle, Constants::VoxelGridSize),

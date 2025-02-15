@@ -16,6 +16,7 @@ public:
 	VkBuffer bufferHandle {};
 	VmaAllocation allocation {};
 	VmaAllocationInfo info {};
+	VkDeviceAddress deviceAddress = {};
 };
 
 struct Mesh

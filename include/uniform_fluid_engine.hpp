@@ -31,6 +31,7 @@ private:
 	void advectDensity(VkCommandBuffer cmd, float dt);
 	void renderVoxelVolume(VkCommandBuffer cmd);
 	void renderMesh(VkCommandBuffer cmd, Mesh& mesh, const glm::mat4& transform = glm::mat4());
+	void renderParticles(VkCommandBuffer cmd, float dt);
 
 	void dispatchFluid(VkCommandBuffer cmd, const glm::uvec3& factor = {1, 1, 1});
 	// void getTimestampQueries();
@@ -66,6 +67,7 @@ private:
 	std::vector<float> _timestampAverages;
 
 	GraphicsPipeline _graphicsRenderMesh;
+	GraphicsPipeline _graphicsParticles;
 	ComputePipeline _computeRaycastVoxelGrid;
 	ComputePipeline _computeAddSources;
 	ComputePipeline _computeDiffuseVelocity;
@@ -78,6 +80,7 @@ private:
 
 	Buffer _buffFluidGrid;
 	Buffer _buffFluidInfo;
+	Buffer _buffParticles;
 };
 
 
