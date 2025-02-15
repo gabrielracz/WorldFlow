@@ -109,9 +109,9 @@ void
 Renderer::Update(float dt)
 {
     this->_elapsed += dt;
-    updatePerformanceCounters(dt);
+    // updatePerformanceCounters(dt);
     pollEvents();
-    if(this->_resizeRequested) {
+    if(this->_resizeRequested) { // TODO: handle minimized window
         resizeSwapchain();
         initCamera();
         this->_mouse.first_captured = true;

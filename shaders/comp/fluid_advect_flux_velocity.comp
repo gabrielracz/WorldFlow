@@ -33,7 +33,7 @@ vec3 sampleVelocity(uvec3 center, ivec3 offset)
 	bool occ = grid[getGridIndex(cell, gridInfo.resolution)].occupied > 0;
 	bool valid = all(ge) && all(le) && !occ;
 	// if(!valid) {return grid[getGridIndex(center, gridInfo.resolution)].velocity * vec3(ge) * vec3(le);}
-	if(!valid) {return vec3(0.0);}
+	if(!valid) {return vec3(0.0, 0.0, 0.0);}
 	return grid[getGridIndex(cell, gridInfo.resolution)].velocity;
 
 }
@@ -45,6 +45,11 @@ void main()
 	// center grid cell position
 	vec3 pos = vec3(gl_GlobalInvocationID) + vec3(0.5, 0.5, 0.5);
 	uvec3 center = gl_GlobalInvocationID;
+
+	// Alternate updates in alternating checkerboard pattern to avoid atomics
+	if(mod(center.x + center.y + center.z + pc.redBlack, 2) == 0){
+		return;
+	}
 
 	const vec3 l = sampleVelocity(center, ivec3(-1, 0, 0));
 	const vec3 r = sampleVelocity(center, ivec3(1, 0, 0));
@@ -67,5 +72,6 @@ void main()
     flux.z = (f.z * f.z - b.z * b.z) / (2.0 * dx);
 
     vec3 newVel = oldVel - flux * pc.dt;
+	grid[index].velocity = newVel;
 
 }

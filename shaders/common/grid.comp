@@ -15,14 +15,11 @@ struct FluidGridInfo
 	float cellSize;
 };
 
-
-
-
 bool isWithinGridBounds(uvec3 p, uvec4 gridResolution)
 {
-    return p.x < gridResolution.x || 
-           p.y < gridResolution.y || 
-           p.z < gridResolution.z;
+	bvec3 ge = greaterThanEqual(p, uvec3(0));
+	bvec3 le = lessThan(p, gridResolution.xyz);
+    return all(ge) && all(le);
 }
 
 uint getGridIndex(uvec3 p, uvec4 gridResolution)

@@ -104,7 +104,7 @@ vec4 traceVoxels(vec3 rayOrigin, vec3 rayDir) {
     
     int missteps = 0;
     // Main ray traversal loop
-    for (int i = 0; i < 156; i++) {
+    for (int i = 0; i < 512; i++) {
         uint index = getGridIndex(uvec3(mapPos), gridInfo.resolution);
         
         // Bounds check
@@ -121,7 +121,9 @@ vec4 traceVoxels(vec3 rayOrigin, vec3 rayDir) {
                 density = voxelData[index].pressure * 10.0;
             }
             else if(pc.renderType == 4) {
-                density = length(voxelData[index].velocity)/200.0;
+                density = length(voxelData[index].velocity)/10.0;
+            } else if(pc.renderType == 5) {
+                density = voxelData[index].padding;
             }
 
             float contribution = density * pc.stepSize;
@@ -133,6 +135,7 @@ vec4 traceVoxels(vec3 rayOrigin, vec3 rayDir) {
             }
 
             contribution = clamp(contribution, 0.0, 1.0);
+            // contribution = max(contribution, 0.1);
             vec4 voxelColor = vec4(vec3(heatColor.rgb * attenuation), contribution);
             
             voxelColor.rgb *= voxelColor.a;

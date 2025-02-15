@@ -50,12 +50,13 @@ struct alignas(16) AddFluidPropertiesPushConstants
 	float elapsed;
 	float dt;
 	float sourceRadius;
-	int addVelocity;
-	int addDensity;
+	int32_t addVelocity;
+	int32_t addDensity;
     float density;
 	uint32_t objectType;
 	float objectRadius;
 	float decayRate;
+	int32_t clear;
 };
 const auto s = sizeof(AddFluidPropertiesPushConstants);
 
@@ -78,7 +79,7 @@ namespace Constants
 {
 constexpr size_t VoxelGridResolution = 64;
 // constexpr glm::uvec4 VoxelGridDimensions = glm::uvec4(VoxelGridResolution, VoxelGridResolution, VoxelGridResolution, 1);
-constexpr glm::uvec4 VoxelGridDimensions = glm::uvec4(256, 32, 16, 1);
+constexpr glm::uvec4 VoxelGridDimensions = glm::uvec4(256, 32, 32, 1);
 
 const size_t VoxelGridSize = VoxelGridDimensions.x * VoxelGridDimensions.y * VoxelGridDimensions.z * sizeof(FluidGridCell);
 const float VoxelGridScale = 2.0f;
@@ -129,7 +130,6 @@ UniformFluidEngine::update(VkCommandBuffer cmd, float dt)
 	checkControls(this->_renderer.GetKeyMap(), this->_renderer.GetMouseMap(), this->_renderer.GetMouse(), dt);
 
 	dt = 0.08;
-	// this->_timestamps.reset(this->_renderer.GetDevice());
 	this->_timestamps.reset(this->_renderer.GetDevice());
 	this->_timestamps.write(cmd, Timestamps::StartFrame, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT);
 	addSources(cmd, dt);
@@ -140,9 +140,9 @@ UniformFluidEngine::update(VkCommandBuffer cmd, float dt)
 	advectVelocity(cmd, dt);
 	this->_timestamps.write(cmd, Timestamps::VelocityAdvect, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
 
-	computeDivergence(cmd);
-	solvePressure(cmd);
-	projectIncompressible(cmd);
+	// computeDivergence(cmd);
+	// solvePressure(cmd);
+	// projectIncompressible(cmd);
 	if(this->_toggle)
 		computeDivergence(cmd);
 	this->_timestamps.write(cmd, Timestamps::PressureSolve, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
@@ -173,7 +173,8 @@ UniformFluidEngine::addSources(VkCommandBuffer cmd, float dt)
 		.density = this->_densityAmount,
 		.objectType = (uint32_t) this->_shouldAddObstacle > 0,
 		.objectRadius = this->_objectRadius * Constants::VoxelGridResolution,
-		.decayRate = this->_decayRate
+		.decayRate = this->_decayRate,
+		.clear = this->_shouldClear
 	};
 	vkCmdPushConstants(cmd, this->_computeAddSources.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(pc), &pc);
 	dispatchFluid(cmd);
@@ -225,6 +226,29 @@ UniformFluidEngine::diffuseDensity(VkCommandBuffer cmd, float dt)
 		vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, nullptr, ARRLEN(barriers), barriers, 0, nullptr);
 	}
 }
+
+void
+UniformFluidEngine::fluxAdvectVelocity(VkCommandBuffer cmd, float dt)
+{
+	this->_computeFluxAdvectVelocity.Bind(cmd);
+	for(uint32_t i = 0; i < 2; i++) {
+		FluidPushConstants pc = {
+			.time = this->_renderer.GetElapsedTime(),
+			.dt = dt,
+			.redBlack = (i % 2)
+		};
+		vkCmdPushConstants(cmd, this->_computeFluxAdvectVelocity.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(pc), &pc);
+
+		dispatchFluid(cmd);
+
+		VkBufferMemoryBarrier barriers[] = {
+			this->_buffFluidGrid.CreateBarrier(VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT)
+		};
+		vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, nullptr, ARRLEN(barriers), barriers, 0, nullptr);
+	}
+}
+
+
 
 void
 UniformFluidEngine::advectVelocity(VkCommandBuffer cmd, float dt)
@@ -423,6 +447,7 @@ UniformFluidEngine::ui()
 		ImGui::InputScalar("diffiter", ImGuiDataType_U32, &this->_diffusionIterations, &step);
 		ImGui::InputScalar("presiter", ImGuiDataType_U32, &this->_pressureIterations, &step);
 		ImGui::InputFloat3("sourcePos", glm::value_ptr(this->_sourcePosition));
+		ImGui::Checkbox("clear", &this->_shouldClear);
 	}
 
 	if(this->_shouldCollapseUI) {
@@ -437,7 +462,7 @@ void
 UniformFluidEngine::checkControls(KeyMap& keyMap, MouseMap& mouseMap, Mouse& mouse, float dt)
 {
 	if(mouseMap[SDL_BUTTON_RIGHT]) {
-		const float mouse_sens = -1.2;
+		const float mouse_sens = -0.3;
 		glm::vec2 look = mouse.move * mouse_sens * dt;
 		this->_renderer.GetCamera().OrbitYaw(-look.x);
 		this->_renderer.GetCamera().OrbitPitch(-look.y);
@@ -486,7 +511,7 @@ UniformFluidEngine::checkControls(KeyMap& keyMap, MouseMap& mouseMap, Mouse& mou
 	}
 
 
-	for(int i = 1; i <= 4; i++) {
+	for(int i = 1; i <= 5; i++) {
 		if(keyMap[SDLK_0 + i]) {
 			this->_renderType = i;
 			keyMap[SDLK_0 + i] = false;
@@ -576,6 +601,12 @@ UniformFluidEngine::initPipelines()
 	},
 	sizeof(FluidPushConstants));
 	this->_renderer.CreateComputePipeline(this->_computeAdvectVelocity, SHADER_DIRECTORY"/fluid_advect_velocity.comp.spv", {
+		BufferDescriptor(0, 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, this->_buffFluidInfo.bufferHandle, sizeof(FluidGridInfo)),
+		BufferDescriptor(0, 1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, this->_buffFluidGrid.bufferHandle, Constants::VoxelGridSize)
+	},
+	sizeof(FluidPushConstants));
+
+	this->_renderer.CreateComputePipeline(this->_computeFluxAdvectVelocity, SHADER_DIRECTORY"/fluid_advect_flux_velocity.comp.spv", {
 		BufferDescriptor(0, 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, this->_buffFluidInfo.bufferHandle, sizeof(FluidGridInfo)),
 		BufferDescriptor(0, 1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, this->_buffFluidGrid.bufferHandle, Constants::VoxelGridSize)
 	},

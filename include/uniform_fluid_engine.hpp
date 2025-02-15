@@ -24,6 +24,7 @@ private:
 	void addSources(VkCommandBuffer cmd, float dt);
 	void diffuseVelocity(VkCommandBuffer cmd, float dt);
 	void advectVelocity(VkCommandBuffer cmd, float dt);
+	void fluxAdvectVelocity(VkCommandBuffer cmd, float dt);
 	void computeDivergence(VkCommandBuffer cmd);
 	void solvePressure(VkCommandBuffer cmd);
 	void projectIncompressible(VkCommandBuffer cmd);
@@ -46,6 +47,7 @@ private:
 
 	bool _shouldAddSources {false};
 	bool _shouldDiffuseDensity {false};
+	bool _shouldClear {false};
 	bool _toggle {false};
 	bool _shouldAddObstacle {false};
 	bool _shouldCollapseUI {true};
@@ -70,6 +72,7 @@ private:
 	ComputePipeline _computeAddSources;
 	ComputePipeline _computeDiffuseVelocity;
 	ComputePipeline _computeAdvectVelocity;
+	ComputePipeline _computeFluxAdvectVelocity;
 	ComputePipeline _computeDivergence;
 	ComputePipeline _computeSolvePressure;
 	ComputePipeline _computeProjectIncompressible;

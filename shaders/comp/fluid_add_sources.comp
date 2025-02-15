@@ -26,6 +26,7 @@ layout(push_constant) uniform PushConstants {
 	uint objectType;
 	float objectRadius;
 	float decayRate;
+    int clear;
 } pc;
 
 float manhattanDistance(vec3 p1, vec3 p2) {
@@ -39,8 +40,15 @@ void main()
     if (!isWithinGridBounds(pos, gridInfo.resolution)) {
         return;
     }
-	const float cellSize = 1.0 / gridInfo.resolution.x;
+
     uint index = getGridIndex(pos, gridInfo.resolution);
+    if(pc.clear > 0) {
+        grid[index].density = 0.0;
+        grid[index].velocity = vec3(0.0);
+        grid[index].divergence = 0.0;
+        grid[index].pressure = 0.0;
+        grid[index].padding = 0.0;
+    }
 
     if(distance(pos, pc.sourcePosition.xyz) < pc.sourceRadius) {
         if(pc.addDensity > 0) {
@@ -59,5 +67,6 @@ void main()
     }
 
     grid[index].density *= exp(-pc.decayRate * pc.dt);
+    // grid[index].velocity *= exp(-pc.decayRate * pc.dt);
     // grid[index].density *= 0.99;
 }
