@@ -46,12 +46,16 @@ void main()
 	vec3 res = gridInfo.resolution.xyz;
 	vec3 ix = p.position.xyz;
 	vec3 velocity = fluid[worldToGridIndex(p.position.xyz, gridInfo.resolution, gridInfo.cellSize)].velocity;
-	vec4 newPos = vec4(p.position.xyz + velocity * pc.dt * p.mass, 1.0);
+	vec4 newPos = vec4(p.position.xyz + velocity * pc.dt * gridInfo.cellSize, 1.0);
+
+	vec4 worldBounds = vec4(vec3(gridInfo.resolution.xyz) * gridInfo.cellSize * 0.5, 1.0);
+	clamp(newPos, -worldBounds, worldBounds);
+	// vec4 newPos = vec4(p.position.xyz + velocity * pc.dt * p.mass, 1.0);
 	particles[gl_VertexIndex].position = newPos;
 	particles[gl_VertexIndex].lifetime = p.lifetime + 1.0;
 
 	//output the position of each vertex
 	gl_Position =  pc.cameraMatrix * newPos;
-	outColor = vec4(1.0, 1.0, 1.0, 1.0 * (pc.maxLifetime - particles[gl_VertexIndex].lifetime + 1) / pc.maxLifetime);
-	gl_PointSize = 2;
+	outColor = vec4(1.0, 0.0, 0.0, 1.0 * (pc.maxLifetime - particles[gl_VertexIndex].lifetime + 1) / pc.maxLifetime);
+	gl_PointSize = 3;
 }

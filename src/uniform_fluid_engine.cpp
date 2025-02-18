@@ -94,6 +94,7 @@ namespace Constants
 {
 constexpr size_t VoxelGridResolution = 64;
 // constexpr glm::uvec4 VoxelGridDimensions = glm::uvec4(VoxelGridResolution, VoxelGridResolution, VoxelGridResolution, 1);
+// constexpr glm::uvec4 VoxelGridDimensions = glm::uvec4(64, 64, 64, 1);
 constexpr glm::uvec4 VoxelGridDimensions = glm::uvec4(256, 32, 16, 1);
 
 const size_t VoxelGridSize = VoxelGridDimensions.x * VoxelGridDimensions.y * VoxelGridDimensions.z * sizeof(FluidGridCell);
@@ -109,8 +110,8 @@ constexpr uint32_t NumPressureIterations = 6;
 
 constexpr glm::vec3 LightPosition = glm::vec4(10.0, 10.0, 10.0, 1.0);
 
-constexpr uint32_t NumParticles = 2024;
-constexpr float MaxParticleLifetime = 120.0;
+constexpr uint32_t NumParticles = 2048;
+constexpr float MaxParticleLifetime = 240.0;
 }
 
 /* FUNCTIONS */
@@ -171,8 +172,8 @@ UniformFluidEngine::update(VkCommandBuffer cmd, float dt)
 	advectDensity(cmd, dt);
 	this->_timestamps.write(cmd, Timestamps::DensityAdvect, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
 
-	// renderVoxelVolume(cmd);
-	renderParticles(cmd, dt);
+	renderVoxelVolume(cmd);
+	// renderParticles(cmd, dt);
 	this->_timestamps.write(cmd, Timestamps::FluidRender, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
 
 
@@ -568,6 +569,7 @@ UniformFluidEngine::initRendererOptions()
 bool
 UniformFluidEngine::initResources()
 {
+	// this->_renderer.CreateBuffer(this->_buffStaging, Constants::StagingBufferSize, VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VMA_MEMORY_USAGE_CPU_ONLY);
 	this->_renderer.CreateBuffer(
 		this->_buffFluidGrid,
 		Constants::VoxelGridSize,

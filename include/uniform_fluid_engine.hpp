@@ -81,6 +81,7 @@ private:
 	Buffer _buffFluidGrid;
 	Buffer _buffFluidInfo;
 	Buffer _buffParticles;
+	Buffer _buffStaging;
 };
 
 

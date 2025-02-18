@@ -162,7 +162,7 @@ Renderer::render(float dt)
     };
     VK_ASSERT(vkBeginCommandBuffer(cmd, &cmdBeginInfo));
 
-    this->_drawImage.Clear(cmd, VkClearColorValue{.float32{0.0, 0.0, 0.0, 0.5}});
+    this->_drawImage.Clear(cmd);
 
     /* BEGIN USER COMMANDS */
 
