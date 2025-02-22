@@ -54,8 +54,6 @@ void main()
 
     const float newDns = (c + a*(l + r + u + d + f + b)) / (1+6*a); // backwards stable
 	const float result = SOR(cell.density, newDns, gridInfo.resolution.x);
-	// const float result = newDns;
 
-	// atomicExchange(grid[index].density, result);
 	grid[index].density = result;
 }

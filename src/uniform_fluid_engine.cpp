@@ -149,7 +149,6 @@ UniformFluidEngine::update(VkCommandBuffer cmd, float dt)
 	checkControls(this->_renderer.GetKeyMap(), this->_renderer.GetMouseMap(), this->_renderer.GetMouse(), dt);
 
 	dt = 0.08;
-	// this->_timestamps.reset(this->_renderer.GetDevice());
 	this->_timestamps.reset(this->_renderer.GetDevice());
 	this->_timestamps.write(cmd, Timestamps::StartFrame, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT);
 	addSources(cmd, dt);
@@ -486,11 +485,6 @@ UniformFluidEngine::ui()
 		ImGui::InputFloat3("sourcePos", glm::value_ptr(this->_sourcePosition));
 	}
 
-	// if(this->_shouldCollapseUI) {
-	// 	uitools::CollapseAllWindows();
-	// 	this->_shouldCollapseUI = false;
-	// }
-
 	ImGui::End();
 }
 
@@ -573,7 +567,6 @@ UniformFluidEngine::initRendererOptions()
 bool
 UniformFluidEngine::initResources()
 {
-	// this->_renderer.CreateBuffer(this->_buffStaging, Constants::StagingBufferSize, VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VMA_MEMORY_USAGE_CPU_ONLY);
 	this->_renderer.CreateBuffer(
 		this->_buffFluidGrid,
 		Constants::VoxelGridSize,
