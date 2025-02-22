@@ -16,12 +16,10 @@ struct FluidGridInfo
 };
 
 
-
-
 bool isWithinGridBounds(uvec3 p, uvec4 gridResolution)
 {
-    return p.x < gridResolution.x || 
-           p.y < gridResolution.y || 
+    return p.x < gridResolution.x &&
+           p.y < gridResolution.y && 
            p.z < gridResolution.z;
 }
 

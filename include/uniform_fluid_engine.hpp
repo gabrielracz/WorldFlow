@@ -49,7 +49,7 @@ private:
 	bool _shouldDiffuseDensity {false};
 	bool _toggle {false};
 	bool _shouldAddObstacle {false};
-	bool _shouldCollapseUI {true};
+	bool _shouldHideUI {false};
 	glm::vec3 _objectPosition{};
 	float _objectRadius;
 	int _renderType = 1;

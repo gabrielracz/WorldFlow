@@ -95,7 +95,7 @@ namespace Constants
 constexpr size_t VoxelGridResolution = 64;
 // constexpr glm::uvec4 VoxelGridDimensions = glm::uvec4(VoxelGridResolution, VoxelGridResolution, VoxelGridResolution, 1);
 // constexpr glm::uvec4 VoxelGridDimensions = glm::uvec4(64, 64, 64, 1);
-constexpr glm::uvec4 VoxelGridDimensions = glm::uvec4(256, 32, 16, 1);
+constexpr glm::uvec4 VoxelGridDimensions = glm::uvec4(256, 32, 32, 1);
 
 const size_t VoxelGridSize = VoxelGridDimensions.x * VoxelGridDimensions.y * VoxelGridDimensions.z * sizeof(FluidGridCell);
 const float VoxelGridScale = 2.0f;
@@ -443,6 +443,10 @@ UniformFluidEngine::preFrame()
 void
 UniformFluidEngine::ui()
 {
+	if(this->_shouldHideUI) {
+		return;
+	}
+
     ImGuiIO& io = ImGui::GetIO();
 
     ImGuiViewport* viewport = ImGui::GetMainViewport(); // Use GetMainViewport for multi-viewport support
@@ -482,10 +486,10 @@ UniformFluidEngine::ui()
 		ImGui::InputFloat3("sourcePos", glm::value_ptr(this->_sourcePosition));
 	}
 
-	if(this->_shouldCollapseUI) {
-		uitools::CollapseAllWindows();
-		this->_shouldCollapseUI = false;
-	}
+	// if(this->_shouldCollapseUI) {
+	// 	uitools::CollapseAllWindows();
+	// 	this->_shouldCollapseUI = false;
+	// }
 
 	ImGui::End();
 }
@@ -538,12 +542,12 @@ UniformFluidEngine::checkControls(KeyMap& keyMap, MouseMap& mouseMap, Mouse& mou
 	}
 	
 	if(keyMap[SDLK_TAB]) {
-		this->_shouldCollapseUI = true;
+		this->_shouldHideUI = !this->_shouldHideUI;
 		keyMap[SDLK_TAB] = false;
 	}
 
 
-	for(int i = 1; i <= 4; i++) {
+	for(int i = 1; i <= 5; i++) {
 		if(keyMap[SDLK_0 + i]) {
 			this->_renderType = i;
 			keyMap[SDLK_0 + i] = false;

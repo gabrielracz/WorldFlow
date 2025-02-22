@@ -21,13 +21,12 @@ layout(push_constant) uniform PushConstants {
 
 vec3 sampleVelocity(uvec3 center, ivec3 offset)
 {
-	uvec3 cell = center + offset;
-	bvec3 ge = greaterThanEqual(cell, uvec3(0));
-	bvec3 le = lessThan(cell, gridInfo.resolution.xyz);
+	ivec3 cell = ivec3(center) + offset;
+	bvec3 ge = greaterThanEqual(cell, ivec3(0));
+	bvec3 le = lessThan(cell, ivec3(gridInfo.resolution.xyz));
 	bool occ = grid[getGridIndex(cell, gridInfo.resolution)].occupied > 0;
 	bool valid = all(ge) && all(le) && !occ;
-	if(!valid) {return grid[getGridIndex(center, gridInfo.resolution)].velocity * vec3(1 - abs(offset));} // set normal component to 0
-	// if(!valid) {return grid[getGridIndex(center, gridInfo.resolution)].velocity;}
+	if(!valid) {return grid[getGridIndex(center, gridInfo.resolution)].velocity * abs(vec3(1.0 - abs(vec3(offset))));}
 	if(!valid) {return vec3(0.0);}
 	return grid[getGridIndex(cell, gridInfo.resolution)].velocity;
 }
@@ -44,8 +43,8 @@ void main()
 		return;
 	}
 
-	const vec3 l = sampleVelocity(center, ivec3(-1, 0, 0));
 	const vec3 r = sampleVelocity(center, ivec3(1, 0, 0));
+	const vec3 l = sampleVelocity(center, ivec3(-1, 0, 0));
 	const vec3 u = sampleVelocity(center, ivec3(0, 1, 0));
 	const vec3 d = sampleVelocity(center, ivec3(0, -1, 0));
 	const vec3 f = sampleVelocity(center, ivec3(0, 0, 1));
@@ -58,7 +57,8 @@ void main()
 
     const vec3 newVel = (c + a*(l + r + u + d + f + b)) / (1+6*a);
 
-	const vec3 result = SOR(cell.velocity, newVel, gridInfo.resolution.x);
+	// const vec3 result = SOR(cell.velocity, newVel, gridInfo.resolution.x);
+	const vec3 result = newVel;
 
     // guarded by red-black
     grid[index].velocity = result;

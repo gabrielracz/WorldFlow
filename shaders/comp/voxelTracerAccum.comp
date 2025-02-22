@@ -109,7 +109,7 @@ vec4 traceVoxels(vec3 rayOrigin, vec3 rayDir) {
         
         // Bounds check
         if (all(greaterThanEqual(mapPos, ivec3(0))) && all(lessThan(mapPos, ivec3(pc.gridSize)))) {
-            float density;
+            float density = 0.0;
             vec4 color = pc.baseColor;
             if(pc.renderType == 1) {
                 density = voxelData[index].density;
@@ -121,15 +121,19 @@ vec4 traceVoxels(vec3 rayOrigin, vec3 rayDir) {
                 density = voxelData[index].pressure * 10.0;
             }
             else if(pc.renderType == 4) {
-                density = length(voxelData[index].velocity)/200.0;
+                density = length(voxelData[index].velocity)/100.0;
+            }
+            else if(pc.renderType == 5) {
+                density = voxelData[index].padding;
             }
 
-            float contribution = density * pc.stepSize;
+            float contribution = abs(density) * pc.stepSize;
             float attenuation = exp(-t * 0.07);
 
             vec4 heatColor = flameHeatmapColor(abs(density));
             if(density < 0.0) {
-                heatColor.rgb = 1.0 - heatColor.rgb;
+                // heatColor = vec4(0.0, 1.0, 1.0, 1.0);
+                heatColor = viridisColor(abs(density));
             }
 
             contribution = clamp(contribution, 0.0, 1.0);

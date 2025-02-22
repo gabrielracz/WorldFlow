@@ -39,7 +39,6 @@ void main()
     if (!isWithinGridBounds(pos, gridInfo.resolution)) {
         return;
     }
-	const float cellSize = 1.0 / gridInfo.resolution.x;
     uint index = getGridIndex(pos, gridInfo.resolution);
 
     if(distance(pos, pc.sourcePosition.xyz) < pc.sourceRadius) {
@@ -53,7 +52,9 @@ void main()
 
     }
 
+	grid[index].divergence = 0;
     grid[index].occupied = 0;
+    grid[index].padding = 0;
     if(distance(pos, pc.objectPosition.xyz) < pc.objectRadius && pc.objectType > 0) {
         grid[index].occupied = pc.objectType;
     }
