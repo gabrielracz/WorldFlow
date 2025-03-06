@@ -21,12 +21,12 @@
 /* STRUCTS */
 struct alignas(16) FluidGridCell
 {
-	glm::vec3 velocity;
+	glm::vec4 velocity;
 	float density;
 	float pressure;
 	float divergence;
 	int occupied;
-	float padding;
+	glm::vec4 padding;
 };
 
 struct alignas(16) FluidGridInfo
@@ -57,6 +57,7 @@ struct alignas(16) AddFluidPropertiesPushConstants
 	uint32_t objectType;
 	float objectRadius;
 	float decayRate;
+	int clear;
 };
 const auto s = sizeof(AddFluidPropertiesPushConstants);
 
@@ -196,7 +197,8 @@ UniformFluidEngine::addSources(VkCommandBuffer cmd, float dt)
 		.density = this->_densityAmount,
 		.objectType = (uint32_t) this->_shouldAddObstacle > 0,
 		.objectRadius = this->_objectRadius * Constants::VoxelGridResolution,
-		.decayRate = this->_decayRate
+		.decayRate = this->_decayRate,
+		.clear = this->_shouldClear
 	};
 	vkCmdPushConstants(cmd, this->_computeAddSources.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(pc), &pc);
 	dispatchFluid(cmd);
@@ -483,6 +485,7 @@ UniformFluidEngine::ui()
 		ImGui::InputScalar("diffiter", ImGuiDataType_U32, &this->_diffusionIterations, &step);
 		ImGui::InputScalar("presiter", ImGuiDataType_U32, &this->_pressureIterations, &step);
 		ImGui::InputFloat3("sourcePos", glm::value_ptr(this->_sourcePosition));
+		ImGui::Checkbox("clear", &this->_shouldClear);
 	}
 
 	ImGui::End();

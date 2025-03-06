@@ -26,6 +26,7 @@ layout(push_constant) uniform PushConstants {
 	uint objectType;
 	float objectRadius;
 	float decayRate;
+	int clear;
 } pc;
 
 float manhattanDistance(vec3 p1, vec3 p2) {
@@ -37,9 +38,17 @@ void main()
 {
     uvec3 pos = gl_GlobalInvocationID;
     if (!isWithinGridBounds(pos, gridInfo.resolution)) {
-        return;
+        // return;
     }
     uint index = getGridIndex(pos, gridInfo.resolution);
+
+	if(pc.clear > 0) {
+		grid[index] = zeroGridCell();
+	}
+
+	if(any(equal(pos, uvec3(gridInfo.resolution.xyz) - 1))) {
+		grid[index].debug = vec4(500.0);
+	}
 
     if(distance(pos, pc.sourcePosition.xyz) < pc.sourceRadius) {
         if(pc.addDensity > 0) {
@@ -47,7 +56,7 @@ void main()
         }
 
         if(pc.addVelocity > 0) {
-            grid[index].velocity += pc.velocity.xyz;
+            grid[index].velocity += pc.velocity;
         }
     }
 

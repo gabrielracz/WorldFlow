@@ -47,6 +47,7 @@ private:
 
 	bool _shouldAddSources {false};
 	bool _shouldDiffuseDensity {false};
+	bool _shouldClear {false};
 	bool _toggle {false};
 	bool _shouldAddObstacle {false};
 	bool _shouldHideUI {false};

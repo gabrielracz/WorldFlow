@@ -45,8 +45,8 @@ void main()
 
 	vec3 res = gridInfo.resolution.xyz;
 	vec3 ix = p.position.xyz;
-	vec3 velocity = fluid[worldToGridIndex(p.position.xyz, gridInfo.resolution, gridInfo.cellSize)].velocity;
-	vec4 newPos = vec4(p.position.xyz + velocity * pc.dt * gridInfo.cellSize, 1.0);
+	vec4 velocity = fluid[worldToGridIndex(p.position.xyz, gridInfo.resolution, gridInfo.cellSize)].velocity;
+	vec4 newPos = vec4(p.position.xyz + velocity.xyz * pc.dt * gridInfo.cellSize, 1.0);
 
 	vec4 worldBounds = vec4(vec3(gridInfo.resolution.xyz) * gridInfo.cellSize * 0.5, 1.0);
 	clamp(newPos, -worldBounds, worldBounds);

@@ -1,11 +1,11 @@
 struct FluidGridCell
 {
-	vec3 velocity;
+	vec4 velocity;
 	float density;
     float pressure;
     float divergence;
     uint occupied;
-    float padding;
+    vec4 debug;
 };
 
 struct FluidGridInfo
@@ -15,6 +15,9 @@ struct FluidGridInfo
 	float cellSize;
 };
 
+FluidGridCell zeroGridCell() {
+	return FluidGridCell(vec4(0.0), 0.0, 0.0, 0.0, 0, vec4(0.0));
+}
 
 bool isWithinGridBounds(uvec3 p, uvec4 gridResolution)
 {
@@ -62,10 +65,10 @@ float SOR(float old, float new, uint N)
 	return result;
 }
 
-vec3 SOR(vec3 old, vec3 new, uint N)
+vec4 SOR(vec4 old, vec4 new, uint N)
 {
-	float alpha = 2.0 / (1.0 + sin(3.14159 / N));
-	vec3 result = alpha * new + (1 - alpha) * old;
+	const float alpha = 2.0 / (1.0 + sin(3.14159 / N));
+	vec4 result = alpha * new + (1 - alpha) * old;
 	return result;
 }
 

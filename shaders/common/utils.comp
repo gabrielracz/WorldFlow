@@ -2,110 +2,18 @@ vec3 clampVector(vec3 a, vec3 minVec, vec3 maxVec) {
     return min(max(a, minVec), maxVec);
 }
 
-// pass values as [l, r, d, u, f, b]
-float trilinearInterpolation(vec3 cellPoint, float values[6]) {
-    // Ensure cellPoint is within the 0-1 range for each dimension.  If your actual
-    // grid isn't normalized, you'll need to adjust cellPoint accordingly
-    cellPoint = clamp(cellPoint, vec3(0.0), vec3(1.0));
-
-    // Calculate the indices of the 8 surrounding voxels.  We're assuming
-    // the values are arranged in a "cube" where values[0] is the origin
-    // and values[5] is the opposite corner.  The order matters!
-    int x0 = int(floor(cellPoint.x));
-    int x1 = int(ceil(cellPoint.x));
-    int y0 = int(floor(cellPoint.y));
-    int y1 = int(ceil(cellPoint.y));
-    int z0 = int(floor(cellPoint.z));
-    int z1 = int(ceil(cellPoint.z));
-
-    // Calculate interpolation factors (how far along each axis we are)
-    float fx = cellPoint.x - float(x0);
-    float fy = cellPoint.y - float(y0);
-    float fz = cellPoint.z - float(z0);
-
-    // Perform trilinear interpolation.  This is done by interpolating
-    // along one axis, then another, and finally the third.
-
-    // Interpolate along x:
-    float c00 = mix(values[x0 + y0 * 2 + z0 * 4], values[x1 + y0 * 2 + z0 * 4], fx);
-    float c01 = mix(values[x0 + y0 * 2 + z1 * 4], values[x1 + y0 * 2 + z1 * 4], fx);
-    float c10 = mix(values[x0 + y1 * 2 + z0 * 4], values[x1 + y1 * 2 + z0 * 4], fx);
-    float c11 = mix(values[x0 + y1 * 2 + z1 * 4], values[x1 + y1 * 2 + z1 * 4], fx);
-
-    // Interpolate along y:
-    float c0 = mix(c00, c10, fy);
-    float c1 = mix(c01, c11, fy);
-
-    // Interpolate along z:
-    float result = mix(c0, c1, fz);
-    return result;
-}
-
-float trilinearInterpolation(vec3 fracPos, float values[6], float cellValue) {
-    // Weighted average of the 6 neighbors AND the center cell.
-
-    float result = 0.0;
-
-    // Interpolate along x-axis
-    float xWeight = fracPos.x;
-    result += mix(values[0], values[1], xWeight);  // l and r
-
-    // Interpolate along y-axis
-    float yWeight = fracPos.y;
-    result += mix(values[2], values[3], yWeight);  // d and u
-
-    // Interpolate along z-axis
-    float zWeight = fracPos.z;
-    result += mix(values[4], values[5], zWeight);  // f and b
-
-    // Add the center value, weighted appropriately.  A simple approach is to
-    // give the center cell an equal weight to each of the other axes.
-    result += cellValue;
-
-
-    // Divide by 4 to normalize (since we added 4 values - 3 axes + center)
-    return result / 4.0;
-}
-
-vec3 trilinearInterpolation(vec3 fracPos, vec3 values[6], vec3 cellValue) {
-    // Weighted average of the 6 neighbors AND the center cell.
-
-    vec3 result = vec3(0.0);
-
-    // Interpolate along x-axis
-    float xWeight = fracPos.x;
-    result += mix(values[0], values[1], xWeight);  // l and r
-
-    // Interpolate along y-axis
-    float yWeight = fracPos.y;
-    result += mix(values[2], values[3], yWeight);  // d and u
-
-    // Interpolate along z-axis
-    float zWeight = fracPos.z;
-    result += mix(values[4], values[5], zWeight);  // f and b
-
-    // Add the center value, weighted appropriately.  A simple approach is to
-    // give the center cell an equal weight to each of the other axes.
-    result += cellValue;
-
-
-    // Divide by 4 to normalize (since we added 4 values - 3 axes + center)
-    return result / 4.0;
-}
-
-
-vec3 triInterp(vec3 c000, vec3 c100, vec3 c010, vec3 c110,
-               vec3 c001, vec3 c101, vec3 c011, vec3 c111,
+vec4 triInterp(vec4 c000, vec4 c100, vec4 c010, vec4 c110,
+               vec4 c001, vec4 c101, vec4 c011, vec4 c111,
                vec3 weights) {
     // Interpolate along x
-    vec3 c00 = mix(c000, c100, weights.x);
-    vec3 c10 = mix(c010, c110, weights.x);
-    vec3 c01 = mix(c001, c101, weights.x);
-    vec3 c11 = mix(c011, c111, weights.x);
+    vec4 c00 = mix(c000, c100, weights.x);
+    vec4 c10 = mix(c010, c110, weights.x);
+    vec4 c01 = mix(c001, c101, weights.x);
+    vec4 c11 = mix(c011, c111, weights.x);
     
     // Interpolate along y
-    vec3 c0 = mix(c00, c10, weights.y);
-    vec3 c1 = mix(c01, c11, weights.y);
+    vec4 c0 = mix(c00, c10, weights.y);
+    vec4 c1 = mix(c01, c11, weights.y);
     
     // Interpolate along z
     return mix(c0, c1, weights.z);
