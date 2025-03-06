@@ -162,7 +162,7 @@ UniformFluidEngine::update(VkCommandBuffer cmd, float dt)
 
 	computeDivergence(cmd);
 	solvePressure(cmd);
-	projectIncompressible(cmd);
+	// projectIncompressible(cmd);
 	if(this->_toggle)
 		computeDivergence(cmd);
 	this->_timestamps.write(cmd, Timestamps::PressureSolve, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);

@@ -43,7 +43,7 @@ void main()
 
 	vec3 pastPos = traceVelocityField(pos, cell.velocity.xyz, pc.dt);
 	if(any(greaterThan(pastPos, vec3(gridInfo.resolution.xyz) - 1.0)) || any(lessThan(pastPos, vec3(0.0)))) {
-		grid[index].debug = vec4(1.0);
+		// grid[index].debug = vec4(1.0);
 		// pastPos = pos;
 		pastPos = clamp(pastPos, vec3(0.0), vec3(gridInfo.resolution.xyz) - 1.0);
 	}

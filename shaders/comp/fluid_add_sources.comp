@@ -42,13 +42,14 @@ void main()
     }
     uint index = getGridIndex(pos, gridInfo.resolution);
 
+	grid[index].debug = vec4(0.0);
 	if(pc.clear > 0) {
 		grid[index] = zeroGridCell();
 	}
 
-	if(any(equal(pos, uvec3(gridInfo.resolution.xyz) - 1))) {
-		grid[index].debug = vec4(500.0);
-	}
+	// if(any(equal(pos, uvec3(gridInfo.resolution.xyz) - 1))) {
+	// 	grid[index].debug = vec4(500.0);
+	// }
 
     if(distance(pos, pc.sourcePosition.xyz) < pc.sourceRadius) {
         if(pc.addDensity > 0) {
@@ -66,5 +67,6 @@ void main()
     }
 
     grid[index].density *= exp(-pc.decayRate * pc.dt);
+    // grid[index].velocity *= exp(-pc.decayRate * pc.dt);
     // grid[index].density *= 0.99;
 }
