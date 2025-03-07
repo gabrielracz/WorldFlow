@@ -136,6 +136,7 @@ Renderer::render(float dt)
     }
 
     if(this->_userUI) {
+#include "defines.hpp"
         ImGui_ImplVulkan_NewFrame();
         ImGui_ImplSDL2_NewFrame();
         ImGui::NewFrame();
@@ -165,8 +166,9 @@ Renderer::render(float dt)
     this->_drawImage.Clear(cmd);
 
     /* BEGIN USER COMMANDS */
-
-    this->_userUpdate(cmd, dt);
+    
+    if(this->_userUpdate)
+        this->_userUpdate(cmd, dt);
 
     /* END USER COMMANDS */
 
@@ -1112,6 +1114,12 @@ VkExtent2D
 Renderer::GetWindowExtent2D()
 {
     return VkExtent2D{this->_windowExtent.width, this->_windowExtent.height};
+}
+
+VkExtent3D
+Renderer::GetWindowExtent3D()
+{
+    return VkExtent3D{this->_windowExtent.width, this->_windowExtent.height, 1};
 }
 
 float
