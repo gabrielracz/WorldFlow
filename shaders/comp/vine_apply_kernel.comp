@@ -48,6 +48,10 @@ vec4 applyKernel(ivec2 index, Kernel k)
 void main()
 {
     ivec2 index = ivec2(gl_GlobalInvocationID.xy);
+    if(any(lessThanEqual(index, ivec2(kernel.size.xy))) ||
+       any(greaterThanEqual(index, imageSize(srcImg) - ivec2(kernel.size.xy)))) {
+        return;
+    }
     vec4 result = applyKernel(index, kernel);
     imageStore(dstImg, index, result);
 }
