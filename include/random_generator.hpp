@@ -11,10 +11,11 @@ private:
 
 public:
     // Constructor with optional seed
-    explicit RandomGenerator(unsigned int seed = std::random_device{}());
+    explicit RandomGenerator(unsigned int initseed = std::random_device{}());
+
     
     // Reset the generator with a new seed
-    void setSeed(unsigned int seed);
+    void setSeed(unsigned int newseed);
     
     // Generate a random number in range [min, max] with specified type
     template<typename T>
@@ -30,6 +31,8 @@ public:
             return static_cast<T>(distribution(engine) * (max - min) + min);
         }
     }
+
+    unsigned int seed;
 };
 
 #endif

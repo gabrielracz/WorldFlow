@@ -55,10 +55,13 @@ VineGenerator::Init()
 void
 VineGenerator::update(VkCommandBuffer cmd, float dt)
 {
+    checkControls(this->_renderer.GetKeyMap(), this->_renderer.GetMouseMap(), this->_renderer.GetMouse());
     this->_imgVine[0].Transition(cmd, VK_IMAGE_LAYOUT_GENERAL);
     this->_imgVine[1].Transition(cmd, VK_IMAGE_LAYOUT_GENERAL);
-    // if(this->_renderer.GetFrameNumber() % 120 == 0) 
+    if(this->_shouldStep)  {
         applyKernel(cmd);
+        // this->_shouldStep = false;
+    }
 
     this->_imgVine[0].Transition(cmd, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
     this->_imgVine[1].Transition(cmd, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
@@ -78,10 +81,20 @@ VineGenerator::applyKernel(VkCommandBuffer cmd)
     vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, 0, 0, 0, 0, 0, ARRLEN(barriers), barriers);
 }
 
+void
+VineGenerator::checkControls(KeyMap& keymap, MouseMap& mousemap, Mouse& mouse)
+{
+    if(keymap[SDLK_SPACE]) {
+        this->_shouldStep = !this->_shouldStep;
+        keymap[SDLK_SPACE] = false;
+    }
+}
+
 bool
 VineGenerator::initRendererOptions()
 {
     this->_renderer.RegisterUpdateCallback(std::bind(&VineGenerator::update, this, std::placeholders::_1, std::placeholders::_2));
+    std::cout << "RNGSEED: " << this->_rng.seed << std::endl;
     return true;
 }
 
@@ -109,9 +122,12 @@ VineGenerator::initResources()
         VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
         VMA_MEMORY_USAGE_GPU_ONLY
     );
-    Kernel kernel = {.size = glm::uvec4(5, 5, 0, 0)};
+    Kernel kernel = {.size = glm::uvec4(7, 7, 0, 0)};
+    float sum = 0.0;
     for(int i = 0; i < kernel.size.x * kernel.size.y; i++) {
-        kernel.weights[i] = this->_rng.rand<float>(-1.0, 1.0);
+        float w = this->_rng.rand<float>(-1.0, 1.0);
+        kernel.weights[i] = w;
+        sum += w;
     }
     // generateGaussianKernel(kernel);
     this->_renderer.ImmediateSubmit([kernel, this](VkCommandBuffer cmd) {

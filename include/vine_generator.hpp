@@ -18,6 +18,8 @@ private:
     void update(VkCommandBuffer cmd, float dt);
     void applyKernel(VkCommandBuffer cmd);
 
+    void checkControls(KeyMap& keymap, MouseMap& mousemap, Mouse& mouse);
+
     bool initRendererOptions();
     bool initResources();
     bool initPipelines();
@@ -25,6 +27,8 @@ private:
 private:
     Renderer& _renderer;
     RandomGenerator _rng;
+
+    bool _shouldStep {true};
 
     ComputePipeline _computeApplyKernel;
 

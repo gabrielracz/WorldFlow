@@ -29,7 +29,7 @@ float activation(float x) {
 
 vec4 applyKernel(ivec2 index, Kernel k)
 {
-    vec4 result = vec4(0.0);
+    vec4 result = vec4(0.0, 0.0, 0.0, 1.0);
     ivec2 h = ivec2(k.size.xy / 2);
     for(int y = 0; y < k.size.y; y++) {
         for(int x = 0; x < k.size.x; x++) {
@@ -38,7 +38,7 @@ vec4 applyKernel(ivec2 index, Kernel k)
                 activation(src.r * k.weights[y * k.size.x + x]),
                 activation(src.g * k.weights[y * k.size.x + x]),
                 activation(src.b * k.weights[y * k.size.x + x]),
-                1.0
+                0.0
             );
         }
     }
@@ -48,10 +48,12 @@ vec4 applyKernel(ivec2 index, Kernel k)
 void main()
 {
     ivec2 index = ivec2(gl_GlobalInvocationID.xy);
-    if(any(lessThanEqual(index, ivec2(kernel.size.xy))) ||
-       any(greaterThanEqual(index, imageSize(srcImg) - ivec2(kernel.size.xy)))) {
+    ivec2 border = ivec2(20);
+    if(any(lessThanEqual(index, border)) ||
+       any(greaterThanEqual(index, imageSize(srcImg) - border))) {
         return;
     }
     vec4 result = applyKernel(index, kernel);
+    result = clamp(result, vec4(0.0, 0.0, 0.0, 1.0), vec4(1.0));
     imageStore(dstImg, index, result);
 }
