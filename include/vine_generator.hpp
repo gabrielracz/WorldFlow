@@ -4,6 +4,7 @@
 #include "image.hpp"
 #include "buffer.hpp"
 #include "renderer_structs.hpp"
+#include "random_generator.hpp"
 
 class Renderer;
 
@@ -15,6 +16,7 @@ public:
 
 private:
     void update(VkCommandBuffer cmd, float dt);
+    void applyKernel(VkCommandBuffer cmd);
 
     bool initRendererOptions();
     bool initResources();
@@ -22,11 +24,13 @@ private:
 
 private:
     Renderer& _renderer;
+    RandomGenerator _rng;
 
     ComputePipeline _computeApplyKernel;
 
     Image _imgVine[2];
     Buffer _buffStaging;
+    Buffer _buffKernel;
 };
 
 #endif

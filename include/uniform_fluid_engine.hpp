@@ -5,6 +5,7 @@
 #include "vma.hpp"
 #include "image.hpp"
 #include "buffer.hpp"
+#include "random_generator.hpp"
 
 #include <atomic>
 

@@ -164,6 +164,11 @@ Renderer::render(float dt)
     VK_ASSERT(vkBeginCommandBuffer(cmd, &cmdBeginInfo));
 
     this->_drawImage.Clear(cmd);
+    VkImageMemoryBarrier clearBarrier = this->_drawImage.CreateBarrier(
+        VK_ACCESS_TRANSFER_WRITE_BIT,
+        VK_ACCESS_MEMORY_READ_BIT | VK_ACCESS_MEMORY_WRITE_BIT
+    );
+    vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, 0, 0, VK_NULL_HANDLE, 0, VK_NULL_HANDLE, 1, &clearBarrier);
 
     /* BEGIN USER COMMANDS */
     
@@ -175,6 +180,13 @@ Renderer::render(float dt)
     // prepare drawImage to swapchainImage copy
     Image& drawImage = this->_drawImage;
     Image& swapchainImage = this->_swapchainImages[swapchainImageIndex];
+
+    // wait for any user commands on draw image to complete
+    VkImageMemoryBarrier drawImageBarrier = this->_drawImage.CreateBarrier(
+        VK_ACCESS_MEMORY_READ_BIT | VK_ACCESS_MEMORY_WRITE_BIT,
+        VK_ACCESS_TRANSFER_READ_BIT
+    );
+    vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, VK_NULL_HANDLE, 0, VK_NULL_HANDLE, 1, &drawImageBarrier);
 
     drawImage.Transition(cmd, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
     swapchainImage.Transition(cmd, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
