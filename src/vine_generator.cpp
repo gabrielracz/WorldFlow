@@ -55,6 +55,11 @@ VineGenerator::Init()
 void
 VineGenerator::update(VkCommandBuffer cmd, float dt)
 {
+
+    Kernel kernel = {.size = glm::uvec4(5, 5, 0, 0)};
+    generateGaussianKernel(kernel);
+    vkCmdUpdateBuffer(cmd, this->_buffKernel.bufferHandle, 0, sizeof(Kernel), &kernel);
+
     this->_imgVine[0].Transition(cmd, VK_IMAGE_LAYOUT_GENERAL);
     this->_imgVine[1].Transition(cmd, VK_IMAGE_LAYOUT_GENERAL);
     // if(this->_renderer.GetFrameNumber() % 60 == 0) 
@@ -111,14 +116,7 @@ VineGenerator::initResources()
     );
     Kernel kernel = {.size = glm::uvec4(5, 5, 0, 0)};
     generateGaussianKernel(kernel);
-    float f[Constants::MaxKernelSize + 4] = {0.0};
-    f[0] = kernel.size.x;
-    f[1] = kernel.size.y;
-    std::memcpy(f + 4, kernel.weights, Constants::MaxKernelSize * sizeof(float));
-    this->_renderer.ImmediateSubmit([&f, kernel, this](VkCommandBuffer cmd) {
-        for(int i = 0; i < ARRLEN(kernel.weights); i++) {
-            std::cout << kernel.weights[i] << std::endl;
-        }
+    this->_renderer.ImmediateSubmit([kernel, this](VkCommandBuffer cmd) {
         vkCmdUpdateBuffer(cmd, this->_buffKernel.bufferHandle, 0, sizeof(Kernel), &kernel);
         // vkCmdUpdateBuffer(cmd, this->_buffKernel.bufferHandle, 0, ARRLEN(f) * sizeof(float), f);
     });

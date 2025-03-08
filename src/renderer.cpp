@@ -692,6 +692,7 @@ Renderer::initVulkan()
         .set_required_features_12(features12)
         .set_required_features(featuresBase)
 		.add_required_extension("VK_EXT_shader_atomic_float")
+		.add_required_extension("VK_EXT_scalar_block_layout")
         .set_surface(this->_surface)
         .select()
         .value();
