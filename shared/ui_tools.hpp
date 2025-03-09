@@ -11,7 +11,7 @@ ImGuiKey SDLKeyToImGuiKey(SDL_Keycode key);
 void CollapseAllWindows();
 void SetAmberRedTheme();
 void SetDarkRedTheme();
-void SetTheme();
+void SetTheme(ImVec4 accent, ImVec4 bg, float windowalpha);
 
 }
 #endif

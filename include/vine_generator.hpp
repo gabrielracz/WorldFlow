@@ -46,6 +46,7 @@ private:
     Renderer& _renderer;
     RandomGenerator _rng;
 
+    bool _shouldHideUI {false};
     bool _shouldStep {true};
     bool _shouldInitializeImage {false};
     bool _shouldGenerateKernel {false};

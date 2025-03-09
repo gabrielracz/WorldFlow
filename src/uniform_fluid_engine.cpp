@@ -501,7 +501,7 @@ UniformFluidEngine::initRendererOptions()
 
 	// uitools::SetAmberRedTheme();
 	// uitools::SetDarkRedTheme();
-	uitools::SetTheme();
+	uitools::SetTheme(ImVec4(201.0/255.0, 14.0/255.0, 48.0/255.0, 1.0), ImVec4(51/255.0, 5/255.0, 13/255.0, 1.0), 0.5);
 	return true;
 }
 

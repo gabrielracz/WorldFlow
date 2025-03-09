@@ -4,9 +4,12 @@
 #include "path_config.hpp"
 
 #include "imgui.h"
+#include "ui_tools.hpp"
 
 #include <functional>
 #include <iostream>
+
+#define HEX_TO_RGB(h) {((h&0xFF0000)>>16)/255.0f, ((h&0x00FF00)>>8)/255.0f, (h&0x0000FF)/255.0f, 1.0f}
 
 namespace Constants {
     constexpr uint32_t MaxResolution = 2560 * 1440;
@@ -69,7 +72,6 @@ VineGenerator::update(VkCommandBuffer cmd, float dt)
 
     if(this->_shouldInitializeImage) {
         initializeImage(cmd);
-        std::cout << "init image" << std::endl;
     }
 
     if(this->_shouldGenerateKernel) {
@@ -131,7 +133,12 @@ VineGenerator::dispatchImage(VkCommandBuffer cmd)
 void
 VineGenerator::drawUI()
 {
+    if(this->_shouldHideUI) {
+        return;
+    }
+
 	if(ImGui::Begin("controls", nullptr, ImGuiWindowFlags_NoTitleBar)) {
+        ImGui::InputScalar("seed", ImGuiDataType_U32, &this->_rng.seed);
         this->_shouldInitializeImage =  ImGui::Button("reinitialize");
         this->_shouldGenerateKernel = ImGui::Button("new kernel");
     }
@@ -141,6 +148,11 @@ VineGenerator::drawUI()
 void
 VineGenerator::checkControls(KeyMap& keymap, MouseMap& mousemap, Mouse& mouse)
 {
+    if(keymap[SDLK_TAB]) {
+        this->_shouldHideUI = !this->_shouldHideUI;
+        keymap[SDLK_TAB] = false;
+    }
+
     if(keymap[SDLK_SPACE]) {
         this->_shouldStep = !this->_shouldStep;
         keymap[SDLK_SPACE] = false;
@@ -152,6 +164,7 @@ VineGenerator::initRendererOptions()
 {
     this->_renderer.RegisterUpdateCallback(std::bind(&VineGenerator::update, this, std::placeholders::_1, std::placeholders::_2));
     this->_renderer.RegisterUICallback(std::bind(&VineGenerator::drawUI, this));
+    uitools::SetTheme(HEX_TO_RGB(0xcccccc), HEX_TO_RGB(0x1e1e1e), 0.5);
     std::cout << "RNGSEED: " << this->_rng.seed << std::endl;
     return true;
 }

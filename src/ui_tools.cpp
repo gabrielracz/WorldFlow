@@ -305,15 +305,10 @@ void SetDarkRedTheme()
     style.TabRounding = 4.0f;
 }
 
-void SetTheme()
+void SetTheme(ImVec4 accent, ImVec4 bg, float windowalpha)
 {
     ImGuiStyle& style = ImGui::GetStyle();
     // Derive colors
-
-    const ImVec4 accent = ImVec4(201.0/255.0, 14.0/255.0, 48.0/255.0, 1.0);
-    const ImVec4 accentBg(51/255.0, 5/255.0, 13/255.0, 1.0);
-    float windowAlpha = 0.5;
-
     const ImVec4 white(1.0f, 1.0f, 1.0f, 1.0f);
     const ImVec4 black(0.0f, 0.0f, 0.0f, 1.0f);
     const ImVec4 transparent(0.0f, 0.0f, 0.0f, 0.0f);
@@ -367,47 +362,47 @@ void SetTheme()
     ImVec4* colors = style.Colors;
     colors[ImGuiCol_Text]                   = white;
     colors[ImGuiCol_TextDisabled]           = ImVec4(0.5f, 0.5f, 0.5f, 1.0f);
-    colors[ImGuiCol_WindowBg]               = ImVec4(0.0f, 0.0f, 0.0f, windowAlpha);
+    colors[ImGuiCol_WindowBg]               = ImVec4(0.0f, 0.0f, 0.0f, windowalpha);
     colors[ImGuiCol_ChildBg]                = transparent;
     colors[ImGuiCol_PopupBg]                = ImVec4(0.0f, 0.0f, 0.0f, 0.94f);
     colors[ImGuiCol_Border]                 = accent;
     colors[ImGuiCol_BorderShadow]           = transparent;
-    colors[ImGuiCol_FrameBg]                = accentBg;
-    colors[ImGuiCol_FrameBgHovered]         = lighten(accentBg, 0.8f);
-    colors[ImGuiCol_FrameBgActive]          = lighten(accentBg, 0.6f);
+    colors[ImGuiCol_FrameBg]                = bg;
+    colors[ImGuiCol_FrameBgHovered]         = lighten(bg, 0.8f);
+    colors[ImGuiCol_FrameBgActive]          = lighten(bg, 0.6f);
     colors[ImGuiCol_TitleBg]                = darken(accent, 0.6f);
     colors[ImGuiCol_TitleBgActive]          = accent;
     colors[ImGuiCol_TitleBgCollapsed]       = darken(accent, 0.4f);
-    colors[ImGuiCol_MenuBarBg]              = darken(accentBg, 0.8f);
+    colors[ImGuiCol_MenuBarBg]              = darken(bg, 0.8f);
     colors[ImGuiCol_ScrollbarBg]            = ImVec4(0.02f, 0.02f, 0.02f, 0.53f);
-    colors[ImGuiCol_ScrollbarGrab]          = accentBg;
-    colors[ImGuiCol_ScrollbarGrabHovered]   = lighten(accentBg, 0.8f);
-    colors[ImGuiCol_ScrollbarGrabActive]    = lighten(accentBg, 0.6f);
+    colors[ImGuiCol_ScrollbarGrab]          = bg;
+    colors[ImGuiCol_ScrollbarGrabHovered]   = lighten(bg, 0.8f);
+    colors[ImGuiCol_ScrollbarGrabActive]    = lighten(bg, 0.6f);
     colors[ImGuiCol_CheckMark]              = accent;
     colors[ImGuiCol_SliderGrab]             = accent;
     colors[ImGuiCol_SliderGrabActive]       = lighten(accent, 0.8f);
-    colors[ImGuiCol_Button]                 = accentBg;
-    colors[ImGuiCol_ButtonHovered]          = lighten(accentBg, 0.8f);
-    colors[ImGuiCol_ButtonActive]           = lighten(accentBg, 0.6f);
-    colors[ImGuiCol_Header]                 = accentBg;
-    colors[ImGuiCol_HeaderHovered]          = lighten(accentBg, 0.8f);
-    colors[ImGuiCol_HeaderActive]           = lighten(accentBg, 0.6f);
+    colors[ImGuiCol_Button]                 = bg;
+    colors[ImGuiCol_ButtonHovered]          = lighten(bg, 0.8f);
+    colors[ImGuiCol_ButtonActive]           = lighten(bg, 0.6f);
+    colors[ImGuiCol_Header]                 = bg;
+    colors[ImGuiCol_HeaderHovered]          = lighten(bg, 0.8f);
+    colors[ImGuiCol_HeaderActive]           = lighten(bg, 0.6f);
     colors[ImGuiCol_Separator]              = accent;
     colors[ImGuiCol_SeparatorHovered]       = lighten(accent, 0.8f);
     colors[ImGuiCol_SeparatorActive]        = lighten(accent, 0.6f);
-    colors[ImGuiCol_ResizeGrip]             = accentBg;
-    colors[ImGuiCol_ResizeGripHovered]      = lighten(accentBg, 0.8f);
-    colors[ImGuiCol_ResizeGripActive]       = lighten(accentBg, 0.6f);
-    colors[ImGuiCol_Tab]                    = darken(accentBg, 0.8f);
-    colors[ImGuiCol_TabHovered]             = accentBg;
-    colors[ImGuiCol_TabActive]              = accentBg;
-    colors[ImGuiCol_TabUnfocused]           = darken(accentBg, 0.9f);
-    colors[ImGuiCol_TabUnfocusedActive]     = darken(accentBg, 0.8f);
+    colors[ImGuiCol_ResizeGrip]             = bg;
+    colors[ImGuiCol_ResizeGripHovered]      = lighten(bg, 0.8f);
+    colors[ImGuiCol_ResizeGripActive]       = lighten(bg, 0.6f);
+    colors[ImGuiCol_Tab]                    = darken(bg, 0.8f);
+    colors[ImGuiCol_TabHovered]             = bg;
+    colors[ImGuiCol_TabActive]              = bg;
+    colors[ImGuiCol_TabUnfocused]           = darken(bg, 0.9f);
+    colors[ImGuiCol_TabUnfocusedActive]     = darken(bg, 0.8f);
     colors[ImGuiCol_PlotLines]              = accent;
     colors[ImGuiCol_PlotLinesHovered]       = lighten(accent, 0.8f);
     colors[ImGuiCol_PlotHistogram]          = accent;
     colors[ImGuiCol_PlotHistogramHovered]   = lighten(accent, 0.8f);
-    colors[ImGuiCol_TableHeaderBg]          = darken(accentBg, 0.8f);
+    colors[ImGuiCol_TableHeaderBg]          = darken(bg, 0.8f);
     colors[ImGuiCol_TableBorderStrong]      = accent;
     colors[ImGuiCol_TableBorderLight]       = darken(accent, 0.7f);
     colors[ImGuiCol_TableRowBg]             = transparent;
