@@ -386,10 +386,6 @@ UniformFluidEngine::preFrame()
 void
 UniformFluidEngine::ui()
 {
-    ImGuiIO& io = ImGui::GetIO();
-
-    ImGuiViewport* viewport = ImGui::GetMainViewport(); // Use GetMainViewport for multi-viewport support
-
 	float pad = 10.0;
     ImGui::SetNextWindowPos(ImVec2(pad, pad), ImGuiCond_Always);
     ImGui::SetNextWindowSize(ImVec2(0, 0)); // Auto-sizing

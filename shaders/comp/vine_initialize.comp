@@ -1,0 +1,29 @@
+#version 460
+#extension GL_GOOGLE_include_directive : enable
+#include "../common/utils.comp"
+
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+
+layout(binding = 0, set = 0, rgba32f) uniform image2D srcImg;
+
+layout(push_constant) uniform PushConstants {
+    vec4 srcPos;
+    uint seed;
+    int srcType;
+}pc;
+
+
+const uint SrcTypeClear = 1;
+const uint SrcTypeRandom = 2;
+
+void main()
+{
+    uvec2 index = gl_GlobalInvocationID.xy;
+    vec4 col = vec4(0.0, 0.0, 0.0, 1.0);
+    if(pc.srcType == SrcTypeRandom) {
+        col.x = random(index, pc.seed);
+        col.y = random(index, pc.seed + 513421);
+        col.z = random(index, pc.seed + 847326);
+    }
+    imageStore(srcImg, ivec2(index), col);
+}
