@@ -17,17 +17,27 @@ layout(std430, binding = 2, set = 0) uniform readonly KernelUniform {
     Kernel kernel;
 };
 
-const float testArray[3][3] = {
-    {1.0, 2.0, 3.0},
-    {4.0, 5.0, 6.0},
-    {7.0, 8.0, 9.0}
-};
+layout(push_constant) uniform PushConstants {
+    int activationFn;
+    float activationParam;
+} pc;
 
 float activation(float x) {
-    // return abs(x);
-    // return 1.0 / (1.0 + exp(-x));
-    return x * (1.0 / (1.0 + exp(-x)));  // Sigmoid applied to x
-    return max(0.0, x);
+    switch(pc.activationFn) {
+        case 0:
+            return x;
+        case 1:
+            return abs(x);
+        case 2:
+            return pow(x, 2);
+        case 3:
+            return max(0.0, x); // ReLU
+        case 4:
+            return x * (1.0 / (1.0 + exp(-x))); // Swish
+        case 5:
+            return tanh(x);
+    }
+    return x;
 }
 
 vec4 applyKernel(ivec2 index, Kernel k)
@@ -55,6 +65,7 @@ void main()
     ivec2 border = ivec2(kernel.size.xy)/2;
     if(any(lessThanEqual(index, border)) ||
        any(greaterThanEqual(index, imageSize(srcImg) - border))) {
+        imageStore(dstImg, index, vec4(0.0, 0.0, 0.0, 1.0));
         return;
     }
     vec4 result = applyKernel(index, kernel);

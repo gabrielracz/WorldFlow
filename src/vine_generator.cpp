@@ -21,6 +21,7 @@ namespace Constants {
 }
 
 enum InitializerSrcTypes {
+    None = 0,
     Clear = 1,
     Random = 2
 };
@@ -31,6 +32,24 @@ struct alignas(16) VineInitializerPushConstants
     uint32_t seed;
 };
 
+enum ActivationFunctions {
+    Identity = 0,
+    Abs = 1,
+    Pow2 = 2,
+    ReLU = 3,
+    Swish = 4,
+    Tanh = 5,
+    NumActivationFunctions
+};
+
+struct alignas(16) ApplyKernelPushConstants
+{
+    int activationFn; 
+    float activationParam;
+};
+
+
+void centerKernel(Kernel& kernel);
 
 void generateGaussianKernel(Kernel& k, float sigma = 0.0) {
     if(sigma == 0.0) {sigma = k.size.x / 6.0;}
@@ -53,7 +72,8 @@ void generateGaussianKernel(Kernel& k, float sigma = 0.0) {
 }
 
 VineGenerator::VineGenerator(Renderer& renderer)
-    : _renderer(renderer), _rng(), _srcType(InitializerSrcTypes::Random) {}
+    : _renderer(renderer), _rng(), _srcType(InitializerSrcTypes::Random),
+      _activationFunction(ActivationFunctions::Abs), _activationParam(2.0) {}
 
 bool
 VineGenerator::Init()
@@ -71,16 +91,18 @@ VineGenerator::update(VkCommandBuffer cmd, float dt)
     this->_imgVine[0].Transition(cmd, VK_IMAGE_LAYOUT_GENERAL);
     this->_imgVine[1].Transition(cmd, VK_IMAGE_LAYOUT_GENERAL);
 
-    if(this->_shouldInitializeImage) {
-        initializeImage(cmd);
-    }
 
     if(this->_shouldRandomizeKernel) {
         randomizeKernel(this->_kernel);
     }
     
-    if(this->_shouldPushKernel) {
+    // TODO: fix synchro here?
+    // if(this->_shouldPushKernel) {
         pushKernel(cmd, this->_kernel);
+    // }
+
+    if(this->_shouldInitializeImage) {
+        initializeImage(cmd);
     }
 
     if(this->_shouldStep)  {
@@ -90,7 +112,11 @@ VineGenerator::update(VkCommandBuffer cmd, float dt)
 
     this->_imgVine[0].Transition(cmd, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
     this->_imgVine[1].Transition(cmd, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
-    Image::Copy(cmd, this->_imgVine[1], this->_renderer.GetDrawImage(), false);
+    if(!this->_shouldSkipFrames || this->_renderer.GetFrameNumber() % 2 == 0) {
+        Image::Copy(cmd, this->_imgVine[1], this->_renderer.GetDrawImage(), false);
+    } else {
+        Image::Copy(cmd, this->_imgVine[0], this->_renderer.GetDrawImage(), false);
+    }
     Image::Copy(cmd, this->_imgVine[1], this->_imgVine[0]);
 }
 
@@ -98,6 +124,11 @@ void
 VineGenerator::applyKernel(VkCommandBuffer cmd)
 {
     this->_computeApplyKernel.Bind(cmd);
+    ApplyKernelPushConstants pc = {
+        .activationFn = std::clamp(this->_activationFunction, 0, ActivationFunctions::NumActivationFunctions - 1),
+        .activationParam = this->_activationParam
+    };
+    vkCmdPushConstants(cmd, this->_computeApplyKernel.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(pc), &pc);
     dispatchImage(cmd);
     VkImageMemoryBarrier barriers[] = {
         this->_imgVine[1].CreateBarrier(VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT)
@@ -123,7 +154,7 @@ void
 VineGenerator::randomizeKernel(Kernel& k)
 {
     for(int i = 0; i < k.size.x * k.size.y; i++) {
-        k.weights[i] = this->_rng.rand<float>(-1.0, 1.0);
+        k.weights[i] = this->_rng.rand<float>(-this->_kernelScale, this->_kernelScale);
     }
 }
 
@@ -131,6 +162,10 @@ void
 VineGenerator::pushKernel(VkCommandBuffer cmd, Kernel& k)
 {
     vkCmdUpdateBuffer(cmd, this->_buffKernel.bufferHandle, 0, sizeof(Kernel), &this->_kernel);
+    // VkBufferMemoryBarrier barrier = this->_buffKernel.CreateBarrier(VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT);
+    VkAccessFlags allAccess = VK_ACCESS_MEMORY_READ_BIT | VK_ACCESS_MEMORY_WRITE_BIT;
+    VkBufferMemoryBarrier barrier = this->_buffKernel.CreateBarrier(allAccess, allAccess);
+    vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, 0, 0, 0, 1, &barrier, 0, 0);
 }
 
 void
@@ -149,8 +184,15 @@ VineGenerator::drawUI()
 
 	if(ImGui::Begin("controls", nullptr, ImGuiWindowFlags_NoTitleBar)) {
         ImGui::InputScalar("Seed", ImGuiDataType_U32, &this->_rng.seed);
-        this->_shouldInitializeImage =  ImGui::Button("Reinitialize");
+        if(ImGui::Button("Reinitialize")) {
+            this->_shouldInitializeImage = true;
+            this->_srcType = InitializerSrcTypes::Random;
+            this->_srcRadius = 0;
+        } else {
+            this->_shouldInitializeImage = false;
+        }
         ImGui::SameLine();
+        ImGui::Checkbox("Skip Frames", &this->_shouldSkipFrames);
 
         
         // Draw Kernel
@@ -172,7 +214,8 @@ VineGenerator::drawUI()
                 uint32_t index = y * this->_kernel.size.x + x;
                 ImGui::PushID(index);
                 ImGui::SetNextItemWidth(50.0f);
-                ImGui::InputFloat("", &this->_kernel.weights[index]);
+                // ImGui::InputFloat("", &this->_kernel.weights[index]);
+                ImGui::DragFloat("", &this->_kernel.weights[index], 0.025);
                 ImGui::PopID();
 
                 if (x < this->_kernel.size.x - 1)
@@ -196,6 +239,10 @@ VineGenerator::drawUI()
                 this->_kernel.weights[index++] = std::stof(token);
             }
         }
+
+        if(ImGui::Button("Center")) {
+            centerKernel(this->_kernel);
+        }
         
         this->_shouldPushKernel = ImGui::Button("Push");
         if(ImGui::Button("Randomize")) {
@@ -204,6 +251,11 @@ VineGenerator::drawUI()
         } else {
             this->_shouldRandomizeKernel = false;
         }
+        ImGui::SameLine();
+        ImGui::DragFloat("Scale", &this->_kernelScale, 0.025);
+
+        ImGui::InputInt("Activation", &this->_activationFunction, 1);
+        ImGui::InputFloat("ActParam", &this->_activationParam);
     }
     ImGui::End();
 }
@@ -230,7 +282,7 @@ VineGenerator::checkControls(KeyMap& keymap, MouseMap& mousemap, Mouse& mouse)
 
     if(mousemap[SDL_BUTTON_LEFT] || mousemap[SDL_BUTTON_RIGHT]) {
         this->_srcPos = glm::ivec2(mouse.prev);
-        this->_srcType = mousemap[SDL_BUTTON_LEFT] ? InitializerSrcTypes::Random : InitializerSrcTypes::Clear;
+        this->_srcType = mousemap[SDL_BUTTON_RIGHT] ? InitializerSrcTypes::Random : InitializerSrcTypes::None;
         this->_shouldInitializeImage = true;
         this->_srcRadius = std::max(10 + (int)std::round(mouse.scroll * 0.5), 1);
     }
@@ -298,7 +350,7 @@ VineGenerator::initPipelines()
             ImageDescriptor(0, 0, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, this->_imgVine[0].imageView, VK_NULL_HANDLE, this->_imgVine[0].layout),
             ImageDescriptor(0, 1, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, this->_imgVine[1].imageView, VK_NULL_HANDLE, this->_imgVine[1].layout),
             BufferDescriptor(0, 2, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, this->_buffKernel.bufferHandle, sizeof(Kernel))
-        }
+        }, sizeof(ApplyKernelPushConstants)
     );
 
     this->_renderer.CreateComputePipeline(
@@ -307,4 +359,77 @@ VineGenerator::initPipelines()
         }, sizeof(VineInitializerPushConstants)
     );
     return true;
+}
+
+void
+centerKernel(Kernel& kernel)
+{
+    const uint32_t width  = kernel.size.x;
+    const uint32_t height = kernel.size.y;
+    const uint32_t maxSize = width * height;
+
+    // Compute the centroid (center of mass)
+    float sumWeights = 0.0f;
+    float centroidX = 0.0f;
+    float centroidY = 0.0f;
+
+    for (uint32_t y = 0; y < height; ++y) {
+        for (uint32_t x = 0; x < width; ++x) {
+            float w = kernel.weights[y * width + x];
+            centroidX += x * w;
+            centroidY += y * w;
+            sumWeights += w;
+        }
+    }
+
+    if (sumWeights == 0.0f) return; // Avoid division by zero
+
+    centroidX /= sumWeights;
+    centroidY /= sumWeights;
+
+    // Target center position
+    float targetX = (width - 1) / 2.0f;
+    float targetY = (height - 1) / 2.0f;
+
+    // Compute shift needed
+    float dx = targetX - centroidX;
+    float dy = targetY - centroidY;
+
+    float newWeights[Constants::MaxKernelSize] = {0.0f};
+
+    for (uint32_t y = 0; y < height; ++y) {
+        for (uint32_t x = 0; x < width; ++x) {
+            // Compute source coordinates (floating point)
+            float srcX = x - dx;
+            float srcY = y - dy;
+
+            // Get integer parts and fractional remainder
+            int x0 = static_cast<int>(srcX);
+            int y0 = static_cast<int>(srcY);
+            float wx = srcX - x0;
+            float wy = srcY - y0;
+
+            // Clamp indices to valid range
+            x0 = std::clamp(x0, 0, static_cast<int>(width) - 1);
+            y0 = std::clamp(y0, 0, static_cast<int>(height) - 1);
+            int x1 = std::clamp(x0 + 1, 0, static_cast<int>(width) - 1);
+            int y1 = std::clamp(y0 + 1, 0, static_cast<int>(height) - 1);
+
+            // Read kernel values with bilinear interpolation
+            float v00 = kernel.weights[y0 * width + x0];
+            float v10 = kernel.weights[y0 * width + x1];
+            float v01 = kernel.weights[y1 * width + x0];
+            float v11 = kernel.weights[y1 * width + x1];
+
+            // Bilinear interpolation formula
+            newWeights[y * width + x] =
+                (1 - wx) * (1 - wy) * v00 +
+                wx * (1 - wy) * v10 +
+                (1 - wx) * wy * v01 +
+                wx * wy * v11;
+        }
+    }
+
+    // Copy shifted weights back to the kernel
+    std::copy(newWeights, newWeights + maxSize, kernel.weights);
 }

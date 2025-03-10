@@ -51,10 +51,14 @@ private:
     bool _shouldStep {true};
     bool _shouldInitializeImage {false};
     bool _shouldRandomizeKernel {false};
+    float _kernelScale {1.0};
     bool _shouldPushKernel {false};
+    bool _shouldSkipFrames {false};
     glm::ivec2 _srcPos {};
     int _srcType {};
     int _srcRadius {};
+    int _activationFunction {};
+    float _activationParam {};
     Kernel _kernel {};
 
     ComputePipeline _computeApplyKernel;
