@@ -4,7 +4,7 @@ layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
 
 
 
-const uint MaxKernelSize = 16*16;
+const uint MaxKernelSize = 64*64;
 struct Kernel
 {
     uvec4 size;
@@ -24,7 +24,10 @@ const float testArray[3][3] = {
 };
 
 float activation(float x) {
-    return x;
+    // return abs(x);
+    // return 1.0 / (1.0 + exp(-x));
+    return x * (1.0 / (1.0 + exp(-x)));  // Sigmoid applied to x
+    return max(0.0, x);
 }
 
 vec4 applyKernel(ivec2 index, Kernel k)
@@ -35,20 +38,21 @@ vec4 applyKernel(ivec2 index, Kernel k)
         for(int x = 0; x < k.size.x; x++) {
             vec4 src = imageLoad(srcImg, index + ivec2(x, y) - h);
             result += vec4(
-                activation(src.r * k.weights[y * k.size.x + x]),
-                activation(src.g * k.weights[y * k.size.x + x]),
-                activation(src.b * k.weights[y * k.size.x + x]),
+                src.r * k.weights[y * k.size.x + x] * 0.0,
+                src.g * k.weights[y * k.size.x + x],
+                src.b * k.weights[y * k.size.x + x] * 0.0,
                 0.0
             );
         }
     }
+    result = vec4(activation(result.r), activation(result.g), activation(result.b), 1.0);
     return result;
 }
 
 void main()
 {
     ivec2 index = ivec2(gl_GlobalInvocationID.xy);
-    ivec2 border = ivec2(20);
+    ivec2 border = ivec2(kernel.size.xy)/2;
     if(any(lessThanEqual(index, border)) ||
        any(greaterThanEqual(index, imageSize(srcImg) - border))) {
         return;

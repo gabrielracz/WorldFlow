@@ -865,6 +865,7 @@ Renderer::initUI()
 
 	// this initializes the core structures of imgui
 	ImGui::CreateContext();
+    ImGui::GetIO().IniFilename = nullptr;
 
 	// this initializes imgui for SDL
 	ImGui_ImplSDL2_InitForVulkan(_window);
@@ -1004,7 +1005,7 @@ void Renderer::updatePerformanceCounters(float dt)
         const double delta = (this->_elapsed - this->_lastFpsMeasurementTime);
         const double averageFrameTime =  delta / Constants::FPSMeasurePeriod;
         const double fps = Constants::FPSMeasurePeriod / delta;
-        std::cout << std::fixed << std::setprecision(3) << "FPS: " << fps  << std::setprecision(5) << "  (" << averageFrameTime << ") " << std::endl;
+        // std::cout << std::fixed << std::setprecision(3) << "FPS: " << fps  << std::setprecision(5) << "  (" << averageFrameTime << ") " << std::endl;
         this->_lastFpsMeasurementTime = this->_elapsed;
     }
 }
@@ -1012,6 +1013,8 @@ void Renderer::updatePerformanceCounters(float dt)
 int
 Renderer::eventCallback(void* userdata, SDL_Event* event)
 {
+    ImGui_ImplSDL2_ProcessEvent(event);
+
 	Renderer* renderer = (Renderer*) userdata;
 	if(event->type == SDL_MOUSEBUTTONDOWN) {
         int button = event->button.button;
@@ -1050,7 +1053,6 @@ void Renderer::pollEvents()
 {
     SDL_Event event;
     while(SDL_PollEvent(&event)) {
-		ImGui_ImplSDL2_ProcessEvent(&event);
         if(event.type == SDL_QUIT) {
             this->_shouldClose = true;
         } 

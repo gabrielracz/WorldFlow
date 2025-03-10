@@ -3,8 +3,10 @@
 #include "defines.hpp"
 #include "path_config.hpp"
 
-#include "imgui.h"
+#include <imgui.h>
 #include "ui_tools.hpp"
+
+#include <glm/gtx/string_cast.hpp>
 
 #include <functional>
 #include <iostream>
@@ -18,16 +20,15 @@ namespace Constants {
     constexpr uint32_t LocalGroupSize = 8;
 }
 
-enum InitalizerSrcTypes {
+enum InitializerSrcTypes {
     Clear = 1,
     Random = 2
 };
 
 struct alignas(16) VineInitializerPushConstants
 {
-    glm::vec4 srcPos;
+    glm::ivec4 src;
     uint32_t seed;
-    int32_t srcType;
 };
 
 
@@ -52,7 +53,7 @@ void generateGaussianKernel(Kernel& k, float sigma = 0.0) {
 }
 
 VineGenerator::VineGenerator(Renderer& renderer)
-    : _renderer(renderer), _rng() {}
+    : _renderer(renderer), _rng(), _srcType(InitializerSrcTypes::Random) {}
 
 bool
 VineGenerator::Init()
@@ -74,8 +75,12 @@ VineGenerator::update(VkCommandBuffer cmd, float dt)
         initializeImage(cmd);
     }
 
-    if(this->_shouldGenerateKernel) {
-        randomizeKernel(cmd);
+    if(this->_shouldRandomizeKernel) {
+        randomizeKernel(this->_kernel);
+    }
+    
+    if(this->_shouldPushKernel) {
+        pushKernel(cmd, this->_kernel);
     }
 
     if(this->_shouldStep)  {
@@ -105,8 +110,8 @@ VineGenerator::initializeImage(VkCommandBuffer cmd)
 {
     this->_computeInitializeImage.Bind(cmd);
     VineInitializerPushConstants pc = {
+        .src = glm::ivec4(this->_srcPos.x, this->_srcPos.y, this->_srcType, this->_srcRadius),
         .seed = this->_rng.rand<uint32_t>(0, 1 << 24),
-        .srcType = InitalizerSrcTypes::Random
     };
     vkCmdPushConstants(cmd, this->_computeInitializeImage.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(pc), &pc);
     dispatchImage(cmd);
@@ -115,11 +120,16 @@ VineGenerator::initializeImage(VkCommandBuffer cmd)
 }
 
 void
-VineGenerator::randomizeKernel(VkCommandBuffer cmd)
+VineGenerator::randomizeKernel(Kernel& k)
 {
-    for(int i = 0; i < this->_kernel.size.x * this->_kernel.size.y; i++) {
-        this->_kernel.weights[i] = this->_rng.rand<float>(-1.0, 1.0);
+    for(int i = 0; i < k.size.x * k.size.y; i++) {
+        k.weights[i] = this->_rng.rand<float>(-1.0, 1.0);
     }
+}
+
+void
+VineGenerator::pushKernel(VkCommandBuffer cmd, Kernel& k)
+{
     vkCmdUpdateBuffer(cmd, this->_buffKernel.bufferHandle, 0, sizeof(Kernel), &this->_kernel);
 }
 
@@ -138,9 +148,62 @@ VineGenerator::drawUI()
     }
 
 	if(ImGui::Begin("controls", nullptr, ImGuiWindowFlags_NoTitleBar)) {
-        ImGui::InputScalar("seed", ImGuiDataType_U32, &this->_rng.seed);
-        this->_shouldInitializeImage =  ImGui::Button("reinitialize");
-        this->_shouldGenerateKernel = ImGui::Button("new kernel");
+        ImGui::InputScalar("Seed", ImGuiDataType_U32, &this->_rng.seed);
+        this->_shouldInitializeImage =  ImGui::Button("Reinitialize");
+        ImGui::SameLine();
+
+        
+        // Draw Kernel
+        ImGui::Separator();
+        ImGui::Text("Kernel:");
+        ImGui::SameLine();
+        ImGui::PushID("kernel width");
+        ImGui::SetNextItemWidth(50.0f);
+        ImGui::InputScalar("", ImGuiDataType_U32, &this->_kernel.size.x);
+        ImGui::PopID();
+        ImGui::SameLine();
+        ImGui::PushID("kernel height");
+        ImGui::SetNextItemWidth(50.0f);
+        ImGui::InputScalar("", ImGuiDataType_U32, &this->_kernel.size.y);
+        ImGui::PopID();
+
+        for (uint32_t y = 0; y < this->_kernel.size.y; ++y) {
+            for (uint32_t x = 0; x < this->_kernel.size.x; ++x) {
+                uint32_t index = y * this->_kernel.size.x + x;
+                ImGui::PushID(index);
+                ImGui::SetNextItemWidth(50.0f);
+                ImGui::InputFloat("", &this->_kernel.weights[index]);
+                ImGui::PopID();
+
+                if (x < this->_kernel.size.x - 1)
+                    ImGui::SameLine();
+            }
+        }
+        char flatKernelBuffer[65536] = {0};
+        std::string flattenedKernelStr;
+        for(int i = 0; i < this->_kernel.size.x * this->_kernel.size.y; i++) {
+            if (i > 0) flattenedKernelStr += ", ";  // Add comma separator
+            flattenedKernelStr += std::to_string(this->_kernel.weights[i]);
+        }
+        std::strncpy(flatKernelBuffer, flattenedKernelStr.data(), flattenedKernelStr.size());
+        ImGui::SetNextItemWidth(-FLT_MIN);
+        if(ImGui::InputText("K", flatKernelBuffer, ARRLEN(flatKernelBuffer))) {
+            std::istringstream ss(flatKernelBuffer);
+            std::string token;
+            uint32_t index = 0;
+
+            while (std::getline(ss, token, ',') && index < this->_kernel.size.x * this->_kernel.size.y) {
+                this->_kernel.weights[index++] = std::stof(token);
+            }
+        }
+        
+        this->_shouldPushKernel = ImGui::Button("Push");
+        if(ImGui::Button("Randomize")) {
+            this->_shouldRandomizeKernel = true;
+            this->_shouldPushKernel = true;
+        } else {
+            this->_shouldRandomizeKernel = false;
+        }
     }
     ImGui::End();
 }
@@ -157,6 +220,21 @@ VineGenerator::checkControls(KeyMap& keymap, MouseMap& mousemap, Mouse& mouse)
         this->_shouldStep = !this->_shouldStep;
         keymap[SDLK_SPACE] = false;
     }
+
+    if(keymap[SDLK_q]) {
+        this->_shouldInitializeImage = true;
+        this->_srcType = InitializerSrcTypes::Clear;
+        this->_srcRadius = 0;
+        keymap[SDLK_q] = false;
+    }
+
+    if(mousemap[SDL_BUTTON_LEFT] || mousemap[SDL_BUTTON_RIGHT]) {
+        this->_srcPos = glm::ivec2(mouse.prev);
+        this->_srcType = mousemap[SDL_BUTTON_LEFT] ? InitializerSrcTypes::Random : InitializerSrcTypes::Clear;
+        this->_shouldInitializeImage = true;
+        this->_srcRadius = std::max(10 + (int)std::round(mouse.scroll * 0.5), 1);
+    }
+
 }
 
 bool
@@ -193,16 +271,17 @@ VineGenerator::initResources()
         VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
         VMA_MEMORY_USAGE_GPU_ONLY
     );
+
     return true;
 }
 
 bool
 VineGenerator::initPreProcess()
 {
-    this->_kernel.size = glm::uvec4(7, 7, 0, 0);
-    this->_shouldGenerateKernel = true;
+    this->_kernel.size = glm::uvec4(3, 3, 0, 0);
+    randomizeKernel(this->_kernel);
     this->_renderer.ImmediateSubmit([this](VkCommandBuffer cmd) {
-        randomizeKernel(cmd);
+        pushKernel(cmd, this->_kernel);
     });
 
     this->_renderer.ImmediateSubmit([this](VkCommandBuffer cmd) {

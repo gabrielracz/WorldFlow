@@ -8,7 +8,7 @@
 
 namespace Constants
 {
-    constexpr uint32_t MaxKernelSize = 16*16;
+    constexpr uint32_t MaxKernelSize = 64*64;
 }
 
 
@@ -30,9 +30,10 @@ private:
     void update(VkCommandBuffer cmd, float dt);
     void applyKernel(VkCommandBuffer cmd);
     void initializeImage(VkCommandBuffer cmd);
-    void randomizeKernel(VkCommandBuffer cmd);
+    void randomizeKernel(Kernel& k);
+    void pushKernel(VkCommandBuffer cmd, Kernel& k);
+
     void dispatchImage(VkCommandBuffer cmd);
-    
     
     void checkControls(KeyMap& keymap, MouseMap& mousemap, Mouse& mouse);
     void drawUI();
@@ -49,7 +50,11 @@ private:
     bool _shouldHideUI {false};
     bool _shouldStep {true};
     bool _shouldInitializeImage {false};
-    bool _shouldGenerateKernel {false};
+    bool _shouldRandomizeKernel {false};
+    bool _shouldPushKernel {false};
+    glm::ivec2 _srcPos {};
+    int _srcType {};
+    int _srcRadius {};
     Kernel _kernel {};
 
     ComputePipeline _computeApplyKernel;
