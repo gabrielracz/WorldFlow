@@ -25,7 +25,7 @@ vec4 sampleVelocity(uvec3 center, ivec3 offset)
 	ivec3 cell = ivec3(center) + offset;
 	bvec3 ge = greaterThanEqual(cell, ivec3(0));
 	bvec3 le = lessThan(cell, ivec3(gridInfo.resolution.xyz));
-	bool occ = grid[getGridIndex(cell, gridInfo.resolution)].occupied > 0;
+	bool occ = checkFlag(grid[getGridIndex(cell, gridInfo.resolution)].flags, FLAG_OCCUPIED);
 	bool valid = all(ge) && all(le) && !occ;
 	// if(!valid) {return grid[getGridIndex(center, gridInfo.resolution)].velocity * abs(vec3(1.0 - abs(vec3(offset))));}
 	// if(!valid) {return grid[getGridIndex(center, gridInfo.resolution)].velocity;}

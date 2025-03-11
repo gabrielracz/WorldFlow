@@ -28,7 +28,10 @@ vec3 traceVelocityField(vec3 pos, vec3 velocity, float dt)
 float sampleDensity(uvec3 center, ivec3 offset)
 {
 	ivec3 cell = ivec3(center) + offset;
-	bool valid = all(greaterThanEqual(cell, uvec3(0))) && all(lessThan(cell, gridInfo.resolution.xyz)) && !(grid[getGridIndex(cell, gridInfo.resolution)].occupied > 0);
+	bvec3 ge = greaterThanEqual(cell, ivec3(0));
+	bvec3 le = lessThan(cell, ivec3(gridInfo.resolution.xyz));
+	bool occ = checkFlag(grid[getGridIndex(cell, gridInfo.resolution)].flags, FLAG_OCCUPIED);
+	bool valid = all(ge) && all(le) && !occ;
 	// if(!valid) {return grid[getGridIndex(center, gridInfo.resolution)].density;}
 	if(!valid) {return 0.0;}
 	return grid[getGridIndex(cell, gridInfo.resolution)].density;

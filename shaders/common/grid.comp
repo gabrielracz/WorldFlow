@@ -4,7 +4,7 @@ struct FluidGridCell
 	float density;
     float pressure;
     float divergence;
-    uint occupied;
+    uint flags;
     vec4 debug;
 };
 
@@ -15,8 +15,17 @@ struct FluidGridInfo
 	float cellSize;
 };
 
+uint FLAG_OCCUPIED = 0x00000001;
+uint FLAG_SOURCE   = 0x00000002;
+
+
 FluidGridCell zeroGridCell() {
 	return FluidGridCell(vec4(0.0), 0.0, 0.0, 0.0, 0, vec4(0.0));
+}
+
+bool checkFlag(uint flags, uint mask)
+{
+	return (flags & mask) > 0;
 }
 
 bool isWithinGridBounds(uvec3 p, uvec4 gridResolution)

@@ -47,10 +47,6 @@ void main()
 		grid[index] = zeroGridCell();
 	}
 
-	// if(any(equal(pos, uvec3(gridInfo.resolution.xyz) - 1))) {
-	// 	grid[index].debug = vec4(500.0);
-	// }
-
     if(distance(pos, pc.sourcePosition.xyz) < pc.sourceRadius) {
         if(pc.addDensity > 0) {
             grid[index].density += pc.density;
@@ -61,9 +57,9 @@ void main()
         }
     }
 
-    grid[index].occupied = 0;
+    grid[index].flags = 0;
     if(distance(pos, pc.objectPosition.xyz) < pc.objectRadius && pc.objectType > 0) {
-        grid[index].occupied = pc.objectType;
+        grid[index].flags = pc.objectType;
     }
 
     grid[index].density *= exp(-pc.decayRate * pc.dt);
