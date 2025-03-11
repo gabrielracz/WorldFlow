@@ -7,6 +7,7 @@
 #include "ui_tools.hpp"
 
 #include <glm/gtx/string_cast.hpp>
+#include <glm/gtc/type_ptr.hpp>
 
 #include <functional>
 #include <iostream>
@@ -29,6 +30,7 @@ enum InitializerSrcTypes {
 struct alignas(16) VineInitializerPushConstants
 {
     glm::ivec4 src;
+    glm::vec4 srcColor;
     uint32_t seed;
 };
 
@@ -39,11 +41,14 @@ enum ActivationFunctions {
     ReLU = 3,
     Swish = 4,
     Tanh = 5,
+    SoftPlus = 6,
     NumActivationFunctions
 };
 
 struct alignas(16) ApplyKernelPushConstants
 {
+    glm::vec4 colorMask;
+    float kernelScale;
     int activationFn; 
     float activationParam;
 };
@@ -96,13 +101,12 @@ VineGenerator::update(VkCommandBuffer cmd, float dt)
         randomizeKernel(this->_kernel);
     }
     
-    // TODO: fix synchro here?
     // if(this->_shouldPushKernel) {
         pushKernel(cmd, this->_kernel);
     // }
 
     if(this->_shouldInitializeImage) {
-        initializeImage(cmd);
+        addSource(cmd);
     }
 
     if(this->_shouldStep)  {
@@ -110,12 +114,16 @@ VineGenerator::update(VkCommandBuffer cmd, float dt)
     }
 
 
-    this->_imgVine[0].Transition(cmd, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
     this->_imgVine[1].Transition(cmd, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
     if(!this->_shouldSkipFrames || this->_renderer.GetFrameNumber() % 2 == 0) {
         Image::Copy(cmd, this->_imgVine[1], this->_renderer.GetDrawImage(), false);
+        this->_imgVine[0].Transition(cmd, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
     } else {
+        this->_imgVine[0].Transition(cmd, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
         Image::Copy(cmd, this->_imgVine[0], this->_renderer.GetDrawImage(), false);
+        VkImageMemoryBarrier barrier = this->_imgVine[0].CreateBarrier(VK_ACCESS_TRANSFER_READ_BIT, VK_ACCESS_TRANSFER_WRITE_BIT);
+        vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, 0, 0, 0, 1, &barrier);
+        this->_imgVine[0].Transition(cmd, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
     }
     Image::Copy(cmd, this->_imgVine[1], this->_imgVine[0]);
 }
@@ -125,7 +133,10 @@ VineGenerator::applyKernel(VkCommandBuffer cmd)
 {
     this->_computeApplyKernel.Bind(cmd);
     ApplyKernelPushConstants pc = {
-        .activationFn = std::clamp(this->_activationFunction, 0, ActivationFunctions::NumActivationFunctions - 1),
+        .colorMask = this->_srcColor,
+        .kernelScale = this->_kernelScale,
+        // .activationFn = std::clamp(this->_activationFunction, 0, ActivationFunctions::NumActivationFunctions - 1),
+        .activationFn = this->_activationFunction,
         .activationParam = this->_activationParam
     };
     vkCmdPushConstants(cmd, this->_computeApplyKernel.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(pc), &pc);
@@ -137,11 +148,12 @@ VineGenerator::applyKernel(VkCommandBuffer cmd)
 }
 
 void
-VineGenerator::initializeImage(VkCommandBuffer cmd)
+VineGenerator::addSource(VkCommandBuffer cmd)
 {
     this->_computeInitializeImage.Bind(cmd);
     VineInitializerPushConstants pc = {
         .src = glm::ivec4(this->_srcPos.x, this->_srcPos.y, this->_srcType, this->_srcRadius),
+        .srcColor = this->_srcColor,
         .seed = this->_rng.rand<uint32_t>(0, 1 << 24),
     };
     vkCmdPushConstants(cmd, this->_computeInitializeImage.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(pc), &pc);
@@ -153,8 +165,31 @@ VineGenerator::initializeImage(VkCommandBuffer cmd)
 void
 VineGenerator::randomizeKernel(Kernel& k)
 {
-    for(int i = 0; i < k.size.x * k.size.y; i++) {
-        k.weights[i] = this->_rng.rand<float>(-this->_kernelScale, this->_kernelScale);
+    uint32_t yLim = (this->_symmetricKernel) ? (k.size.y + 1) / 2 : k.size.y;
+    uint32_t xLim = (this->_symmetricKernel) ? (k.size.x + 1) / 2 : k.size.x;
+
+    for(int y = 0; y < yLim; y++) {
+        for(int x = y; x < xLim; x++) {
+            float weight = this->_rng.rand<float>(-1.0, 1.0);
+            k.weights[y * k.size.x + x] = weight;
+            if(this->_symmetricKernel) {
+                // Reflect across the vertical axis
+                int ky = k.size.y;
+                int kx = k.size.x;
+                k.weights[y * kx + (kx-1-x)] = weight;
+                k.weights[(kx-1-x) * kx + y] = weight;
+                k.weights[(ky-1-y) * kx + x] = weight;
+                k.weights[x * kx + (ky-1-y)] = weight;
+                k.weights[x * kx + y] = weight;
+                k.weights[x * kx + (kx-1-y)] = weight;
+                k.weights[(ky-1-x) * kx + y] = weight;
+                k.weights[(ky-1-x) * kx + (kx-1-y)] = weight;
+
+
+                k.weights[(kx-1-x) * ky + y] = weight;
+                k.weights[x * ky + (ky-1-y)] = weight;
+            }
+        }
     }
 }
 
@@ -215,7 +250,9 @@ VineGenerator::drawUI()
                 ImGui::PushID(index);
                 ImGui::SetNextItemWidth(50.0f);
                 // ImGui::InputFloat("", &this->_kernel.weights[index]);
-                ImGui::DragFloat("", &this->_kernel.weights[index], 0.025);
+                if(ImGui::DragFloat("", &this->_kernel.weights[index], 0.025)) {
+                    this->_shouldPushKernel = true;
+                };
                 ImGui::PopID();
 
                 if (x < this->_kernel.size.x - 1)
@@ -244,7 +281,7 @@ VineGenerator::drawUI()
             centerKernel(this->_kernel);
         }
         
-        this->_shouldPushKernel = ImGui::Button("Push");
+        // this->_shouldPushKernel = ImGui::Button("Push");
         if(ImGui::Button("Randomize")) {
             this->_shouldRandomizeKernel = true;
             this->_shouldPushKernel = true;
@@ -252,10 +289,15 @@ VineGenerator::drawUI()
             this->_shouldRandomizeKernel = false;
         }
         ImGui::SameLine();
+        ImGui::Checkbox("Symmetric", &this->_symmetricKernel);
         ImGui::DragFloat("Scale", &this->_kernelScale, 0.025);
 
         ImGui::InputInt("Activation", &this->_activationFunction, 1);
-        ImGui::InputFloat("ActParam", &this->_activationParam);
+        ImGui::DragFloat("ActParam", &this->_activationParam, 0.025);
+
+        ImGui::Separator();
+
+        ImGui::ColorPicker4("Color", glm::value_ptr(this->_srcColor));
     }
     ImGui::End();
 }
@@ -273,6 +315,15 @@ VineGenerator::checkControls(KeyMap& keymap, MouseMap& mousemap, Mouse& mouse)
         keymap[SDLK_SPACE] = false;
     }
 
+    if(mousemap[SDL_BUTTON_LEFT] || mousemap[SDL_BUTTON_RIGHT]) {
+        this->_srcPos = glm::ivec2(mouse.prev);
+        this->_srcType = mousemap[SDL_BUTTON_RIGHT] ? InitializerSrcTypes::Random : InitializerSrcTypes::None;
+        this->_shouldInitializeImage = true;
+        this->_srcRadius = std::max(10 + (int)std::round(mouse.scroll * 0.5), 1);
+    } else if(this->_shouldHideUI){
+        this->_shouldInitializeImage = false;
+    }
+
     if(keymap[SDLK_q]) {
         this->_shouldInitializeImage = true;
         this->_srcType = InitializerSrcTypes::Clear;
@@ -280,11 +331,15 @@ VineGenerator::checkControls(KeyMap& keymap, MouseMap& mousemap, Mouse& mouse)
         keymap[SDLK_q] = false;
     }
 
-    if(mousemap[SDL_BUTTON_LEFT] || mousemap[SDL_BUTTON_RIGHT]) {
-        this->_srcPos = glm::ivec2(mouse.prev);
-        this->_srcType = mousemap[SDL_BUTTON_RIGHT] ? InitializerSrcTypes::Random : InitializerSrcTypes::None;
+    if(keymap[SDLK_w]) {
         this->_shouldInitializeImage = true;
-        this->_srcRadius = std::max(10 + (int)std::round(mouse.scroll * 0.5), 1);
+        this->_srcType = InitializerSrcTypes::Random;
+        this->_srcRadius = 0;
+        keymap[SDLK_w] = false;
+    }
+    if(keymap[SDLK_r]) {
+        this->_shouldRandomizeKernel = true;
+        keymap[SDLK_r] = false;
     }
 
 }
@@ -337,7 +392,7 @@ VineGenerator::initPreProcess()
     });
 
     this->_renderer.ImmediateSubmit([this](VkCommandBuffer cmd) {
-        initializeImage(cmd);
+        addSource(cmd);
     });
     return true;
 }

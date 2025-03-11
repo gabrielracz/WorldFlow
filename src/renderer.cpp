@@ -15,7 +15,7 @@
 namespace Constants
 {
     constexpr bool IsValidationLayersEnabled = true;
-    constexpr bool VSYNCEnabled = true;
+    constexpr bool VSYNCEnabled = false;
 
     constexpr uint32_t FPSMeasurePeriod = 60;
     constexpr uint64_t TimeoutNs = 100000000;
@@ -42,8 +42,8 @@ FillBuffers(const std::vector<Buffer>& buffers, uint32_t data, uint32_t offset)
 
 }
 
-Renderer::Renderer(const std::string& name, uint32_t width, uint32_t height)
-:   _name(name), _windowExtent{.width = width, .height = height} {}
+Renderer::Renderer(RendererSettings settings, uint32_t width, uint32_t height)
+:   _settings(settings), _windowExtent{.width = width, .height = height} {}
 
 Renderer::~Renderer()
 {
@@ -625,7 +625,7 @@ Renderer::initWindow()
     SDL_Init(SDL_INIT_VIDEO);
     SDL_WindowFlags windowFlags = (SDL_WindowFlags)(SDL_WINDOW_VULKAN | SDL_WINDOW_RESIZABLE);
     this->_window = SDL_CreateWindow(
-        this->_name.c_str(),
+        this->_settings.name.c_str(),
         SDL_WINDOWPOS_UNDEFINED,
         SDL_WINDOWPOS_UNDEFINED,
         this->_windowExtent.width,
@@ -642,7 +642,7 @@ Renderer::initVulkan()
 {
     vkb::InstanceBuilder builder;
     vkb::Result<vkb::Instance> instanceRet = builder
-        .set_app_name(this->_name.c_str())
+        .set_app_name(this->_settings.name.c_str())
         .request_validation_layers(Constants::IsValidationLayersEnabled)
         .add_validation_feature_enable(VK_VALIDATION_FEATURE_ENABLE_SYNCHRONIZATION_VALIDATION_EXT)
         .use_default_debug_messenger()
@@ -1005,7 +1005,9 @@ void Renderer::updatePerformanceCounters(float dt)
         const double delta = (this->_elapsed - this->_lastFpsMeasurementTime);
         const double averageFrameTime =  delta / Constants::FPSMeasurePeriod;
         const double fps = Constants::FPSMeasurePeriod / delta;
-        // std::cout << std::fixed << std::setprecision(3) << "FPS: " << fps  << std::setprecision(5) << "  (" << averageFrameTime << ") " << std::endl;
+        if(this->_settings.PrintFPS) {
+            std::cout << std::fixed << std::setprecision(3) << "FPS: " << fps  << std::setprecision(5) << "  (" << averageFrameTime << ") " << std::endl;
+        }
         this->_lastFpsMeasurementTime = this->_elapsed;
     }
 }

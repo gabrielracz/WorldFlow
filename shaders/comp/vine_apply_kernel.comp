@@ -18,6 +18,8 @@ layout(std430, binding = 2, set = 0) uniform readonly KernelUniform {
 };
 
 layout(push_constant) uniform PushConstants {
+    vec4 colorMask;
+    float kernelScale;
     int activationFn;
     float activationParam;
 } pc;
@@ -36,6 +38,8 @@ float activation(float x) {
             return x * (1.0 / (1.0 + exp(-x))); // Swish
         case 5:
             return tanh(x);
+        case 6:
+            return sqrt(x*x + pc.activationParam) - sqrt(pc.activationParam);
     }
     return x;
 }
@@ -48,11 +52,11 @@ vec4 applyKernel(ivec2 index, Kernel k)
         for(int x = 0; x < k.size.x; x++) {
             vec4 src = imageLoad(srcImg, index + ivec2(x, y) - h);
             result += vec4(
-                src.r * k.weights[y * k.size.x + x] * 0.0,
+                src.r * k.weights[y * k.size.x + x],
                 src.g * k.weights[y * k.size.x + x],
-                src.b * k.weights[y * k.size.x + x] * 0.0,
+                src.b * k.weights[y * k.size.x + x],
                 0.0
-            );
+            ) * pc.kernelScale;
         }
     }
     result = vec4(activation(result.r), activation(result.g), activation(result.b), 1.0);
@@ -64,7 +68,7 @@ void main()
     ivec2 index = ivec2(gl_GlobalInvocationID.xy);
     ivec2 border = ivec2(kernel.size.xy)/2;
     if(any(lessThanEqual(index, border)) ||
-       any(greaterThanEqual(index, imageSize(srcImg) - border))) {
+       any(greaterThanEqual(index, imageSize(srcImg) - border + 1))) {
         imageStore(dstImg, index, vec4(0.0, 0.0, 0.0, 1.0));
         return;
     }

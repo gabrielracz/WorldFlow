@@ -7,7 +7,22 @@
 
 int main(int argc, char* argv[])
 {
-    Renderer renderer("VineGen", 900, 900);
+    RendererSettings settings {
+        .name = "Vine"
+    };
+    for(int i = 0; i < argc; i++) {
+        if(std::strcmp(argv[i], "--novsync") == 0) {
+            settings.VSYNCEnabled = false;
+        } else if(std::strcmp(argv[i], "--novalidation") == 0) {
+            settings.ValidationEnabled = false;
+        } else if(std::strcmp(argv[i], "--printfps") == 0) {
+            settings.PrintFPS = true;
+        } else {
+            std::cout << "--novsync --novalidation --printfps";
+        }
+    }
+
+    Renderer renderer(settings, 956, 956);
     if(!renderer.Init()) {
         std::cout << "[ERROR] Failed to initialize renderer" << std::endl;
         return EXIT_FAILURE;

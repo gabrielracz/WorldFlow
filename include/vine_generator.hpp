@@ -29,7 +29,7 @@ public:
 private:
     void update(VkCommandBuffer cmd, float dt);
     void applyKernel(VkCommandBuffer cmd);
-    void initializeImage(VkCommandBuffer cmd);
+    void addSource(VkCommandBuffer cmd);
     void randomizeKernel(Kernel& k);
     void pushKernel(VkCommandBuffer cmd, Kernel& k);
 
@@ -54,7 +54,9 @@ private:
     float _kernelScale {1.0};
     bool _shouldPushKernel {false};
     bool _shouldSkipFrames {false};
+    bool _symmetricKernel {false};
     glm::ivec2 _srcPos {};
+    glm::vec4 _srcColor {};
     int _srcType {};
     int _srcRadius {};
     int _activationFunction {};

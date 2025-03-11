@@ -27,10 +27,18 @@ namespace Constants
     constexpr uint32_t FrameOverlap = 2;
 }
 
+struct RendererSettings
+{
+    std::string name;
+    bool VSYNCEnabled {true};
+    bool ValidationEnabled {true};
+    bool PrintFPS {false};
+};
+
 class Renderer
 {
 public:
-    Renderer(const std::string &name, uint32_t width, uint32_t height);
+    Renderer(RendererSettings settings, uint32_t width, uint32_t height);
     ~Renderer();
 
     bool Init();
@@ -104,7 +112,7 @@ private:
 
 private:
     /* ENGINE */
-    std::string _name {};
+    RendererSettings _settings;
     SDL_Window* _window {};
     VkExtent3D _windowExtent {}; 
     VkExtent2D _drawExtent;

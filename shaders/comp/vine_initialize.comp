@@ -8,6 +8,7 @@ layout(binding = 0, set = 0, rgba32f) uniform image2D srcImg;
 
 layout(push_constant) uniform PushConstants {
     ivec4 src;
+    vec4 srcColor;
     uint seed;
 }pc;
 
@@ -27,6 +28,7 @@ void main()
         col.x = random(index, pc.seed);
         col.y = random(index, pc.seed + 513421);
         col.z = random(index, pc.seed + 847326);
+        col *= pc.srcColor;
     } else if(pc.src.z == SrcTypeClear) {
         col.x = 0.0;
         col.y = 0.0;
