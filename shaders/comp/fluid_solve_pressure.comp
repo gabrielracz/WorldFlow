@@ -43,18 +43,19 @@ void main()
 		return;
 	}
 
-	const float l = samplePressure(center, ivec3(-1, 0, 0));
 	const float r = samplePressure(center, ivec3(1, 0, 0));
+	const float l = samplePressure(center, ivec3(-1, 0, 0));
 	const float u = samplePressure(center, ivec3(0, 1, 0));
 	const float d = samplePressure(center, ivec3(0, -1, 0));
 	const float f = samplePressure(center, ivec3(0, 0, 1));
 	const float b = samplePressure(center, ivec3(0, 0, -1));
 
 	const float oldPres = cell.pressure;
-    const float newPres = (cell.divergence + l + r + d + u + f + b) / 6.0;
+    const float newPres = (cell.divergence + r + l + u + d + f + b) / 6.0;
 
 	// SOR
 	const float result = SOR(oldPres, newPres, gridInfo.resolution.x);
+	// const float result = newPres;
 
     // guarded by red-black
     grid[index].pressure = result;

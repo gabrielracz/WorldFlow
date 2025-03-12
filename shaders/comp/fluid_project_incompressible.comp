@@ -38,8 +38,8 @@ void main()
 	uint index = getGridIndex(gl_GlobalInvocationID, gridInfo.resolution);
 	FluidGridCell cell = grid[index];
 
-	const float l = samplePressure(center, ivec3(-1, 0, 0));
 	const float r = samplePressure(center, ivec3(1, 0, 0));
+	const float l = samplePressure(center, ivec3(-1, 0, 0));
 	const float u = samplePressure(center, ivec3(0, 1, 0));
 	const float d = samplePressure(center, ivec3(0, -1, 0));
 	const float f = samplePressure(center, ivec3(0, 0, 1));
@@ -47,10 +47,11 @@ void main()
 
 	const float h = gridInfo.cellSize;
 
-	float gradX = 0.5 * (r - l) / h;
-	float gradY = 0.5 * (u - d) / h;
-	float gradZ = 0.5 * (f - b) / h;
+	float a = 0.000;
+	float gradX = 0.5 * (r - l - a) / h;
+	float gradY = 0.5 * (u - d - a) / h;
+	float gradZ = 0.5 * (f - b - a) / h;
 
 	vec4 newVelocity = cell.velocity - vec4(gradX, gradY, gradZ, 0.0);
-	grid[index].velocity = newVelocity;
+	grid[index].velocity = vec4(newVelocity.xyz, 1.0);
 }

@@ -32,8 +32,8 @@ float sampleDensity(uvec3 center, ivec3 offset)
 	bvec3 le = lessThan(cell, ivec3(gridInfo.resolution.xyz));
 	bool occ = checkFlag(grid[getGridIndex(cell, gridInfo.resolution)].flags, FLAG_OCCUPIED);
 	bool valid = all(ge) && all(le) && !occ;
-	// if(!valid) {return grid[getGridIndex(center, gridInfo.resolution)].density;}
-	if(!valid) {return 0.0;}
+	if(!valid) {return grid[getGridIndex(center, gridInfo.resolution)].density;}
+	// if(!valid) {return 0.0;}
 	return grid[getGridIndex(cell, gridInfo.resolution)].density;
 }
 
@@ -48,7 +48,7 @@ void main()
 	if(any(greaterThan(pastPos, vec3(gridInfo.resolution.xyz) - 1.0)) || any(lessThan(pastPos, vec3(0.0)))) {
 		// grid[index].debug = vec4(1.0);
 		// pastPos = pos;
-		pastPos = clamp(pastPos, vec3(0.0), vec3(gridInfo.resolution.xyz) - 1.0);
+		pastPos = clamp(pastPos, vec3(0.5), vec3(gridInfo.resolution.xyz) - 0.5);
 	}
 	// pastPos = clamp(pastPos, vec3(0), vec3(gridInfo.resolution));
 	ivec3 center = ivec3(pastPos);

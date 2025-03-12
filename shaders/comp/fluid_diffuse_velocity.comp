@@ -40,9 +40,9 @@ void main()
 	FluidGridCell cell = grid[index];
 
 	// Alternate updates in alternating checkerboard pattern to avoid atomics
-	// if(mod(center.x + center.y + center.z + pc.redBlack, 2) == 0){
-	// 	return;
-	// }
+	if(mod(center.x + center.y + center.z + pc.redBlack, 2) == 0){
+		return;
+	}
 
 	const vec4 r = sampleVelocity(center, ivec3(1, 0, 0));
 	const vec4 l = sampleVelocity(center, ivec3(-1, 0, 0));
@@ -62,9 +62,9 @@ void main()
 	// const vec4 result = newVel;
 
     // guarded by red-black
-    // grid[index].velocity = result;
+    grid[index].velocity = result;
 
-    atomicExchange(grid[index].velocity.x, result.x);
-    atomicExchange(grid[index].velocity.y, result.y);
-    atomicExchange(grid[index].velocity.z, result.z);
+    // atomicExchange(grid[index].velocity.x, result.x);
+    // atomicExchange(grid[index].velocity.y, result.y);
+    // atomicExchange(grid[index].velocity.z, result.z);
 }

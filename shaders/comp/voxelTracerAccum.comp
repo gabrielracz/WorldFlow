@@ -116,12 +116,14 @@ vec4 traceVoxels(vec3 rayOrigin, vec3 rayDir) {
             }
             else if(pc.renderType == 2) {
                 density = voxelData[index].divergence * 8;
+				if(abs(density) > 0.0)
+					density = max(abs(density), 0.2);
             }
             else if(pc.renderType == 3) {
                 density = voxelData[index].pressure * 10.0;
             }
             else if(pc.renderType == 4) {
-                density = length(voxelData[index].velocity)/100.0;
+                density = length(voxelData[index].velocity.xyz)/100.0;
             }
             else if(pc.renderType == 5) {
                 density = voxelData[index].debug.x;

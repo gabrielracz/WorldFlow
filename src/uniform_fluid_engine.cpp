@@ -101,7 +101,7 @@ constexpr glm::uvec4 VoxelGridDimensions = glm::uvec4(256, 32, 32, 1);
 const size_t VoxelGridSize = VoxelGridDimensions.x * VoxelGridDimensions.y * VoxelGridDimensions.z * sizeof(FluidGridCell);
 const float VoxelGridScale = 2.0f;
 const uint32_t VoxelDiagonal = VoxelGridDimensions.x + VoxelGridDimensions.y + VoxelGridDimensions.z;
-constexpr glm::vec3 VoxelGridCenter = glm::vec3(VoxelGridDimensions) * 0.5f;
+constexpr glm::vec3 VoxelGridCenter = glm::vec3(VoxelGridDimensions) * 0.5f + glm::vec3(1.0);
 constexpr float VoxelCellSize = 1.0 / VoxelGridResolution;
 
 constexpr uint32_t LocalGroupSize = 8;
@@ -162,9 +162,9 @@ UniformFluidEngine::update(VkCommandBuffer cmd, float dt)
 
 	computeDivergence(cmd);
 	solvePressure(cmd);
-	// projectIncompressible(cmd);
-	if(this->_toggle)
-		computeDivergence(cmd);
+	if(this->_shouldProjectIncompressible)
+		projectIncompressible(cmd);
+		// computeDivergence(cmd);
 	this->_timestamps.write(cmd, Timestamps::PressureSolve, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
 
 	diffuseDensity(cmd, dt);
@@ -260,6 +260,8 @@ UniformFluidEngine::advectVelocity(VkCommandBuffer cmd, float dt)
 	vkCmdPushConstants(cmd, this->_computeAdvectVelocity.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(FluidPushConstants), &pc);
 
 	dispatchFluid(cmd);
+	// const glm::uvec4 groups = (Constants::VoxelGridDimensions / 8U);
+	// vkCmdDispatch(cmd, groups.x, groups.y, groups.z);
 
 	VkBufferMemoryBarrier barriers[] = {
 		this->_buffFluidGrid.CreateBarrier(VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT)
@@ -531,6 +533,10 @@ UniformFluidEngine::checkControls(KeyMap& keyMap, MouseMap& mouseMap, Mouse& mou
 		this->_shouldAddSources = true;
 		this->_velocitySourceAmount = glm::vec3(0, -v, 0);
 		this->_sourcePosition = glm::vec3(c.x, c.y*2 - 1, c.z);
+	}
+	if(keyMap[SDLK_z]) {
+		this->_shouldProjectIncompressible = !this->_shouldProjectIncompressible;
+		keyMap[SDLK_z] = false;
 	}
 
 	if(keyMap[SDLK_f]) {
