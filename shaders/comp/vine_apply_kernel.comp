@@ -39,7 +39,10 @@ float activation(float x) {
         case 5:
             return tanh(x);
         case 6:
-            return sqrt(x*x + pc.activationParam) - sqrt(pc.activationParam);
+            // return sqrt(x*x + pc.activationParam) - sqrt(pc.activationParam); // SoftPlus
+            return 1.0 - max(0.0, 1.0 - abs(x)); // Tent
+        // case 7:
+        //     return max(0.0, 1.0 - abs(x)); // Tent
     }
     return x;
 }
