@@ -18,7 +18,7 @@ public:
 	bool Init();
 
 private:
-	void ui();
+	void drawUI();
 	void preFrame();
 	void update(VkCommandBuffer cmd, float dt);
 	void addSources(VkCommandBuffer cmd, float dt);
@@ -45,6 +45,8 @@ private:
 private:
 	Renderer& _renderer;
 
+	float _tickRate {0.1};
+	bool _useTickRate {true};
 	bool _shouldAddSources {false};
 	bool _shouldDiffuseDensity {false};
 	bool _shouldProjectIncompressible {true};

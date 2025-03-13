@@ -42,6 +42,11 @@ uint getGridIndex(uvec3 p, uvec4 gridResolution)
            p.x;
 }
 
+// uvec3 unflattenIndex(uint index)
+// {
+//     return 
+// }
+
 uint worldToGridIndex(vec3 worldPos, uvec4 gridResolution, float cellSize)
 {
     vec3 worldSize = vec3(gridResolution.xyz) * cellSize;
@@ -52,6 +57,11 @@ uint worldToGridIndex(vec3 worldPos, uvec4 gridResolution, float cellSize)
     uvec3 mappos = clamp(ivec3(floor(voxelpos)), ivec3(0), ivec3(gridResolution - 1));
 	return getGridIndex(mappos, gridResolution);
 }
+
+// vec4 gridToWorldPos(uint index) 
+// {
+
+// }
 
 uvec3 getRedBlackPosition(uvec3 threadID, uint redBlack) {
     // For a checkerboard pattern in 3D, we only need to modify X

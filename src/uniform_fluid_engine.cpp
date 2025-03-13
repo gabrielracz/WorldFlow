@@ -96,7 +96,7 @@ namespace Constants
 constexpr size_t VoxelGridResolution = 64;
 // constexpr glm::uvec4 VoxelGridDimensions = glm::uvec4(VoxelGridResolution, VoxelGridResolution, VoxelGridResolution, 1);
 // constexpr glm::uvec4 VoxelGridDimensions = glm::uvec4(64, 64, 64, 1);
-constexpr glm::uvec4 VoxelGridDimensions = glm::uvec4(256, 32, 32, 1);
+constexpr glm::uvec4 VoxelGridDimensions = glm::uvec4(256, 128, 128, 1);
 
 const size_t VoxelGridSize = VoxelGridDimensions.x * VoxelGridDimensions.y * VoxelGridDimensions.z * sizeof(FluidGridCell);
 const float VoxelGridScale = 2.0f;
@@ -138,9 +138,6 @@ UniformFluidEngine::Init()
 		return false;
 	}
 
-	this->_renderer.RegisterPreFrameCallback(std::bind(&UniformFluidEngine::preFrame, this));
-	this->_renderer.RegisterUpdateCallback(std::bind(&UniformFluidEngine::update, this, std::placeholders::_1, std::placeholders::_2));
-	this->_renderer.RegisterUICallback(std::bind(&UniformFluidEngine::ui, this));
 	return true;
 }
 
@@ -149,7 +146,7 @@ UniformFluidEngine::update(VkCommandBuffer cmd, float dt)
 {
 	checkControls(this->_renderer.GetKeyMap(), this->_renderer.GetMouseMap(), this->_renderer.GetMouse(), dt);
 
-	dt = 0.08;
+	dt = (this->_useTickRate) ? this->_tickRate : dt;
 	this->_timestamps.reset(this->_renderer.GetDevice());
 	this->_timestamps.write(cmd, Timestamps::StartFrame, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT);
 	addSources(cmd, dt);
@@ -444,7 +441,7 @@ UniformFluidEngine::preFrame()
 }
 
 void
-UniformFluidEngine::ui()
+UniformFluidEngine::drawUI()
 {
 	if(this->_shouldHideUI) {
 		return;
@@ -471,6 +468,12 @@ UniformFluidEngine::ui()
 		ImGui::Text("DnsDiff:   %3.2f ms", this->_timestampAverages[Timestamps::DensityDiffusion]);
 		ImGui::Text("DnsAdvect: %3.2f ms", this->_timestampAverages[Timestamps::DensityAdvect]);
 		ImGui::Text("Render:    %3.2f ms", this->_timestampAverages[Timestamps::FluidRender]);
+		ImGui::Separator();
+		ImGui::DragFloat("Tick", &this->_tickRate, 0.0025);
+		ImGui::SameLine();
+		ImGui::PushID("Use Tick Rate");
+		ImGui::Checkbox("", &this->_useTickRate);
+		ImGui::PopID();
 		windowSize = ImGui::GetWindowSize();
 	}
 	ImGui::End();
@@ -478,11 +481,11 @@ UniformFluidEngine::ui()
     ImGui::SetNextWindowPos(ImVec2(pad, windowSize.y + pad), ImGuiCond_Always);
     ImGui::SetNextWindowSize(ImVec2(0, 0)); // Auto-sizing
 	if(ImGui::Begin("controls", nullptr, ImGuiWindowFlags_NoTitleBar)) {
-		ImGui::SliderFloat("obj", &this->_objectRadius, 0.01, 0.5);
-		ImGui::SliderFloat("src", &this->_sourceRadius, 0.01, 0.5);
-		ImGui::SliderFloat("dns", &this->_densityAmount, 0.01, 1.0);
-		ImGui::SliderFloat("decay", &this->_decayRate, 0.00, 0.5);
-		ImGui::InputFloat("vel", &this->_velocitySpeed, 1.0, 150.0);
+		ImGui::DragFloat("obj", &this->_objectRadius, 0.01, 0.5);
+		ImGui::DragFloat("src", &this->_sourceRadius, 0.01, 0.5);
+		ImGui::DragFloat("dns", &this->_densityAmount, 0.01, 1.0);
+		ImGui::DragFloat("decay", &this->_decayRate, 0.00, 0.5);
+		ImGui::DragFloat("vel", &this->_velocitySpeed, 0.025);
 		const uint32_t step = 1;
 		ImGui::InputScalar("diffiter", ImGuiDataType_U32, &this->_diffusionIterations, &step);
 		ImGui::InputScalar("presiter", ImGuiDataType_U32, &this->_pressureIterations, &step);
@@ -561,6 +564,10 @@ UniformFluidEngine::checkControls(KeyMap& keyMap, MouseMap& mouseMap, Mouse& mou
 bool
 UniformFluidEngine::initRendererOptions()
 {
+	this->_renderer.RegisterPreFrameCallback(std::bind(&UniformFluidEngine::preFrame, this));
+	this->_renderer.RegisterUpdateCallback(std::bind(&UniformFluidEngine::update, this, std::placeholders::_1, std::placeholders::_2));
+	this->_renderer.RegisterUICallback(std::bind(&UniformFluidEngine::drawUI, this));
+
 	this->_renderer.CreateTimestampQueryPool(this->_timestamps, Timestamps::NumTimestamps);
 	this->_timestampAverages.resize(Timestamps::NumTimestamps, 0);
 

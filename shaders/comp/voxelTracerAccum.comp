@@ -28,9 +28,9 @@ layout(push_constant) uniform constants {
     uint maxDistance;      // Maximum ray travel distance
     float stepSize;         // Base color accumulation per step
     vec3 gridSize;          // Size of the voxel grid in each dimension
-    float gridScale;        // Scale factor for the grid (new parameter)
-    vec4 lightSource;        // Scale factor for the grid (new parameter)
-    vec4 baseColor;        // Scale factor for the grid (new parameter)
+    float gridScale;        
+    vec4 lightSource;        
+    vec4 baseColor;        
     int renderType;
 } pc;
 
@@ -48,6 +48,64 @@ vec3 getRayDirection(vec2 pixelPos) {
     
     return normalize(worldSpace.xyz);
 }
+
+vec3 calculateNormal(ivec3 currentVoxel, ivec3 previousVoxel) {
+    // calculate the difference to determine which axis we crossed
+    ivec3 diff = currentVoxel - previousVoxel;
+    
+    if (diff.x != 0) {
+        return vec3(sign(diff.x), 0.0, 0.0);
+    } else if (diff.y != 0) {
+        return vec3(0.0, sign(diff.y), 0.0);
+    } else if (diff.z != 0) {
+        return vec3(0.0, 0.0, sign(diff.z));
+    }
+    
+    // fallback (shouldn't happen in a proper ray march)
+    return vec3(0.0, 1.0, 0.0);
+}
+
+vec3 blinnPhongShading(vec3 worldPos, vec3 normal, vec3 viewDir) {
+    vec3 lightPos = pc.lightSource.xyz;
+    float lightIntensity = pc.lightSource.w > 0.0 ? pc.lightSource.w : 1.0;
+    
+    vec3 lightDir = normalize(lightPos - worldPos);
+    
+    vec3 ambient = vec3(0.1);
+    
+    float diffuse = max(dot(normal, lightDir), 0.0);
+    
+    vec3 halfwayDir = normalize(lightDir + viewDir);
+    float specular = pow(max(dot(normal, halfwayDir), 0.0), 32.0);
+    
+    vec3 color = pc.baseColor.rgb;  // Base white color
+    // return (ambient + diffuse * 0.7 + specular * 0.5) * color * lightIntensity;
+    return (ambient + diffuse * 0.7) * color * lightIntensity;
+    // return diffuse * color * lightIntensity;
+}
+
+// float blinnphong_specular(vec3 lv, vec3 n) {
+// 	vec3 v = vec3(0,0,0);
+// 	vec3 vv = normalize(v - position_interp);
+// 	vec3 h = normalize((vv+lv)/2); 
+
+//     float spec = max(0.0, dot(n,h)); 
+//     spec = pow(spec, specular_power);
+
+//     return spec;
+// }
+
+vec4 lighting(vec4 pixel, vec3 lightvec, vec3 norm) {
+
+	float diffuse = max(0.0, dot(norm,lightvec)); 
+    // float spec = blinnphong_specular(lightvec, norm);
+    // if(diffuse == 0.0) {spec = 0.0;}
+
+    vec4 light_color = vec4(0.9, 0.8, 0.6, 1.0);
+
+    return 0.4*diffuse*light_color*pixel + 0.15*light_color*pixel;// + 0.1*spec*light_color;
+}
+
 
 vec4 traceVoxels(vec3 rayOrigin, vec3 rayDir) {
     vec4 accumColor = vec4(0.0);
@@ -104,13 +162,32 @@ vec4 traceVoxels(vec3 rayOrigin, vec3 rayDir) {
     
     int missteps = 0;
     // Main ray traversal loop
-    for (int i = 0; i < 156; i++) {
+    ivec3 prevMapPos = mapPos;
+    for (int i = 0; i < 256+128; i++) {
         uint index = getGridIndex(uvec3(mapPos), gridInfo.resolution);
         
         // Bounds check
-        if (all(greaterThanEqual(mapPos, ivec3(0))) && all(lessThan(mapPos, ivec3(pc.gridSize)))) {
+
+        if(all(greaterThanEqual(mapPos, ivec3(0))) && all(lessThan(mapPos, ivec3(pc.gridSize)))) {
             float density = 0.0;
             vec4 color = pc.baseColor;
+            if((voxelData[index].flags & FLAG_OCCUPIED) > 0) {
+                vec3 worldPos = rayOrigin + t * rayDir;
+                vec3 normal = calculateNormal(mapPos, prevMapPos);
+                // vec3 normal = vec3(0.0, 1.0, 0.0);
+                // vec3 viewDir = -rayDir;
+                vec3 viewDir = worldPos - pc.lightSource.xyz;
+                // vec3 litColor = blinnPhongShading(worldPos, normal * normal, viewDir);
+
+                vec4 litColor = lighting(color, viewDir, normal);
+                // vec4 litColor = vec4(mapPos, 1.0) / vec4(gridInfo.resolution);
+                // vec4 litColor = vec4(normal, 1.0);
+
+                vec4 attenuation = vec4(1.0, 1.0, 1.0, exp(-t * 0.1));
+                // vec4 attenuation = vec4(1.0, 1.0, 1.0, max(1.0 - accumColor.a, 0.0));
+                accumColor += mix(accumColor, litColor, attenuation);
+                break;
+            }
             if(pc.renderType == 1) {
                 density = voxelData[index].density;
             }
@@ -148,6 +225,8 @@ vec4 traceVoxels(vec3 rayOrigin, vec3 rayDir) {
             missteps += 1;
         }
         
+        prevMapPos = mapPos;
+
         // Find axis of next crossing
         vec3 compare = tMaxAxis - t;
         
