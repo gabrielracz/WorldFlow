@@ -165,13 +165,13 @@ vec4 viridisColor(float t) {
         // Blue-green to green transition
         float x = (t - 0.4) * 5.0;
         color = mix(c2, c3, x);
-    } else if (t < 0.8) {
+    } else if (t < 0.9) {
         // Green to yellow-green transition
         float x = (t - 0.6) * 5.0;
         color = mix(c3, c4, x);
     } else {
         // Yellow-green to yellow transition
-        float x = (t - 0.8) * 5.0;
+        float x = (t - 0.9) * 5.0;
         color = mix(c4, c5, x);
     }
     

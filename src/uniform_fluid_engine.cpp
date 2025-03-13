@@ -146,7 +146,7 @@ UniformFluidEngine::update(VkCommandBuffer cmd, float dt)
 {
 	checkControls(this->_renderer.GetKeyMap(), this->_renderer.GetMouseMap(), this->_renderer.GetMouse(), dt);
 
-	dt = (this->_useTickRate) ? this->_tickRate : dt;
+	dt = (this->_useTickRate) ? this->_tickRate : dt * this->_tickRate;
 	this->_timestamps.reset(this->_renderer.GetDevice());
 	this->_timestamps.write(cmd, Timestamps::StartFrame, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT);
 	addSources(cmd, dt);
