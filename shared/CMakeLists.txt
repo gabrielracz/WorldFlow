@@ -1,3 +1,4 @@
+add_compile_definitions(NO_STDIO_REDIRECT)
 
 # Add source to this project's executable.
 add_library (vkguide_shared STATIC

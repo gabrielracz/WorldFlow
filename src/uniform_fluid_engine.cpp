@@ -96,7 +96,7 @@ namespace Constants
 constexpr size_t VoxelGridResolution = 64;
 // constexpr glm::uvec4 VoxelGridDimensions = glm::uvec4(VoxelGridResolution, VoxelGridResolution, VoxelGridResolution, 1);
 // constexpr glm::uvec4 VoxelGridDimensions = glm::uvec4(64, 64, 64, 1);
-constexpr glm::uvec4 VoxelGridDimensions = glm::uvec4(128, 32, 32, 1);
+constexpr glm::uvec4 VoxelGridDimensions = glm::uvec4(256, 64, 64, 1);
 
 const size_t VoxelGridSize = VoxelGridDimensions.x * VoxelGridDimensions.y * VoxelGridDimensions.z * sizeof(FluidGridCell);
 const float VoxelGridScale = 2.0f;
@@ -213,7 +213,7 @@ UniformFluidEngine::diffuseVelocity(VkCommandBuffer cmd, float dt)
 		FluidPushConstants pc = {
 			.time = this->_renderer.GetElapsedTime(),
 			.dt = dt,
-			.redBlack = (i % 2)
+			.redBlack = ((i+1) % 2)
 		};
 		vkCmdPushConstants(cmd, this->_computeDiffuseVelocity.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(pc), &pc);
 
@@ -235,7 +235,7 @@ UniformFluidEngine::diffuseDensity(VkCommandBuffer cmd, float dt)
 		FluidPushConstants pc = {
 			.time = this->_renderer.GetElapsedTime(),
 			.dt = dt,
-			.redBlack = (i % 2)
+			.redBlack = ((i+1) % 2)
 		};
 		vkCmdPushConstants(cmd, this->_computeDiffuseDensity.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(pc), &pc);
 
@@ -302,7 +302,7 @@ UniformFluidEngine::solvePressure(VkCommandBuffer cmd)
 
 	for(uint32_t i = 0; i < this->_pressureIterations; i++) {
 		FluidPushConstants pc = {
-			.redBlack = (i % 2)
+			.redBlack = ((i+1) % 2)
 		};
 		vkCmdPushConstants(cmd, this->_computeSolvePressure.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(pc), &pc);
 
@@ -576,7 +576,7 @@ UniformFluidEngine::initRendererOptions()
 
 	// uitools::SetAmberRedTheme();
 	// uitools::SetDarkRedTheme();
-	uitools::SetTheme();
+	uitools::SetTheme(HEX_TO_RGB(0xcccccc), HEX_TO_RGB(0x1e1e1e), 0.5);
 	return true;
 }
 

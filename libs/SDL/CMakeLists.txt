@@ -2047,7 +2047,7 @@ elseif(WINDOWS)
     # list(INSERT SDL_LIBS 0 "-lmingw32" "-mwindows")
     list(INSERT SDL_LIBS 0 "-lmingw32" "-mconsole")
   endif()
-
+    list(INSERT SDL_LIBS 0 "-mconsole")
 elseif(APPLE)
   # TODO: rework this all for proper MacOS X, iOS and Darwin support
 
