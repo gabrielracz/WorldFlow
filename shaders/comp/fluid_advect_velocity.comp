@@ -61,19 +61,8 @@ void main()
 	if(any(greaterThanEqual(pastPos, vec3(gridInfo.resolution.xyz))) || any(lessThan(pastPos, vec3(0.0)))) {
 		vec3 clampedPos = clamp(pastPos, vec3(0.5), vec3(gridInfo.resolution.xyz - 1) + vec3(0.5));
 		uint clampedIndex = getGridIndex(uvec3(floor(clampedPos)), gridInfo.resolution);
-		// grid[clampedIndex].debug = vec4(distance(pastPos, clampedPos) * 0.25);
-		// grid[index].debug = vec4(5.0);
-		// atomicSetVelocity(index, normalize(grid[index].velocity.xyz));
-		// if(checkFlag(grid[clampedIndex].flags, FLAG_SOURCE)) {
-		if(clampedIndex == index) {
-			grid[index].debug = vec4(5.0);
-			// atomicSetVelocity(index, grid[index].velocity.xyz * 0.5);
-			// pastPos = pos;
-			// return;
-		}
 		pastPos = clampedPos;
 	}
-	// pastPos = clamp(pastPos, vec3(0), vec3(gridInfo.resolution.xyz - 0.5));
 
 	ivec3 center = ivec3(floor(pastPos));
 	vec3 cellPos = fract(pastPos);

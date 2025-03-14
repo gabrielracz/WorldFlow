@@ -96,7 +96,7 @@ namespace Constants
 constexpr size_t VoxelGridResolution = 64;
 // constexpr glm::uvec4 VoxelGridDimensions = glm::uvec4(VoxelGridResolution, VoxelGridResolution, VoxelGridResolution, 1);
 // constexpr glm::uvec4 VoxelGridDimensions = glm::uvec4(64, 64, 64, 1);
-constexpr glm::uvec4 VoxelGridDimensions = glm::uvec4(256, 64, 64, 1);
+constexpr glm::uvec4 VoxelGridDimensions = glm::uvec4(256, 96, 256, 1);
 
 const size_t VoxelGridSize = VoxelGridDimensions.x * VoxelGridDimensions.y * VoxelGridDimensions.z * sizeof(FluidGridCell);
 const float VoxelGridScale = 2.0f;
@@ -306,7 +306,7 @@ UniformFluidEngine::solvePressure(VkCommandBuffer cmd)
 		};
 		vkCmdPushConstants(cmd, this->_computeSolvePressure.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(pc), &pc);
 
-		dispatchFluid(cmd);
+		dispatchFluid(cmd, glm::uvec3(1, 1, 1));
 
 		VkBufferMemoryBarrier barriers[] = {
 			this->_buffFluidGrid.CreateBarrier(VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT)
@@ -517,26 +517,38 @@ UniformFluidEngine::checkControls(KeyMap& keyMap, MouseMap& mouseMap, Mouse& mou
 	constexpr glm::vec3 c = Constants::VoxelGridCenter;
 	this->_objectPosition = Constants::VoxelGridCenter;
 	this->_shouldAddSources = false;
+	int offset = this->_objectRadius * Constants::VoxelGridResolution / 2.0;
 	if(keyMap[SDLK_q]) {
 		this->_shouldAddSources = true;
 		this->_velocitySourceAmount = glm::vec3(v, 0, 0);
-		this->_sourcePosition = glm::vec3(0, c.y, c.z);
-	}
-	if(keyMap[SDLK_w]) {
-		this->_shouldAddSources = true;
-		this->_velocitySourceAmount = glm::vec3(0, v, 0);
-		this->_sourcePosition = glm::vec3(c.x, 0, c.z);
+		this->_sourcePosition = glm::vec3(offset, c.y, c.z);
 	}
 	if(keyMap[SDLK_e]) {
 		this->_shouldAddSources = true;
 		this->_velocitySourceAmount = glm::vec3(-v, 0, 0);
-		this->_sourcePosition = glm::vec3(c.x*2 - 1, c.y, c.z);
+		this->_sourcePosition = glm::vec3(c.x*2 - offset, c.y, c.z);
+	}
+	if(keyMap[SDLK_w]) {
+		this->_shouldAddSources = true;
+		this->_velocitySourceAmount = glm::vec3(0, 0, v);
+		this->_sourcePosition = glm::vec3(c.x, c.y, offset);
 	}
 	if(keyMap[SDLK_r]) {
 		this->_shouldAddSources = true;
-		this->_velocitySourceAmount = glm::vec3(0, -v, 0);
-		this->_sourcePosition = glm::vec3(c.x, c.y*2 - 1, c.z);
+		this->_velocitySourceAmount = glm::vec3(0, 0, -v);
+		this->_sourcePosition = glm::vec3(c.x, c.y, c.z*2 - offset);
 	}
+	if(keyMap[SDLK_t]) {
+		this->_shouldAddSources = true;
+		this->_velocitySourceAmount = glm::vec3(0, v, 0);
+		this->_sourcePosition = glm::vec3(c.x, offset, c.z);
+	}
+	if(keyMap[SDLK_y]) {
+		this->_shouldAddSources = true;
+		this->_velocitySourceAmount = glm::vec3(0, -v, 0);
+		this->_sourcePosition = glm::vec3(c.x, c.y*2 - offset, c.z);
+	}
+
 	if(keyMap[SDLK_z]) {
 		this->_shouldProjectIncompressible = !this->_shouldProjectIncompressible;
 		keyMap[SDLK_z] = false;
@@ -554,7 +566,7 @@ UniformFluidEngine::checkControls(KeyMap& keyMap, MouseMap& mouseMap, Mouse& mou
 
 
 	for(int i = 1; i <= 5; i++) {
-		if(keyMap[SDLK_0 + i]) {
+		if(keyMap[SDLK_0 + i] && keyMap[SDLK_LSHIFT]) {
 			this->_renderType = i;
 			keyMap[SDLK_0 + i] = false;
 		}
@@ -571,8 +583,8 @@ UniformFluidEngine::initRendererOptions()
 	this->_renderer.CreateTimestampQueryPool(this->_timestamps, Timestamps::NumTimestamps);
 	this->_timestampAverages.resize(Timestamps::NumTimestamps, 0);
 
-	this->_objectRadius = 0.2;
-	this->_sourceRadius = 0.15;
+	this->_objectRadius = 0.2f;
+	this->_sourceRadius = 0.15f;
 
 	// uitools::SetAmberRedTheme();
 	// uitools::SetDarkRedTheme();

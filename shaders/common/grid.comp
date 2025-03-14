@@ -34,6 +34,29 @@ bool isWithinGridBounds(uvec3 p, uvec4 gridResolution)
            p.y < gridResolution.y && 
            p.z < gridResolution.z;
 }
+// Helper function to interleave bits of a 32-bit integer
+uint interleaveBits(uint x) {
+    x = (x | (x << 16)) & 0x030000FF;  // ---- ---- ---- ---- ---- ---- 11-- ---- ---- ---- --11 11--
+    x = (x | (x <<  8)) & 0x0300F00F;  // ---- ---- ---- ---- 11-- ---- --11 ---- ---- 11-- --11 ----
+    x = (x | (x <<  4)) & 0x030C30C3;  // ---- ---- ---- 11-- ---- 11-- ---- 11-- --11 ---- --11 ----
+    x = (x | (x <<  2)) & 0x09249249;  // ---- --1- --1- --1- --1- --1- --1- 1--- 1--- 1--- --1- --1-
+    return x;
+}
+
+// Morton encoding function for 3D to 1D
+uint getGridIndexMorton(uvec3 p, uvec4 gridResolution) {
+    // Ensure coordinates are within grid bounds
+    p.x = min(p.x, gridResolution.x - 1u);
+    p.y = min(p.y, gridResolution.y - 1u);
+    p.z = min(p.z, gridResolution.z - 1u);
+    
+    // Interleave the bits of x, y, z coordinates
+    uint morton = interleaveBits(p.x) | 
+                 (interleaveBits(p.y) << 1) | 
+                 (interleaveBits(p.z) << 2);
+    
+    return morton;
+}
 
 uint getGridIndex(uvec3 p, uvec4 gridResolution)
 {
@@ -42,10 +65,13 @@ uint getGridIndex(uvec3 p, uvec4 gridResolution)
            p.x;
 }
 
-// uvec3 unflattenIndex(uint index)
-// {
-//     return 
-// }
+uvec3 unflattenGridIndex(uint index, uvec4 gridResolution)
+{
+    uint z = index /  (gridResolution.x * gridResolution.y);
+    uint y = (index % (gridResolution.x * gridResolution.y)) / gridResolution.x;
+    uint x = (index % (gridResolution.x * gridResolution.y)) % gridResolution.x;
+    return uvec3(x, y, z);
+}
 
 uint worldToGridIndex(vec3 worldPos, uvec4 gridResolution, float cellSize)
 {
@@ -63,7 +89,13 @@ uint worldToGridIndex(vec3 worldPos, uvec4 gridResolution, float cellSize)
 
 // }
 
-uvec3 getRedBlackPosition(uvec3 threadID, uint redBlack) {
+uvec3 getRedBlackPosition(uvec3 threadID, uvec4 gridResolution, uint redBlack)
+{
+    // uint flatIndex = getGridIndex(threadID, uvec4(gridResolution.xy, gridResolution.z / 2, 1.0));
+    // // uint flatIndex = getGridIndex(threadID, gridResolution);
+    // flatIndex = flatIndex * 2 + redBlack;
+    // return unflattenGridIndex(flatIndex, gridResolution);
+
     // For a checkerboard pattern in 3D, we only need to modify X
     // Y and Z stay the same as the thread ID
     // uint x = threadID.x * 2;  // Double the X position

@@ -26,6 +26,7 @@ float samplePressure(uvec3 center, ivec3 offset)
 	bvec3 le = lessThan(cell, ivec3(gridInfo.resolution.xyz));
 	bool occ = checkFlag(grid[getGridIndex(cell, gridInfo.resolution)].flags, FLAG_OCCUPIED);
 	bool valid = all(ge) && all(le) && !occ;
+	if(occ) {return 0.0;}
 	if(!valid) {return grid[getGridIndex(center, gridInfo.resolution)].pressure;}
 	// if(!valid) {return 0.0;}
 	return grid[getGridIndex(cell, gridInfo.resolution)].pressure;
@@ -34,7 +35,7 @@ float samplePressure(uvec3 center, ivec3 offset)
 void main()
 {
 	uvec3 center = gl_GlobalInvocationID;
-	// uvec3 center = getRedBlackPosition(gl_GlobalInvocationID, pc.redBlack);
+	// uvec3 center = getRedBlackPosition(gl_GlobalInvocationID, gridInfo.resolution, pc.redBlack);
 	uint index = getGridIndex(center, gridInfo.resolution);
 	FluidGridCell cell = grid[index];
 
