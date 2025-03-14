@@ -69,6 +69,16 @@ struct alignas(16) ParticlesPushConstants
 	float maxLifetime;
 };
 
+struct alignas(16) GenerateLinesPushConstants
+{
+	uint64_t vertexBufferAddress;
+};
+
+struct alignas(16) DrawLinesPushConstants
+{
+	glm::mat4 renderMatrix;
+	uint64_t vertexBufferAddress;
+};
 
 enum Timestamps : uint32_t
 {
@@ -93,10 +103,10 @@ struct alignas(16) Particle
 /* CONSTANTS */
 namespace Constants
 {
-constexpr size_t VoxelGridResolution = 64;
+constexpr size_t VoxelGridResolution = 32;
 // constexpr glm::uvec4 VoxelGridDimensions = glm::uvec4(VoxelGridResolution, VoxelGridResolution, VoxelGridResolution, 1);
 // constexpr glm::uvec4 VoxelGridDimensions = glm::uvec4(64, 64, 64, 1);
-constexpr glm::uvec4 VoxelGridDimensions = glm::uvec4(256, 96, 256, 1);
+constexpr glm::uvec4 VoxelGridDimensions = glm::uvec4(128, 48, 128, 1);
 // constexpr glm::uvec4 VoxelGridDimensions = glm::uvec4(16,16,16,1);
 
 const size_t VoxelGridSize = VoxelGridDimensions.x * VoxelGridDimensions.y * VoxelGridDimensions.z * sizeof(FluidGridCell);
@@ -105,12 +115,15 @@ const uint32_t VoxelDiagonal = VoxelGridDimensions.x + VoxelGridDimensions.y + V
 constexpr glm::vec3 VoxelGridCenter = glm::vec3(VoxelGridDimensions) * 0.5f + glm::vec3(1.0);
 constexpr float VoxelCellSize = 1.0 / VoxelGridResolution;
 
+constexpr uint32_t NumGridLines = VoxelGridDimensions.y*VoxelGridDimensions.z + VoxelGridDimensions.x*VoxelGridDimensions.y + VoxelGridDimensions.x*VoxelGridDimensions.z;
+const glm::uvec3 GridGroups = glm::uvec3(VoxelGridDimensions.y*VoxelGridDimensions.z, VoxelGridDimensions.x*VoxelGridDimensions.y, VoxelGridDimensions.x*VoxelGridDimensions.z);
+
 constexpr uint32_t LocalGroupSize = 8;
 
 constexpr uint32_t NumDiffusionIterations = 4;
 constexpr uint32_t NumPressureIterations = 6;
 
-constexpr glm::vec3 LightPosition = glm::vec4(10.0, 10.0, 10.0, 1.0);
+constexpr glm::vec4 LightPosition = glm::vec4(500.0, 500.0, 200, 1.0);
 
 constexpr uint32_t NumParticles = 2048;
 constexpr float MaxParticleLifetime = 240.0;
@@ -134,7 +147,8 @@ UniformFluidEngine::Init()
 {
 	const bool initSuccess = initRendererOptions() &&
 							 initResources() &&
-							 initPipelines();
+							 initPipelines() &&
+							 initPreProcess();
 	if(!initSuccess) {
 		return false;
 	}
@@ -170,12 +184,11 @@ UniformFluidEngine::update(VkCommandBuffer cmd, float dt)
 	advectDensity(cmd, dt);
 	this->_timestamps.write(cmd, Timestamps::DensityAdvect, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
 
+	// drawGrid(cmd);
 	renderVoxelVolume(cmd);
 	// renderParticles(cmd, dt);
 	this->_timestamps.write(cmd, Timestamps::FluidRender, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
-
-
-
+	
 }
 
 void
@@ -258,8 +271,6 @@ UniformFluidEngine::advectVelocity(VkCommandBuffer cmd, float dt)
 	vkCmdPushConstants(cmd, this->_computeAdvectVelocity.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(FluidPushConstants), &pc);
 
 	dispatchFluid(cmd);
-	// const glm::uvec4 groups = (Constants::VoxelGridDimensions / 8U);
-	// vkCmdDispatch(cmd, groups.x, groups.y, groups.z);
 
 	VkBufferMemoryBarrier barriers[] = {
 		this->_buffFluidGrid.CreateBarrier(VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT)
@@ -350,7 +361,7 @@ UniformFluidEngine::renderVoxelVolume(VkCommandBuffer cmd)
 		.stepSize = 0.1,
 		.gridSize = glm::vec3(Constants::VoxelGridDimensions),
 		.gridScale = Constants::VoxelGridScale,
-		.lightSource = glm::vec4(30.0, 50.0, 20.0, 1.0),
+		.lightSource = Constants::LightPosition,
 		.baseColor = glm::vec4(0.8, 0.8, 0.8, 1.0),
 		.renderType = this->_renderType
 	};
@@ -414,7 +425,45 @@ UniformFluidEngine::renderParticles(VkCommandBuffer cmd, float dt)
 		this->_buffFluidGrid.CreateBarrier(VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT)
 	};
 	vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_ALL_GRAPHICS_BIT, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, 0, 0, nullptr, ARRLEN(barriers), barriers, 0, nullptr);
+}
 
+void
+UniformFluidEngine::generateGridLines(VkCommandBuffer cmd)
+{
+	this->_computeGenerateGridLines.Bind(cmd);
+
+	GenerateLinesPushConstants pc = {
+		.vertexBufferAddress = this->_gridMesh.vertexBufferAddress
+	};
+	vkCmdPushConstants(cmd, this->_computeGenerateGridLines.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(pc), &pc);
+	
+	const glm::uvec3 groups = Constants::GridGroups / Constants::LocalGroupSize;
+	vkCmdDispatch(cmd, groups.x, groups.y, groups.z);
+	VkBufferMemoryBarrier barrier = this->_buffGridLines.CreateBarrier(VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT);
+	vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_VERTEX_SHADER_BIT, 0, 0, 0, 1, &barrier, 0, 0);
+}
+
+void
+UniformFluidEngine::drawGrid(VkCommandBuffer cmd)
+{
+	this->_renderer.GetDrawImage().Transition(cmd, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+	VkRenderingAttachmentInfo colorAttachmentInfo = vkinit::attachment_info(this->_renderer.GetDrawImage().imageView, nullptr, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+	VkRenderingInfo renderInfo = vkinit::rendering_info(this->_renderer.GetWindowExtent2D(), &colorAttachmentInfo, nullptr);
+	vkCmdBeginRendering(cmd, &renderInfo);
+
+	this->_graphicsGridLines.Bind(cmd);
+	const VkViewport viewport = this->_renderer.GetWindowViewport();
+	const VkRect2D scissor = this->_renderer.GetWindowScissor();
+	vkCmdSetViewport(cmd, 0, 1, &viewport);
+	vkCmdSetScissor(cmd, 0, 1, &scissor);
+
+	DrawLinesPushConstants pc = {
+		.renderMatrix = this->_renderer.GetCamera().GetProjectionMatrix() * this->_renderer.GetCamera().GetViewMatrix() * glm::scale(glm::vec3(Constants::VoxelGridScale)),
+		.vertexBufferAddress = this->_gridMesh.vertexBufferAddress
+	};
+	vkCmdPushConstants(cmd, this->_graphicsGridLines.layout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(pc), &pc);
+	vkCmdDraw(cmd, Constants::NumGridLines*2, 1, 0, 0);
+	vkCmdEndRendering(cmd);
 }
 
 void
@@ -485,13 +534,13 @@ UniformFluidEngine::drawUI()
 		ImGui::DragFloat("obj", &this->_objectRadius, 0.01, 0.5);
 		ImGui::DragFloat("src", &this->_sourceRadius, 0.01, 0.5);
 		ImGui::DragFloat("dns", &this->_densityAmount, 0.01, 1.0);
-		ImGui::DragFloat("decay", &this->_decayRate, 0.00, 0.5);
+		ImGui::DragFloat("decay", &this->_decayRate, 0.01);
 		ImGui::DragFloat("vel", &this->_velocitySpeed, 0.025);
 		const uint32_t step = 1;
 		ImGui::InputScalar("diffiter", ImGuiDataType_U32, &this->_diffusionIterations, &step);
 		ImGui::InputScalar("presiter", ImGuiDataType_U32, &this->_pressureIterations, &step);
 		ImGui::InputFloat3("sourcePos", glm::value_ptr(this->_sourcePosition));
-		ImGui::Checkbox("clear", &this->_shouldClear);
+		this->_shouldClear = ImGui::Button("clear");
 	}
 
 	ImGui::End();
@@ -642,14 +691,33 @@ UniformFluidEngine::initResources()
 		vkCmdUpdateBuffer(cmd, this->_buffParticles.bufferHandle, 0, sizeof(particles), &particles);
 	});
 
+	this->_renderer.CreateBuffer(
+		this->_buffGridLines, Constants::NumGridLines*2*sizeof(glm::vec4),
+		VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+		VMA_MEMORY_USAGE_GPU_ONLY
+	);
+	VkBufferDeviceAddressInfo deviceAddressInfo = {
+		.sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO,
+		.buffer = this->_buffGridLines.bufferHandle
+	};
+	this->_gridMesh.vertexBuffer = this->_buffGridLines;
+	this->_gridMesh.vertexBufferAddress = vkGetBufferDeviceAddress(this->_renderer.GetDevice(), &deviceAddressInfo);
+
+	this->_renderer.CreateBuffer(
+		this->_buffStaging, Constants::NumGridLines * 2 * sizeof(glm::vec4),
+		VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+		VMA_MEMORY_USAGE_CPU_ONLY
+	);
 	return true;
 }
 
 bool
 UniformFluidEngine::initPipelines()
 {
-    this->_renderer.CreateGraphicsPipeline(this->_graphicsRenderMesh, SHADER_DIRECTORY"/mesh.vert.spv", SHADER_DIRECTORY"/mesh.frag.spv", "", {}, 0, 
+	// GRAPHICS
+	this->_renderer.CreateGraphicsPipeline(this->_graphicsRenderMesh, SHADER_DIRECTORY"/mesh.vert.spv", SHADER_DIRECTORY"/mesh.frag.spv", "", {}, 0, 
                                            sizeof(GraphicsPushConstants), {.blendMode = BlendMode::Additive});
+
     this->_renderer.CreateGraphicsPipeline(this->_graphicsParticles, SHADER_DIRECTORY"/particles.vert.spv", SHADER_DIRECTORY"/particles.frag.spv", "", {
 		BufferDescriptor(0, 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, this->_buffFluidInfo.bufferHandle, sizeof(FluidGridInfo)),
 		BufferDescriptor(0, 1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, this->_buffFluidGrid.bufferHandle, Constants::VoxelGridSize),
@@ -657,7 +725,11 @@ UniformFluidEngine::initPipelines()
 	}, VK_SHADER_STAGE_VERTEX_BIT, sizeof(ParticlesPushConstants),
 	{.inputTopology = VK_PRIMITIVE_TOPOLOGY_POINT_LIST, .blendMode = BlendMode::Additive, .pushConstantsStages = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT});
 
-    this->_renderer.CreateComputePipeline(this->_computeRaycastVoxelGrid, SHADER_DIRECTORY"/voxelTracerAccum.comp.spv", {
+	this->_renderer.CreateGraphicsPipeline(this->_graphicsGridLines, SHADER_DIRECTORY"/line.vert.spv", SHADER_DIRECTORY"/line.frag.spv", "", {}, 0,
+											sizeof(DrawLinesPushConstants), {.inputTopology = VK_PRIMITIVE_TOPOLOGY_LINE_LIST});
+	
+	// COMPUTE
+    this->_renderer.CreateComputePipeline(this->_computeRaycastVoxelGrid, SHADER_DIRECTORY"/grid_tracer.comp.spv", {
         BufferDescriptor(0, 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, this->_buffFluidGrid.bufferHandle, Constants::VoxelGridSize),
         ImageDescriptor(0, 1, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, this->_renderer.GetDrawImage().imageView, VK_NULL_HANDLE, this->_renderer.GetDrawImage().layout),
 		BufferDescriptor(0, 2, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, this->_buffFluidInfo.bufferHandle, sizeof(FluidGridInfo)),
@@ -711,5 +783,50 @@ UniformFluidEngine::initPipelines()
 		BufferDescriptor(0, 1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, this->_buffFluidGrid.bufferHandle, Constants::VoxelGridSize)
 	},
 	sizeof(FluidPushConstants));
+
+	this->_renderer.CreateComputePipeline(this->_computeGenerateGridLines, SHADER_DIRECTORY"/grid_generate_lines.comp.spv", {
+	}, sizeof(GenerateLinesPushConstants));
 	return true;	
+}
+
+bool
+UniformFluidEngine::initPreProcess()
+{
+	// y*z, x*y, x*z
+	constexpr glm::uvec4 dim = Constants::VoxelGridDimensions;
+	constexpr glm::vec3 center = Constants::VoxelGridCenter;
+	constexpr float scale = Constants::VoxelCellSize;
+	glm::vec4 data[Constants::NumGridLines * 2] = {glm::vec4(0.0)};
+	// glm::vec4* data = (glm::vec4*)this->_buffGridLines.info.pMappedData;
+	int i = 0;
+	// for(int z = 0; z < Constants::VoxelGridDimensions.z; z++) {
+	// 	for(int y = 0; y < Constants::VoxelGridDimensions.y; y++) {
+	// 		data[i++] = glm::vec4((glm::vec3(0.0, z, y) - center) * scale, 1.0);
+	// 		data[i++] = glm::vec4((glm::vec3(dim.x, z, y) - center) * scale, 1.0);
+	// 	}
+	// }
+	for(int y = 0; y < dim.y; y++) {
+		for(int x = 0; x < dim.x; x+=4) {
+			data[i++] = glm::vec4((glm::vec3(x, y, 0.0) - center) * scale/2.0f, 1.0);
+			data[i++] = glm::vec4((glm::vec3(x, y, dim.z) - center) * scale/2.0f, 1.0);
+		}
+	}
+	// for(int z = 0; z < Constants::VoxelGridDimensions.z; z++) {
+	// 	for(int x = 0; x < Constants::VoxelGridDimensions.x; x++) {
+	// 		data[i++] = glm::vec4((glm::vec3(x, 0.0, z) - center) * scale, 1.0);
+	// 		data[i++] = glm::vec4((glm::vec3(x, dim.y, z) - center) * scale, 1.0);
+	// 	}
+	// }
+	
+	std::cout << i << std::endl;
+	std::memcpy(this->_buffStaging.info.pMappedData, data, i * sizeof(glm::vec4));
+
+	this->_renderer.ImmediateSubmit([this, i](VkCommandBuffer cmd) {
+		VkBufferCopy copy = {
+			.size = i * sizeof(glm::vec4)
+			// .size = VK_WHOLE_SIZE
+		};
+		vkCmdCopyBuffer(cmd, this->_buffStaging.bufferHandle, this->_gridMesh.vertexBuffer.bufferHandle, 1, &copy);
+	});
+	return true;
 }

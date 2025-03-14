@@ -1,5 +1,6 @@
 #version 460
 #extension GL_GOOGLE_include_directive : enable
+// #extension GL_EXT_debug_printf: enable
 #include "../common/grid.comp"
 #include "../common/utils.comp"
 
@@ -68,6 +69,8 @@ void main()
     }
 
     grid[index].density *= exp(-pc.decayRate * pc.dt);
-    // grid[index].velocity *= exp(-pc.decayRate * pc.dt);
-    // grid[index].density *= 0.99;
+
+    // if(index < 5) {
+    //     debugPrintfEXT("Hello From GPU");
+    // }
 }

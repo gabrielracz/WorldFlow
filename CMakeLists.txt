@@ -61,18 +61,17 @@ foreach(GLSL ${GLSL_SOURCE_FILES})
   get_filename_component(FILE_EXT ${GLSL} EXT)
   set(SPIRV "${PROJECT_SOURCE_DIR}/shaders/bin/${FILE_NAME}.spv")
 
-  # Add the -G flag for .geom files
-  if(FILE_EXT STREQUAL ".geom")
-    set(GLSL_FLAGS "-V")
-  else()
-    set(GLSL_FLAGS "-V")
-  endif()
+  # set(GLSL_FLAGS "-gVS -V")
+  # set(GLSL_FLAGS "-gVS --target-env vulkan1.3")
+  # set(GLSL_FLAGS "-V")
+  # set(GLSL_FLAGS "--target-env vulkan1.3")
 
   message(STATUS ${GLSL})
-  message(STATUS ${GLSL_VALIDATOR} " " ${GLSL_FLAGS} " " ${GLSL} " " -o " " ${SPIRV} " " -g "\n")
+  message(STATUS "${GLSL_VALIDATOR} ${GLSL_FLAGS} -o ${SPIRV} ${GLSL}\n")
   add_custom_command(
     OUTPUT ${SPIRV}
-    COMMAND ${GLSL_VALIDATOR} ${GLSL_FLAGS} ${GLSL} -o ${SPIRV}
+    # COMMAND ${GLSL_VALIDATOR} ${GLSL_FLAGS} -o ${SPIRV} ${GLSL} -gVS --target-env vulkan1.3
+    COMMAND ${GLSL_VALIDATOR} ${GLSL_FLAGS} -o ${SPIRV} ${GLSL} -V
     DEPENDS ${GLSL})
   list(APPEND SPIRV_BINARY_FILES ${SPIRV})
 endforeach(GLSL)

@@ -15,9 +15,20 @@ struct FluidGridInfo
 	float cellSize;
 };
 
+// struct GridNode
+// {
+//     uint child;
+// };
+
+// struct GridRootTable
+// {
+//     uint placehoilder;
+// };
+
+
+
 uint FLAG_OCCUPIED = 0x00000001;
 uint FLAG_SOURCE   = 0x00000002;
-
 
 FluidGridCell zeroGridCell() {
 	return FluidGridCell(vec4(0.0), 0.0, 0.0, 0.0, 0, vec4(0.0));
@@ -35,7 +46,8 @@ bool isWithinGridBounds(uvec3 p, uvec4 gridResolution)
            p.z < gridResolution.z;
 }
 
-// Chunked flattening
+#define CHUNK_FLATTENED_INDEXING
+#ifdef CHUNK_FLATTENED_INDEXING
 uint getGridIndex(uvec3 index, uvec4 gridResolution)
 {
     // Extract grid dimensions (ignore w component)
@@ -61,12 +73,47 @@ uint getGridIndex(uvec3 index, uvec4 gridResolution)
     return (chunkIndex * (chunkSize * chunkSize * chunkSize)) + localIndex;
 }
 
-// uint getGridIndex(uvec3 p, uvec4 gridResolution)
-// {
-//     return p.z * uint(gridResolution.x) * uint(gridResolution.y) +
-//            p.y * uint(gridResolution.x) +
-//            p.x;
-// }
+uvec3 unflattenGridIndex(uint flatIndex, uvec4 gridResolution)
+{
+    // Extract grid dimensions (ignore w component)
+    uvec3 dims = gridResolution.xyz;
+    
+    // Define chunk size (must match the flattening function)
+    const uint chunkSize = 4u;
+    const uint chunkVolume = chunkSize * chunkSize * chunkSize;
+    
+    // Calculate chunks per dimension (ceiling division)
+    uvec3 chunksPerDim = (dims + chunkSize - 1u) / chunkSize;
+    
+    // Determine which chunk this index belongs to and the position within that chunk
+    uint chunkIndex = flatIndex / chunkVolume;
+    uint localIndex = flatIndex % chunkVolume;
+    
+    // Calculate the chunk's 3D position
+    uvec3 chunkPos;
+    chunkPos.x = chunkIndex % chunksPerDim.x;
+    chunkPos.y = (chunkIndex / chunksPerDim.x) % chunksPerDim.y;
+    chunkPos.z = chunkIndex / (chunksPerDim.x * chunksPerDim.y);
+    
+    // Calculate local position within the chunk
+    uvec3 localPos;
+    localPos.x = localIndex % chunkSize;
+    localPos.y = (localIndex / chunkSize) % chunkSize;
+    localPos.z = localIndex / (chunkSize * chunkSize);
+    
+    // Combine chunk position and local position to get final 3D coordinates
+    uvec3 position = chunkPos * chunkSize + localPos;
+    
+    // Clamp to grid dimensions to handle edge cases
+    return min(position, dims - 1u);
+}
+#else
+uint getGridIndex(uvec3 p, uvec4 gridResolution)
+{
+    return p.z * uint(gridResolution.x) * uint(gridResolution.y) +
+           p.y * uint(gridResolution.x) +
+           p.x;
+}
 
 uvec3 unflattenGridIndex(uint index, uvec4 gridResolution)
 {
@@ -75,6 +122,7 @@ uvec3 unflattenGridIndex(uint index, uvec4 gridResolution)
     uint x = (index % (gridResolution.x * gridResolution.y)) % gridResolution.x;
     return uvec3(x, y, z);
 }
+#endif
 
 uint worldToGridIndex(vec3 worldPos, uvec4 gridResolution, float cellSize)
 {
@@ -87,26 +135,18 @@ uint worldToGridIndex(vec3 worldPos, uvec4 gridResolution, float cellSize)
 	return getGridIndex(mappos, gridResolution);
 }
 
-// vec4 gridToWorldPos(uint index) 
-// {
-
-// }
+vec3 gridToWorld(uint flatIndex, uvec4 gridResolution, float cellSize)
+{
+    uvec3 index = unflattenGridIndex(flatIndex, gridResolution);
+    return vec3(index) * cellSize;
+}
 
 uvec3 getRedBlackPosition(uvec3 threadID, uvec4 gridResolution, uint redBlack)
 {
-    // uint flatIndex = getGridIndex(threadID, uvec4(gridResolution.xy, gridResolution.z / 2, 1.0));
-    // // uint flatIndex = getGridIndex(threadID, gridResolution);
-    // flatIndex = flatIndex * 2 + redBlack;
-    // return unflattenGridIndex(flatIndex, gridResolution);
-
-    // For a checkerboard pattern in 3D, we only need to modify X
-    // Y and Z stay the same as the thread ID
-    // uint x = threadID.x * 2;  // Double the X position
     uint z = threadID.z * 2;  // Double the X position
     
     // Offset X based on Y and Z parity
     bool shouldOffset = ((threadID.x + threadID.y) % 2) == 0;
-
     z = z + (shouldOffset ? redBlack : (1 - redBlack));
     
     return uvec3(threadID.x, threadID.y, z);

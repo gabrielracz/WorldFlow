@@ -359,7 +359,7 @@ Renderer::CreateComputePipeline(ComputePipeline& newPipeline, const std::string&
 
     VkPipelineLayoutCreateInfo pipelineLayout = {
         .sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
-        .setLayoutCount = 1,
+        .setLayoutCount = newPipeline.descriptorLayout != VK_NULL_HANDLE,
         .pSetLayouts = &newPipeline.descriptorLayout,
 
         .pushConstantRangeCount = (pushConstantsSize > 0),
@@ -604,7 +604,6 @@ Renderer::UploadMesh(Mesh& mesh, std::span<Vertex> vertices, std::span<uint32_t>
 void
 Renderer::CreateTimestampQueryPool(TimestampQueryPool &pool, uint32_t numTimestamps)
 {
-	std::cout << this->_vkbDev.properties.limits.timestampPeriod << std::endl;
 	pool.init(this->_device, numTimestamps, Constants::FrameOverlap, this->_vkbDev.properties.limits.timestampPeriod);
 	this->_deletionQueue.push([this, pool](){
 		vkDestroyQueryPool(this->_device, pool.queryPool, nullptr);
@@ -638,6 +637,7 @@ Renderer::initVulkan()
         .set_app_name(this->_name.c_str())
         .request_validation_layers(Constants::IsValidationLayersEnabled)
         .add_validation_feature_enable(VK_VALIDATION_FEATURE_ENABLE_SYNCHRONIZATION_VALIDATION_EXT)
+        .add_validation_feature_enable(VK_VALIDATION_FEATURE_ENABLE_DEBUG_PRINTF_EXT)
         .use_default_debug_messenger()
         .require_api_version(1, 3, 0)
         .build();
@@ -663,6 +663,7 @@ Renderer::initVulkan()
         .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES,
         .descriptorIndexing = true,
         .hostQueryReset = true,
+        .timelineSemaphore = true,
         .bufferDeviceAddress = true,
     };
 
@@ -686,6 +687,7 @@ Renderer::initVulkan()
         .set_required_features_12(features12)
         .set_required_features(featuresBase)
 		.add_required_extension("VK_EXT_shader_atomic_float")
+		// .add_required_extension("VK_KHR_shader_non_semantic_info")
         .set_surface(this->_surface)
         .select()
         .value();
@@ -693,6 +695,8 @@ Renderer::initVulkan()
     vkb::DeviceBuilder deviceBuilder {physDevice};
 	deviceBuilder.add_pNext(&atomicFloatFeatures);
     vkb::Device vkbDevice = deviceBuilder.build().value();
+
+
     this->_device = vkbDevice.device;
     this->_gpu = physDevice.physical_device;
     // print gpu properties

@@ -53,7 +53,7 @@ void main()
 	const vec4 c = cell.velocity;
 
     const float diffRate =  0.000010;
-	const float N = gridInfo.resolution.x * gridInfo.resolution.y;
+	const float N = 1.0/(gridInfo.cellSize*gridInfo.cellSize);
     const float a = diffRate*pc.dt*N; 
 
     const vec4 newVel = (c + a*(l + r + u + d + f + b)) / (1+6*a);

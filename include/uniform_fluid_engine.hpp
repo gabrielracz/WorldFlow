@@ -32,6 +32,8 @@ private:
 	void renderVoxelVolume(VkCommandBuffer cmd);
 	void renderMesh(VkCommandBuffer cmd, Mesh& mesh, const glm::mat4& transform = glm::mat4());
 	void renderParticles(VkCommandBuffer cmd, float dt);
+	void generateGridLines(VkCommandBuffer cmd);
+	void drawGrid(VkCommandBuffer cmd);
 
 	void dispatchFluid(VkCommandBuffer cmd, const glm::uvec3& factor = {1, 1, 1});
 	// void getTimestampQueries();
@@ -41,6 +43,7 @@ private:
 	bool initRendererOptions();
 	bool initResources();
 	bool initPipelines();
+	bool initPreProcess();
 
 private:
 	Renderer& _renderer;
@@ -72,6 +75,7 @@ private:
 
 	GraphicsPipeline _graphicsRenderMesh;
 	GraphicsPipeline _graphicsParticles;
+	GraphicsPipeline _graphicsGridLines;
 	ComputePipeline _computeRaycastVoxelGrid;
 	ComputePipeline _computeAddSources;
 	ComputePipeline _computeDiffuseVelocity;
@@ -81,11 +85,15 @@ private:
 	ComputePipeline _computeProjectIncompressible;
 	ComputePipeline _computeDiffuseDensity;
 	ComputePipeline _computeAdvectDensity;
+	ComputePipeline _computeGenerateGridLines;
 
 	Buffer _buffFluidGrid;
 	Buffer _buffFluidInfo;
 	Buffer _buffParticles;
 	Buffer _buffStaging;
+	Buffer _buffGridLines;
+
+	Mesh _gridMesh;
 };
 
 

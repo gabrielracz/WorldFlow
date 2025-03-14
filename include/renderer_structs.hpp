@@ -68,7 +68,10 @@ struct GraphicsPipeline
 	void Bind(VkCommandBuffer cmd)
 	{
 		vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, this->pipeline);
-		vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, this->layout, 0, this->descriptorSets.size(), this->descriptorSets.data(), 0, nullptr);
+        if(this->descriptorSets.size() > 0) {
+            vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, this->layout, 0, this->descriptorSets.size(), this->descriptorSets.data(), 0, nullptr);
+        }
+
 	}
 };
 

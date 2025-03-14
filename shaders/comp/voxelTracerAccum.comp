@@ -152,15 +152,18 @@ vec4 traceVoxels(vec3 rayOrigin, vec3 rayDir) {
             float density = 0.0;
             vec4 color = pc.baseColor;
             if((voxelData[index].flags & FLAG_OCCUPIED) > 0) {
-                vec3 worldPos = rayOrigin + t * rayDir;
+                // vec3 worldPos = rayOrigin + t * rayDir;
+                vec3 worldPos = gridToWorld(index, gridInfo.resolution, gridInfo.cellSize);
                 vec3 normal = calculateNormal(mapPos, prevMapPos);
                 vec3 viewDir = rayDir;
-				vec3 lightVec = normalize(pc.lightSource.xyz - (vec3(mapPos.xyz) * vec3(gridInfo.cellSize)));
+				// vec3 lightVec = normalize(pc.lightSource.xyz - (vec3(mapPos.xyz) * vec3(gridInfo.cellSize)));
+				vec3 lightVec = normalize(worldPos - pc.lightSource.xyz);
 
                 vec4 litColor = lighting(color, lightVec, normal);
+                // vec4 litColor = vec4(worldPos, 1.0);
+
                 vec4 attenuation = vec4(1.0, 1.0, 1.0, exp(-t * 0.1));
-				// accumColor = vec4(mix(accumColor.rgb, litColor.rgb, litColor.a), 1.0);
-                // Composite the lit voxel *behind* the accumulated volume
+                // composite behind
                 accumColor = vec4(
                     accumColor.rgb * accumColor.a + litColor.rgb * (1.0 - accumColor.a),
                     1.0 // Fully opaque result
