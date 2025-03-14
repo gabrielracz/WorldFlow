@@ -34,36 +34,39 @@ bool isWithinGridBounds(uvec3 p, uvec4 gridResolution)
            p.y < gridResolution.y && 
            p.z < gridResolution.z;
 }
-// Helper function to interleave bits of a 32-bit integer
-uint interleaveBits(uint x) {
-    x = (x | (x << 16)) & 0x030000FF;  // ---- ---- ---- ---- ---- ---- 11-- ---- ---- ---- --11 11--
-    x = (x | (x <<  8)) & 0x0300F00F;  // ---- ---- ---- ---- 11-- ---- --11 ---- ---- 11-- --11 ----
-    x = (x | (x <<  4)) & 0x030C30C3;  // ---- ---- ---- 11-- ---- 11-- ---- 11-- --11 ---- --11 ----
-    x = (x | (x <<  2)) & 0x09249249;  // ---- --1- --1- --1- --1- --1- --1- 1--- 1--- 1--- --1- --1-
-    return x;
-}
 
-// Morton encoding function for 3D to 1D
-uint getGridIndexMorton(uvec3 p, uvec4 gridResolution) {
-    // Ensure coordinates are within grid bounds
-    p.x = min(p.x, gridResolution.x - 1u);
-    p.y = min(p.y, gridResolution.y - 1u);
-    p.z = min(p.z, gridResolution.z - 1u);
-    
-    // Interleave the bits of x, y, z coordinates
-    uint morton = interleaveBits(p.x) | 
-                 (interleaveBits(p.y) << 1) | 
-                 (interleaveBits(p.z) << 2);
-    
-    return morton;
-}
-
-uint getGridIndex(uvec3 p, uvec4 gridResolution)
+// Chunked flattening
+uint getGridIndex(uvec3 index, uvec4 gridResolution)
 {
-    return p.z * uint(gridResolution.x) * uint(gridResolution.y) +
-           p.y * uint(gridResolution.x) +
-           p.x;
+    // Extract grid dimensions (ignore w component)
+    uvec3 dims = gridResolution.xyz;
+    const uint chunkSize = 8u;
+    uvec3 chunkPos = index / chunkSize;
+    uvec3 localPos = index % chunkSize;
+    
+    // Calculate chunks per dimension
+    uvec3 chunksPerDim = (dims + chunkSize - 1u) / chunkSize;
+    
+    // Calculate chunk index using row-major ordering
+    uint chunkIndex = (chunkPos.z * chunksPerDim.y * chunksPerDim.x) + 
+                      (chunkPos.y * chunksPerDim.x) + 
+                       chunkPos.x;
+    
+    // Calculate local index within chunk (row-major ordering)
+    uint localIndex = (localPos.z * chunkSize * chunkSize) + 
+                      (localPos.y * chunkSize) + 
+                       localPos.x;
+    
+    // Combine chunk index and local index for final flat index
+    return (chunkIndex * (chunkSize * chunkSize * chunkSize)) + localIndex;
 }
+
+// uint getGridIndex(uvec3 p, uvec4 gridResolution)
+// {
+//     return p.z * uint(gridResolution.x) * uint(gridResolution.y) +
+//            p.y * uint(gridResolution.x) +
+//            p.x;
+// }
 
 uvec3 unflattenGridIndex(uint index, uvec4 gridResolution)
 {

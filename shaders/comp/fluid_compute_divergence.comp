@@ -37,6 +37,8 @@ void main()
 	uvec3 center = gl_GlobalInvocationID;
 	uint index = getGridIndex(center, gridInfo.resolution);
 
+	// grid[index].debug.x = float(encodeMorton3D(center)) / float(gridInfo.resolution.x * gridInfo.resolution.y * gridInfo.resolution.z);
+
 	const float r = sampleVelocity(center, ivec3(1, 0, 0 )).x;
 	const float l = sampleVelocity(center, ivec3(-1, 0, 0)).x;
 	const float u = sampleVelocity(center, ivec3(0, 1, 0 )).y;
