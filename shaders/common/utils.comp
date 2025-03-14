@@ -2,6 +2,14 @@ vec3 clampVector(vec3 a, vec3 minVec, vec3 maxVec) {
     return min(max(a, minVec), maxVec);
 }
 
+float max3 (vec3 v) {
+  return max (max (v.x, v.y), v.z);
+}
+
+float avg3(vec3 v) {
+	return (v.x + v.y + v.z) / 3.0;
+}
+
 vec4 triInterp(vec4 c000, vec4 c100, vec4 c010, vec4 c110,
                vec4 c001, vec4 c101, vec4 c011, vec4 c111,
                vec3 weights) {
@@ -161,13 +169,13 @@ vec4 viridisColor(float t) {
         // Blue to blue-green transition
         float x = (t - 0.2) * 5.0;
         color = mix(c1, c2, x);
-    } else if (t < 0.6) {
+    } else if (t < 0.8) {
         // Blue-green to green transition
         float x = (t - 0.4) * 5.0;
         color = mix(c2, c3, x);
     } else if (t < 0.95) {
         // Green to yellow-green transition
-        float x = (t - 0.6) * 5.0;
+        float x = (t - 0.8) * 5.0;
         color = mix(c3, c4, x);
     } else {
         // Yellow-green to yellow transition
@@ -177,3 +185,4 @@ vec4 viridisColor(float t) {
     
     return vec4(color, 1.0);
 }
+

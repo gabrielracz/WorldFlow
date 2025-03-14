@@ -2,6 +2,7 @@
 #extension GL_GOOGLE_include_directive : enable
 #extension GL_EXT_shader_atomic_float : enable
 #include "../common/grid.comp"
+#include "../common/utils.comp"
 
 layout(local_size_x = 8, local_size_y = 8, local_size_z = 8) in;
 
@@ -58,7 +59,7 @@ void main()
 
     const vec4 newVel = (c + a*(l + r + u + d + f + b)) / (1+6*a);
 
-	const vec4 result = SOR(cell.velocity, newVel, gridInfo.resolution.x);
+	const vec4 result = SOR(cell.velocity, newVel, avg3(gridInfo.resolution.xyz));
 	// const vec4 result = newVel;
 
     // guarded by red-black

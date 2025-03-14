@@ -15,10 +15,10 @@ struct FluidGridInfo
 	float cellSize;
 };
 
-// struct GridNode
-// {
-//     uint child;
-// };
+struct GridNode
+{
+	uint blockOffset;
+};
 
 // struct GridRootTable
 // {
@@ -152,14 +152,14 @@ uvec3 getRedBlackPosition(uvec3 threadID, uvec4 gridResolution, uint redBlack)
     return uvec3(threadID.x, threadID.y, z);
 }
 
-float SOR(float old, float new, uint N)
+float SOR(float old, float new, float N)
 {
 	float alpha = 2.0 / (1.0 + sin(3.14159 / N));
 	float result = alpha * new + (1 - alpha) * old;
 	return result;
 }
 
-vec4 SOR(vec4 old, vec4 new, uint N)
+vec4 SOR(vec4 old, vec4 new, float N)
 {
 	const float alpha = 2.0 / (1.0 + sin(3.14159 / N));
 	vec4 result = alpha * new + (1 - alpha) * old;

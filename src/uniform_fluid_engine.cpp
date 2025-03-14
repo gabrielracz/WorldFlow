@@ -106,7 +106,8 @@ namespace Constants
 constexpr size_t VoxelGridResolution = 32;
 // constexpr glm::uvec4 VoxelGridDimensions = glm::uvec4(VoxelGridResolution, VoxelGridResolution, VoxelGridResolution, 1);
 // constexpr glm::uvec4 VoxelGridDimensions = glm::uvec4(64, 64, 64, 1);
-constexpr glm::uvec4 VoxelGridDimensions = glm::uvec4(128, 48, 128, 1);
+constexpr glm::uvec4 VoxelGridDimensions = glm::uvec4(128, 32, 128, 1);
+// constexpr glm::uvec4 VoxelGridDimensions = glm::uvec4(256, 32, 32, 1);
 // constexpr glm::uvec4 VoxelGridDimensions = glm::uvec4(16,16,16,1);
 
 const size_t VoxelGridSize = VoxelGridDimensions.x * VoxelGridDimensions.y * VoxelGridDimensions.z * sizeof(FluidGridCell);
