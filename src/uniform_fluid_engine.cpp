@@ -42,6 +42,7 @@ struct alignas(16) FluidGridReferences
 	uint64_t pressureBufferReference;
 	uint64_t divergenceBufferReference;
 	uint64_t flagsBufferReference;
+	// uint64_t debugBufferReference;
 };
 
 struct alignas(16) FluidGridInfo
@@ -121,7 +122,7 @@ namespace Constants
 constexpr size_t VoxelGridResolution = 32;
 // constexpr glm::uvec4 VoxelGridDimensions = glm::uvec4(VoxelGridResolution, VoxelGridResolution, VoxelGridResolution, 1);
 // constexpr glm::uvec4 VoxelGridDimensions = glm::uvec4(64, 64, 64, 1);
-constexpr glm::uvec4 VoxelGridDimensions = glm::uvec4(128, 32, 128, 1);
+constexpr glm::uvec4 VoxelGridDimensions = glm::uvec4(128, 128, 128, 1);
 // constexpr glm::uvec4 VoxelGridDimensions = glm::uvec4(16,16,16,1);
 
 const uint32_t NumVoxelGridCells = VoxelGridDimensions.x * VoxelGridDimensions.y * VoxelGridDimensions.z;
@@ -141,7 +142,7 @@ constexpr uint32_t NumPressureIterations = 6;
 
 constexpr glm::vec4 LightPosition = glm::vec4(500.0, 500.0, 200, 1.0);
 
-constexpr uint32_t NumParticles = 2048;
+constexpr uint32_t NumParticles = 65536;
 constexpr float MaxParticleLifetime = 240.0;
 }
 
@@ -201,7 +202,8 @@ UniformFluidEngine::update(VkCommandBuffer cmd, float dt)
 	this->_timestamps.write(cmd, Timestamps::DensityAdvect, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
 
 	// drawGrid(cmd);
-	renderVoxelVolume(cmd);
+	if(this->_shouldRenderFluid)
+		renderVoxelVolume(cmd);
 	// renderParticles(cmd, dt);
 	this->_timestamps.write(cmd, Timestamps::FluidRender, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
 	
@@ -538,6 +540,10 @@ UniformFluidEngine::drawUI()
 		ImGui::Text("DnsDiff:   %3.2f ms", this->_timestampAverages[Timestamps::DensityDiffusion]);
 		ImGui::Text("DnsAdvect: %3.2f ms", this->_timestampAverages[Timestamps::DensityAdvect]);
 		ImGui::Text("Render:    %3.2f ms", this->_timestampAverages[Timestamps::FluidRender]);
+		ImGui::SameLine();
+		ImGui::PushID("ShouldRender");
+		ImGui::Checkbox("", &this->_shouldRenderFluid);
+		ImGui::PopID();
 		ImGui::Separator();
 		ImGui::DragFloat("Tick", &this->_tickRate, 0.0025);
 		ImGui::SameLine();
@@ -708,7 +714,7 @@ UniformFluidEngine::initResources()
 		particles[i].lifetime = (float)rand() / (float)RAND_MAX * Constants::MaxParticleLifetime;
 	}
 	this->_renderer.ImmediateSubmit([&particles, this](VkCommandBuffer cmd) {
-		vkCmdUpdateBuffer(cmd, this->_buffParticles.bufferHandle, 0, sizeof(particles), &particles);
+		// vkCmdUpdateBuffer(cmd, this->_buffParticles.bufferHandle, 0, sizeof(particles), &particles);
 	});
 
 	this->_renderer.CreateBuffer(
