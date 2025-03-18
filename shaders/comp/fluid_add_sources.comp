@@ -38,13 +38,13 @@ float manhattanDistance(vec3 p1, vec3 p2) {
 void main()
 {
     uvec3 pos = gl_GlobalInvocationID;
-    if (!isWithinGridBounds(pos, gridInfo.resolution)) {
-        // return;
-    }
+    // if (!isWithinGridBounds(pos, gridInfo.resolution)) {
+    //     // return;
+    // }
     uint index = getGridIndex(pos, gridInfo.resolution);
 
     grid[index].flags = 0;
-	grid[index].debug = vec4(0.0, 0.0, 0.0, 1.0);
+	// grid[index].debug = vec4(0.0, 0.0, 0.0, 1.0);
 
 	if(pc.clear > 0) {
 		grid[index] = zeroGridCell();

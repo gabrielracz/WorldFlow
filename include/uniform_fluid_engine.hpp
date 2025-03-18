@@ -92,6 +92,13 @@ private:
 	Buffer _buffParticles;
 	Buffer _buffStaging;
 	Buffer _buffGridLines;
+	
+	Buffer _buffFluidGridReferences;
+	Buffer _buffFluidVelocity;
+	Buffer _buffFluidDensity;
+	Buffer _buffFluidPressure;
+	Buffer _buffFluidDivergence;
+	Buffer _buffFluidFlags;
 
 	Mesh _gridMesh;
 };

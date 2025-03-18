@@ -183,7 +183,7 @@ vec4 traceVoxels(vec3 rayOrigin, vec3 rayDir) {
                 density = length(voxelData[index].velocity.xyz)/100.0;
             }
             else if(pc.renderType == 5) {
-                density = voxelData[index].debug.x;
+                // density = voxelData[index].debug.x;
             }
 
             float contribution = abs(density) * pc.stepSize;

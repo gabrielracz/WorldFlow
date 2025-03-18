@@ -29,6 +29,21 @@ struct alignas(16) FluidGridCell
 	glm::vec4 padding;
 };
 
+// Property Buffer Types
+typedef glm::vec4 FluidVelocity;
+typedef float     FluidDensity;
+typedef float     FluidPressure;
+typedef float     FluidDivergence;
+typedef uint32_t  FluidFlags;
+struct alignas(16) FluidGridReferences
+{
+	uint64_t velocityBufferReference;
+	uint64_t densityBufferReference;
+	uint64_t pressureBufferReference;
+	uint64_t divergenceBufferReference;
+	uint64_t flagsBufferReference;
+};
+
 struct alignas(16) FluidGridInfo
 {
 	glm::uvec4 resolution;
@@ -106,10 +121,11 @@ namespace Constants
 constexpr size_t VoxelGridResolution = 32;
 // constexpr glm::uvec4 VoxelGridDimensions = glm::uvec4(VoxelGridResolution, VoxelGridResolution, VoxelGridResolution, 1);
 // constexpr glm::uvec4 VoxelGridDimensions = glm::uvec4(64, 64, 64, 1);
-constexpr glm::uvec4 VoxelGridDimensions = glm::uvec4(128, 48, 128, 1);
+constexpr glm::uvec4 VoxelGridDimensions = glm::uvec4(128, 96, 128, 1);
 // constexpr glm::uvec4 VoxelGridDimensions = glm::uvec4(16,16,16,1);
 
-const size_t VoxelGridSize = VoxelGridDimensions.x * VoxelGridDimensions.y * VoxelGridDimensions.z * sizeof(FluidGridCell);
+const uint32_t NumVoxelGridCells = VoxelGridDimensions.x * VoxelGridDimensions.y * VoxelGridDimensions.z;
+const size_t VoxelGridSize = NumVoxelGridCells * sizeof(FluidGridCell);
 const float VoxelGridScale = 2.0f;
 const uint32_t VoxelDiagonal = VoxelGridDimensions.x + VoxelGridDimensions.y + VoxelGridDimensions.z;
 constexpr glm::vec3 VoxelGridCenter = glm::vec3(VoxelGridDimensions) * 0.5f + glm::vec3(1.0);
@@ -708,6 +724,37 @@ UniformFluidEngine::initResources()
 		VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
 		VMA_MEMORY_USAGE_CPU_ONLY
 	);
+
+	// FLUID PROPERTY BUFFERS
+	VkBufferUsageFlags fluidPropertyFlags = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+	this->_renderer.CreateBuffer(this->_buffFluidVelocity, Constants::NumVoxelGridCells * sizeof(FluidVelocity), fluidPropertyFlags, VMA_MEMORY_USAGE_GPU_ONLY);
+	this->_renderer.CreateBuffer(this->_buffFluidDensity, Constants::NumVoxelGridCells * sizeof(FluidDensity), fluidPropertyFlags, VMA_MEMORY_USAGE_GPU_ONLY);
+	this->_renderer.CreateBuffer(this->_buffFluidPressure, Constants::NumVoxelGridCells * sizeof(FluidPressure), fluidPropertyFlags, VMA_MEMORY_USAGE_GPU_ONLY);
+	this->_renderer.CreateBuffer(this->_buffFluidDivergence, Constants::NumVoxelGridCells * sizeof(FluidDivergence), fluidPropertyFlags, VMA_MEMORY_USAGE_GPU_ONLY);
+	this->_renderer.CreateBuffer(this->_buffFluidFlags, Constants::NumVoxelGridCells * sizeof(FluidFlags), fluidPropertyFlags, VMA_MEMORY_USAGE_GPU_ONLY);
+	this->_renderer.ImmediateSubmit([this](VkCommandBuffer cmd) {
+		vkCmdFillBuffer(cmd, this->_buffFluidVelocity.bufferHandle, 0, VK_WHOLE_SIZE, 0);
+		vkCmdFillBuffer(cmd, this->_buffFluidDensity.bufferHandle, 0, VK_WHOLE_SIZE, 0);
+		vkCmdFillBuffer(cmd, this->_buffFluidPressure.bufferHandle, 0, VK_WHOLE_SIZE, 0);
+		vkCmdFillBuffer(cmd, this->_buffFluidDivergence.bufferHandle, 0, VK_WHOLE_SIZE, 0);
+		vkCmdFillBuffer(cmd, this->_buffFluidFlags.bufferHandle, 0, VK_WHOLE_SIZE, 0);
+	});
+
+	this->_renderer.CreateBuffer(
+		this->_buffFluidGridReferences, sizeof(FluidGridReferences),
+		VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+		VMA_MEMORY_USAGE_GPU_ONLY
+	);
+	this->_renderer.ImmediateSubmit([this](VkCommandBuffer cmd){
+		FluidGridReferences refs = {
+			.velocityBufferReference = this->_buffFluidVelocity.deviceAddress,
+			.densityBufferReference = this->_buffFluidDensity.deviceAddress,
+			.pressureBufferReference = this->_buffFluidPressure.deviceAddress,
+			.divergenceBufferReference = this->_buffFluidDivergence.deviceAddress,
+			.flagsBufferReference = this->_buffFluidFlags.deviceAddress,
+		};
+		vkCmdUpdateBuffer(cmd, this->_buffFluidGridReferences.bufferHandle, 0, sizeof(refs), &refs);
+	});
 	return true;
 }
 
@@ -792,11 +839,12 @@ UniformFluidEngine::initPipelines()
 bool
 UniformFluidEngine::initPreProcess()
 {
+	return true;
 	// y*z, x*y, x*z
 	constexpr glm::uvec4 dim = Constants::VoxelGridDimensions;
 	constexpr glm::vec3 center = Constants::VoxelGridCenter;
 	constexpr float scale = Constants::VoxelCellSize;
-	glm::vec4 data[Constants::NumGridLines * 2] = {glm::vec4(0.0)};
+	glm::vec4* data = new glm::vec4[Constants::NumGridLines * 2];
 	// glm::vec4* data = (glm::vec4*)this->_buffGridLines.info.pMappedData;
 	int i = 0;
 	// for(int z = 0; z < Constants::VoxelGridDimensions.z; z++) {

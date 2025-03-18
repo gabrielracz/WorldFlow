@@ -1,0 +1,120 @@
+#version 460
+#extension GL_GOOGLE_include_directive : enable
+#extension GL_EXT_shader_atomic_float : enable
+#include "../common/grid.comp"
+
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 8) in;
+
+layout(std430, binding = 0) buffer FluidInfo {
+	FluidGridInfo gridInfo;
+};
+
+layout(std430, binding = 1) buffer FluidGrid {
+	FluidGridCell grid[];
+};
+
+layout(push_constant) uniform PushConstants {
+	float elapsed;
+	float dt;
+	uint redBlack;
+} pc;
+
+#define BLOCK_SIZE_X 64
+#define BLOCK_SIZE_Y 16
+#define BLOCK_SIZE_Z 1
+
+shared float sharedDensity[BLOCK_SIZE_Z+2][BLOCK_SIZE_Y+2][BLOCK_SIZE_X+2];
+
+void main()
+{
+    // Local thread ID within the workgroup
+    uvec3 localID = gl_LocalInvocationID;
+    
+    // Global position in the grid
+    uvec3 center = gl_WorkGroupID * uvec3(BLOCK_SIZE_X, BLOCK_SIZE_Y, BLOCK_SIZE_Z) + localID;
+    uint index = getGridIndex(center, gridInfo.resolution);
+    
+    // Load center cell into shared memory (including halo/boundary cells)
+    // +1 offset in shared mem to allow for boundary cells
+    sharedDensity[localID.z+1][localID.y+1][localID.x+1] = grid[index].density;
+    
+    // Load boundary cells - each thread loads extra cells
+    // Carefully handling boundary conditions
+    if (localID.x == 0 && center.x > 0) {
+        uvec3 pos = center + uvec3(-1, 0, 0);
+        sharedDensity[localID.z+1][localID.y+1][0] = 
+            all(lessThan(pos, gridInfo.resolution.xyz)) ? 
+            grid[getGridIndex(pos, gridInfo.resolution)].density : 
+            sharedDensity[localID.z+1][localID.y+1][1];
+    }
+    
+    if (localID.x == BLOCK_SIZE_X-1 && center.x < gridInfo.resolution.x-1) {
+        uvec3 pos = center + uvec3(1, 0, 0);
+        sharedDensity[localID.z+1][localID.y+1][BLOCK_SIZE_X+1] = 
+            all(lessThan(pos, gridInfo.resolution.xyz)) ? 
+            grid[getGridIndex(pos, gridInfo.resolution)].density : 
+            sharedDensity[localID.z+1][localID.y+1][BLOCK_SIZE_X];
+    }
+    
+    // Similar loading for Y direction
+    if (localID.y == 0 && center.y > 0) {
+        uvec3 pos = center + uvec3(0, -1, 0);
+        sharedDensity[localID.z+1][0][localID.x+1] = 
+            all(lessThan(pos, gridInfo.resolution.xyz)) ? 
+            grid[getGridIndex(pos, gridInfo.resolution)].density : 
+            sharedDensity[localID.z+1][1][localID.x+1];
+    }
+    
+    if (localID.y == BLOCK_SIZE_Y-1 && center.y < gridInfo.resolution.y-1) {
+        uvec3 pos = center + uvec3(0, 1, 0);
+        sharedDensity[localID.z+1][BLOCK_SIZE_Y+1][localID.x+1] = 
+            all(lessThan(pos, gridInfo.resolution.xyz)) ? 
+            grid[getGridIndex(pos, gridInfo.resolution)].density : 
+            sharedDensity[localID.z+1][BLOCK_SIZE_Y][localID.x+1];
+    }
+    
+    // Similar loading for Z direction
+    if (localID.z == 0 && center.z > 0) {
+        uvec3 pos = center + uvec3(0, 0, -1);
+        sharedDensity[0][localID.y+1][localID.x+1] = 
+            all(lessThan(pos, gridInfo.resolution.xyz)) ? 
+            grid[getGridIndex(pos, gridInfo.resolution)].density : 
+            sharedDensity[1][localID.y+1][localID.x+1];
+    }
+    
+    if (localID.z == BLOCK_SIZE_Z-1 && center.z < gridInfo.resolution.z-1) {
+        uvec3 pos = center + uvec3(0, 0, 1);
+        sharedDensity[BLOCK_SIZE_Z+1][localID.y+1][localID.x+1] = 
+            all(lessThan(pos, gridInfo.resolution.xyz)) ? 
+            grid[getGridIndex(pos, gridInfo.resolution)].density : 
+            sharedDensity[BLOCK_SIZE_Z][localID.y+1][localID.x+1];
+    }
+    
+    // Ensure all threads finish loading before computation
+    barrier();
+    memoryBarrierShared();
+    
+    // Skip computation if this is not the right "color" in red-black pattern
+    FluidGridCell cell = grid[index];
+    if(mod(center.x + center.y + center.z + pc.redBlack, 2) != 0) {
+        // Now access neighbor cells from shared memory
+        float l = sharedDensity[localID.z+1][localID.y+1][localID.x];
+        float r = sharedDensity[localID.z+1][localID.y+1][localID.x+2];
+        float u = sharedDensity[localID.z+1][localID.y+2][localID.x+1];
+        float d = sharedDensity[localID.z+1][localID.y][localID.x+1];
+        float f = sharedDensity[localID.z+2][localID.y+1][localID.x+1];
+        float b = sharedDensity[localID.z][localID.y+1][localID.x+1];
+        float c = sharedDensity[localID.z+1][localID.y+1][localID.x+1];
+        
+        // Same calculation as before
+        const float diffRate = 0.000015;
+        const float N = 1.0/(gridInfo.cellSize*gridInfo.cellSize);
+        const float a = diffRate*pc.dt*N; 
+        
+        const float newDns = (c + a*(l + r + u + d + f + b)) / (1+6*a);
+        const float result = SOR(cell.density, newDns, gridInfo.resolution.x);
+        
+        // Write result back to global memory
+        grid[index].density = result;
+    }
+}

@@ -1,3 +1,4 @@
+
 struct FluidGridCell
 {
 	vec4 velocity;
@@ -15,16 +16,37 @@ struct FluidGridInfo
 	float cellSize;
 };
 
-// struct GridNode
-// {
-//     uint child;
-// };
+#extension GL_EXT_buffer_reference : require
+#extension GL_EXT_shader_explicit_arithmetic_types_int64 : enable
 
-// struct GridRootTable
-// {
-//     uint placehoilder;
-// };
+layout (buffer_reference, std430) buffer VelocityBuffer {
+    vec4 velocity[];
+};
 
+layout (buffer_reference, std430) buffer DensityBuffer {
+    float density[];
+};
+
+layout (buffer_reference, std430) buffer PressureBuffer {
+    float pressure[];
+};
+
+layout (buffer_reference, std430) buffer DivergenceBuffer {
+    float divergence[];
+};
+
+layout(buffer_reference, std430) buffer FlagsBuffer {
+    uint flags[];
+};
+
+struct FluidGridReferences
+{
+    VelocityBuffer   velocityBuffer;
+    DensityBuffer    densityBuffer;
+    PressureBuffer   pressureBuffer;
+    DivergenceBuffer divergenceBuffer;
+    FlagsBuffer      flagsBuffer;
+};
 
 
 uint FLAG_OCCUPIED = 0x00000001;
@@ -32,6 +54,7 @@ uint FLAG_SOURCE   = 0x00000002;
 
 FluidGridCell zeroGridCell() {
 	return FluidGridCell(vec4(0.0), 0.0, 0.0, 0.0, 0, vec4(0.0));
+	// return FluidGridCell(vec4(0.0), 0.0, 0.0, 0.0, 0);
 }
 
 bool checkFlag(uint flags, uint mask)
@@ -166,3 +189,31 @@ vec4 SOR(vec4 old, vec4 new, uint N)
 	return result;
 }
 
+// Define block size (typically power of 2)
+const uint BLOCK_SIZE = 8; // or 8, depending on your needs
+const uint BLOCK_BITS = 3; // log2(BLOCK_SIZE), 2 for 4, 3 for 8
+
+// Swizzle function - converts linear dispatch ID to blocked ordering
+uvec3 getSwizzledInvocationID(uvec3 globalID, uvec3 dimensions) {
+    // Calculate block coordinates and local coordinates
+    uvec3 blockCoords = globalID >> BLOCK_BITS;
+    uvec3 localCoords = globalID & (BLOCK_SIZE-1);
+    
+    // Calculate total number of blocks in each dimension
+    uvec3 numBlocks = (dimensions + BLOCK_SIZE - 1) >> BLOCK_BITS;
+    
+    // Calculate 1D block index in Z-order or Morton order
+    // This is the key part that changes the ordering
+    uint blockIndex = blockCoords.x + 
+                     (blockCoords.y * numBlocks.x) + 
+                     (blockCoords.z * numBlocks.x * numBlocks.y);
+    
+    // Convert block index back to 3D block coordinates
+    uvec3 newBlockCoords;
+    newBlockCoords.x = blockIndex % numBlocks.x;
+    newBlockCoords.y = (blockIndex / numBlocks.x) % numBlocks.y;
+    newBlockCoords.z = blockIndex / (numBlocks.x * numBlocks.y);
+    
+    // Combine new block coordinates with local coordinates
+    return (newBlockCoords << BLOCK_BITS) | localCoords;
+}
