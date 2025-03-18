@@ -8,9 +8,14 @@
 
 layout(local_size_x = 8, local_size_y = 8) in;
 
+<<<<<<< HEAD
 // Input data structures
 layout(set = 0, binding = 0) readonly buffer FluidGridReferencesBuffer {
     FluidGridReferences grid;
+=======
+layout(set = 0, binding = 0) readonly buffer GridBuffer {
+    FluidGridCell voxelData[];
+>>>>>>> 90fa555a1bd90149fb1db27f0b508cb64c8bb1ae
 };
 
 layout(rgba32f, set = 0, binding = 1) uniform image2D outputImage;
@@ -144,8 +149,9 @@ vec4 traceVoxels(vec3 rayOrigin, vec3 rayDir) {
     int missteps = 0;
     // Main ray traversal loop
     ivec3 prevMapPos = mapPos;
-    for (int i = 0; i < 256+128; i++) {
+    for (int i = 0; i < pc.maxDistance; i++) {
         uint index = getGridIndex(uvec3(mapPos), gridInfo.resolution);
+		FluidGridCell cell = voxelData[index];
         
         // Bounds check
         if(all(greaterThanEqual(mapPos, ivec3(0))) && all(lessThan(mapPos, ivec3(pc.gridSize)))) {
@@ -156,17 +162,13 @@ vec4 traceVoxels(vec3 rayOrigin, vec3 rayDir) {
                 vec3 worldPos = gridToWorld(index, gridInfo.resolution, gridInfo.cellSize);
                 vec3 normal = calculateNormal(mapPos, prevMapPos);
                 vec3 viewDir = rayDir;
-				// vec3 lightVec = normalize(pc.lightSource.xyz - (vec3(mapPos.xyz) * vec3(gridInfo.cellSize)));
 				vec3 lightVec = normalize(worldPos - pc.lightSource.xyz);
-
                 vec4 litColor = lighting(color, lightVec, normal);
-                // vec4 litColor = vec4(worldPos, 1.0);
 
                 vec4 attenuation = vec4(1.0, 1.0, 1.0, exp(-t * 0.1));
-                // composite behind
                 accumColor = vec4(
                     accumColor.rgb * accumColor.a + litColor.rgb * (1.0 - accumColor.a),
-                    1.0 // Fully opaque result
+                    1.0 
                 );
                 break;
             }
