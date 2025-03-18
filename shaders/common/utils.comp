@@ -186,3 +186,40 @@ vec4 viridisColor(float t) {
     return vec4(color, 1.0);
 }
 
+vec4 infernoColor(float t) {
+    // Ensures input is in 0-1 range
+    t = clamp(t, 0.0, 1.0);
+    
+    // Constants for Inferno colormap
+    const vec3 c0 = vec3(0.001462, 0.000466, 0.013866);
+    const vec3 c1 = vec3(0.281477, 0.089601, 0.412874);
+    const vec3 c2 = vec3(0.577738, 0.199721, 0.496203);
+    const vec3 c3 = vec3(0.906311, 0.364682, 0.251485);
+    const vec3 c4 = vec3(0.993248, 0.746554, 0.235642);
+    const vec3 c5 = vec3(0.988362, 0.998364, 0.644924);
+    
+    vec3 color;
+    if (t < 0.2) {
+        // Dark purple to deep blue transition
+        float x = t * 5.0;
+        color = mix(c0, c1, x);
+    } else if (t < 0.4) {
+        // Deep blue to reddish-purple transition
+        float x = (t - 0.2) * 5.0;
+        color = mix(c1, c2, x);
+    } else if (t < 0.8) {
+        // Reddish-purple to orange transition
+        float x = (t - 0.4) * 5.0;
+        color = mix(c2, c3, x);
+    } else if (t < 0.95) {
+        // Orange to yellow-orange transition
+        float x = (t - 0.8) * 5.0;
+        color = mix(c3, c4, x);
+    } else {
+        // Yellow-orange to bright yellow transition
+        float x = (t - 0.95) * 5.0;
+        color = mix(c4, c5, x);
+    }
+    
+    return vec4(color, 1.0);
+}

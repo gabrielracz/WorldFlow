@@ -186,7 +186,8 @@ vec4 traceVoxels(vec3 rayOrigin, vec3 rayDir) {
 
 			vec4 heatColor = viridisColor(abs(density));
             if(density < 0.0) {
-            	heatColor = flameHeatmapColor(abs(density));
+            	// heatColor = flameHeatmapColor(abs(density));
+            	heatColor = infernoColor(abs(density));
             }
 
             contribution = clamp(contribution, 0.0, 1.0);
@@ -197,6 +198,7 @@ vec4 traceVoxels(vec3 rayOrigin, vec3 rayDir) {
             if (accumColor.a > 0.99) break;
         } else {
             missteps += 1;
+            break;
         }
         
         prevMapPos = mapPos;
