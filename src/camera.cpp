@@ -59,7 +59,7 @@ void Camera::SetView(glm::vec3 position, glm::vec3 look_at, glm::vec3 up){
 
 void Camera::SetPerspective(float fov, float near, float far, float w, float h){
     // Set projection based on field-of-view
-    float top = tan((fov/2.0)*(glm::pi<float>()/180.0))*near;
+    float top = tan((fov/2.0f)*(glm::pi<float>()/180.0f))*near;
     float right = top * w/h;
     perspective_matrix = glm::frustum(-right, right, -top, top, near, far);
 }

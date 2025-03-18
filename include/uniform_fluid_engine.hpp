@@ -48,11 +48,12 @@ private:
 private:
 	Renderer& _renderer;
 
-	float _tickRate {0.1};
+	float _tickRate {0.1f};
 	bool _useTickRate {true};
 	bool _shouldAddSources {false};
 	bool _shouldDiffuseDensity {false};
 	bool _shouldProjectIncompressible {true};
+	bool _shouldRenderFluid {true};
 	bool _shouldClear {false};
 	bool _toggle {false};
 	bool _shouldAddObstacle {false};
@@ -63,9 +64,9 @@ private:
 	glm::vec3 _sourcePosition {};
 	float _sourceRadius {};
 	glm::vec3 _velocitySourceAmount {};
-	float _densityAmount = 0.25;
-	float _velocitySpeed = 10.0;
-	float _decayRate = 0.1;
+	float _densityAmount = 0.25f;
+	float _velocitySpeed = 10.0f;
+	float _decayRate = 0.1f;
 
 	uint32_t _diffusionIterations;
 	uint32_t _pressureIterations;

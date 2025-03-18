@@ -592,8 +592,8 @@ Renderer::UploadMesh(Mesh& mesh, std::span<Vertex> vertices, std::span<uint32_t>
 			vkCmdCopyBuffer(cmd, meshStagingBuffer.bufferHandle, mesh.indexBuffer.bufferHandle, 1, &indexCopy);
 	});
 	meshStagingBuffer.Destroy(this->_allocator);
-	mesh.numIndices = indices.size();
-	mesh.numVertices = vertices.size();
+	mesh.numIndices = (uint32_t)indices.size();
+	mesh.numVertices = (uint32_t)vertices.size();
 
     this->_deletionQueue.push([this, mesh]() mutable {
         mesh.vertexBuffer.Destroy(this->_allocator);
@@ -1129,7 +1129,7 @@ Renderer::GetWindowExtent2D()
 float
 Renderer::GetElapsedTime()
 {
-    return this->_elapsed;
+    return (float)this->_elapsed;
 }
 
 uint32_t

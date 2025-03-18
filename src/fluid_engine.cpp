@@ -19,7 +19,7 @@ constexpr size_t VoxelGridSize = VoxelGridResolution * VoxelGridResolution * Vox
 constexpr float VoxelGridScale = 2.0f;
 
 constexpr uint32_t MeshIdx = 2;
-constexpr float MeshScale = 0.01;
+constexpr float MeshScale = 0.01f;
 // constexpr float MeshScale = 0.0007;
 // constexpr float MeshScale = 0.60;
 constexpr glm::vec3 MeshTranslation = glm::vec3(0.0, 0.0, 0.0);
@@ -280,7 +280,7 @@ FluidEngine::rayCastVoxelVolume(VkCommandBuffer cmd)
 		.nearPlane = 0.1f,
 		.screenSize = glm::vec2(this->_renderer.GetWindowExtent2D().width, this->_renderer.GetWindowExtent2D().height),
 		.maxDistance = 128,
-		.stepSize = 0.1,
+		.stepSize = 0.1f,
 		.gridSize = glm::vec3(Constants::VoxelGridResolution),
 		.gridScale = Constants::VoxelGridScale,
 		.lightSource = glm::vec4(30.0, 50.0, 20.0, 1.0),

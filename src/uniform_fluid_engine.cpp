@@ -42,6 +42,7 @@ struct alignas(16) FluidGridReferences
 	uint64_t pressureBufferReference;
 	uint64_t divergenceBufferReference;
 	uint64_t flagsBufferReference;
+	// uint64_t debugBufferReference;
 };
 
 struct alignas(16) FluidGridInfo
@@ -141,14 +142,14 @@ constexpr uint32_t NumPressureIterations = 6;
 
 constexpr glm::vec4 LightPosition = glm::vec4(500.0, 500.0, 200, 1.0);
 
-constexpr uint32_t NumParticles = 2048;
+constexpr uint32_t NumParticles = 65536;
 constexpr float MaxParticleLifetime = 240.0;
 }
 
 /* FUNCTIONS */
 static void
 rollingAverage(float& currentValue, float newValue) {
-	const float alpha = 0.15;
+	const float alpha = 0.15f;
 	currentValue = alpha * newValue + (1.0f - alpha) * currentValue;
 }
 
@@ -201,7 +202,8 @@ UniformFluidEngine::update(VkCommandBuffer cmd, float dt)
 	this->_timestamps.write(cmd, Timestamps::DensityAdvect, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
 
 	// drawGrid(cmd);
-	renderVoxelVolume(cmd);
+	if(this->_shouldRenderFluid)
+		renderVoxelVolume(cmd);
 	// renderParticles(cmd, dt);
 	this->_timestamps.write(cmd, Timestamps::FluidRender, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
 	
@@ -378,7 +380,7 @@ UniformFluidEngine::renderVoxelVolume(VkCommandBuffer cmd)
 		.nearPlane = 0.1f,
 		.screenSize = glm::vec2(this->_renderer.GetWindowExtent2D().width, this->_renderer.GetWindowExtent2D().height),
 		.maxDistance = Constants::VoxelDiagonal,
-		.stepSize = 0.1,
+		.stepSize = 0.1f,
 		.gridSize = glm::vec3(Constants::VoxelGridDimensions),
 		.gridScale = Constants::VoxelGridScale,
 		.lightSource = Constants::LightPosition,
@@ -538,8 +540,12 @@ UniformFluidEngine::drawUI()
 		ImGui::Text("DnsDiff:   %3.2f ms", this->_timestampAverages[Timestamps::DensityDiffusion]);
 		ImGui::Text("DnsAdvect: %3.2f ms", this->_timestampAverages[Timestamps::DensityAdvect]);
 		ImGui::Text("Render:    %3.2f ms", this->_timestampAverages[Timestamps::FluidRender]);
+		ImGui::SameLine();
+		ImGui::PushID("ShouldRender");
+		ImGui::Checkbox("", &this->_shouldRenderFluid);
+		ImGui::PopID();
 		ImGui::Separator();
-		ImGui::DragFloat("Tick", &this->_tickRate, 0.0025);
+		ImGui::DragFloat("Tick", &this->_tickRate, 0.0025f);
 		ImGui::SameLine();
 		ImGui::PushID("Use Tick Rate");
 		ImGui::Checkbox("", &this->_useTickRate);
@@ -551,11 +557,11 @@ UniformFluidEngine::drawUI()
     ImGui::SetNextWindowPos(ImVec2(pad, windowSize.y + pad), ImGuiCond_Always);
     ImGui::SetNextWindowSize(ImVec2(0, 0)); // Auto-sizing
 	if(ImGui::Begin("controls", nullptr, ImGuiWindowFlags_NoTitleBar)) {
-		ImGui::DragFloat("obj", &this->_objectRadius, 0.01, 0.5);
-		ImGui::DragFloat("src", &this->_sourceRadius, 0.01, 0.5);
-		ImGui::DragFloat("dns", &this->_densityAmount, 0.01, 1.0);
-		ImGui::DragFloat("decay", &this->_decayRate, 0.01);
-		ImGui::DragFloat("vel", &this->_velocitySpeed, 0.025);
+		ImGui::DragFloat("obj", &this->_objectRadius, 0.01f, 0.5f);
+		ImGui::DragFloat("src", &this->_sourceRadius, 0.01f, 0.5f);
+		ImGui::DragFloat("dns", &this->_densityAmount, 0.01f, 1.0f);
+		ImGui::DragFloat("decay", &this->_decayRate, 0.01f);
+		ImGui::DragFloat("vel", &this->_velocitySpeed, 0.025f);
 		const uint32_t step = 1;
 		ImGui::InputScalar("diffiter", ImGuiDataType_U32, &this->_diffusionIterations, &step);
 		ImGui::InputScalar("presiter", ImGuiDataType_U32, &this->_pressureIterations, &step);
@@ -570,7 +576,7 @@ void
 UniformFluidEngine::checkControls(KeyMap& keyMap, MouseMap& mouseMap, Mouse& mouse, float dt)
 {
 	if(mouseMap[SDL_BUTTON_RIGHT]) {
-		const float mouse_sens = -1.2;
+		const float mouse_sens = -1.2f;
 		glm::vec2 look = mouse.move * mouse_sens * dt;
 		this->_renderer.GetCamera().OrbitYaw(-look.x);
 		this->_renderer.GetCamera().OrbitPitch(-look.y);
@@ -580,42 +586,42 @@ UniformFluidEngine::checkControls(KeyMap& keyMap, MouseMap& mouseMap, Mouse& mou
 	if(mouse.scroll != 0.0f) {
 		float delta = -mouse.scroll * 6.25f * dt;
 		this->_renderer.GetCamera().distance += delta;
-		mouse.scroll = 0.0;
+		mouse.scroll = 0.0f;
 	}
 
 	float v = this->_velocitySpeed;
 	constexpr glm::vec3 c = Constants::VoxelGridCenter;
 	this->_objectPosition = Constants::VoxelGridCenter;
 	this->_shouldAddSources = false;
-	int offset = this->_objectRadius * Constants::VoxelGridResolution / 2.0;
+	int offset = (int)(this->_objectRadius * Constants::VoxelGridResolution / 2.0f);
 	if(keyMap[SDLK_q]) {
 		this->_shouldAddSources = true;
-		this->_velocitySourceAmount = glm::vec3(v, 0, 0);
+		this->_velocitySourceAmount = glm::vec3(v, 0.f, 0.f);
 		this->_sourcePosition = glm::vec3(offset, c.y, c.z);
 	}
 	if(keyMap[SDLK_e]) {
 		this->_shouldAddSources = true;
-		this->_velocitySourceAmount = glm::vec3(-v, 0, 0);
+		this->_velocitySourceAmount = glm::vec3(-v, 0.f, 0.f);
 		this->_sourcePosition = glm::vec3(c.x*2 - offset, c.y, c.z);
 	}
 	if(keyMap[SDLK_w]) {
 		this->_shouldAddSources = true;
-		this->_velocitySourceAmount = glm::vec3(0, 0, v);
+		this->_velocitySourceAmount = glm::vec3(0.f, 0.f, v);
 		this->_sourcePosition = glm::vec3(c.x, c.y, offset);
 	}
 	if(keyMap[SDLK_r]) {
 		this->_shouldAddSources = true;
-		this->_velocitySourceAmount = glm::vec3(0, 0, -v);
+		this->_velocitySourceAmount = glm::vec3(0.f, 0.f, -v);
 		this->_sourcePosition = glm::vec3(c.x, c.y, c.z*2 - offset);
 	}
 	if(keyMap[SDLK_t]) {
 		this->_shouldAddSources = true;
-		this->_velocitySourceAmount = glm::vec3(0, v, 0);
+		this->_velocitySourceAmount = glm::vec3(0.f, v, 0.f);
 		this->_sourcePosition = glm::vec3(c.x, offset, c.z);
 	}
 	if(keyMap[SDLK_y]) {
 		this->_shouldAddSources = true;
-		this->_velocitySourceAmount = glm::vec3(0, -v, 0);
+		this->_velocitySourceAmount = glm::vec3(0.f, -v, 0.f);
 		this->_sourcePosition = glm::vec3(c.x, c.y*2 - offset, c.z);
 	}
 
@@ -704,11 +710,11 @@ UniformFluidEngine::initResources()
 	Particle particles[Constants::NumParticles];
 	for(int i = 0; i < Constants::NumParticles; i++) {
 		particles[i].position = glm::vec4((glm::vec3(rand(), rand(), rand()) / (float)RAND_MAX - 0.5f) * glm::vec3(Constants::VoxelGridDimensions) * (float)Constants::VoxelCellSize, 1.0);
-		particles[i].mass = 0.01;
+		particles[i].mass = 0.01f;
 		particles[i].lifetime = (float)rand() / (float)RAND_MAX * Constants::MaxParticleLifetime;
 	}
 	this->_renderer.ImmediateSubmit([&particles, this](VkCommandBuffer cmd) {
-		vkCmdUpdateBuffer(cmd, this->_buffParticles.bufferHandle, 0, sizeof(particles), &particles);
+		// vkCmdUpdateBuffer(cmd, this->_buffParticles.bufferHandle, 0, sizeof(particles), &particles);
 	});
 
 	this->_renderer.CreateBuffer(
@@ -857,8 +863,8 @@ UniformFluidEngine::initPreProcess()
 	// 		data[i++] = glm::vec4((glm::vec3(dim.x, z, y) - center) * scale, 1.0);
 	// 	}
 	// }
-	for(int y = 0; y < dim.y; y++) {
-		for(int x = 0; x < dim.x; x+=4) {
+	for(uint32_t y = 0; y < dim.y; y++) {
+		for(uint32_t x = 0; x < dim.x; x+=4) {
 			data[i++] = glm::vec4((glm::vec3(x, y, 0.0) - center) * scale/2.0f, 1.0);
 			data[i++] = glm::vec4((glm::vec3(x, y, dim.z) - center) * scale/2.0f, 1.0);
 		}

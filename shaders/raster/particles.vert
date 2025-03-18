@@ -15,8 +15,8 @@ layout(set = 0, binding = 0) readonly buffer FluidInfo {
     FluidGridInfo gridInfo;
 };
 
-layout(set = 0, binding = 1) readonly buffer GridBuffer {
-    FluidGridCell fluid[];
+layout(set = 0, binding = 1) readonly buffer FluidGridReferencesBuffer {
+    FluidGridReferences grid;
 };
 
 
@@ -45,7 +45,7 @@ void main()
 
 	vec3 res = gridInfo.resolution.xyz;
 	vec3 ix = p.position.xyz;
-	vec4 velocity = fluid[worldToGridIndex(p.position.xyz, gridInfo.resolution, gridInfo.cellSize)].velocity;
+	vec4 velocity = grid.velocityBuffer.data[worldToGridIndex(p.position.xyz, gridInfo.resolution, gridInfo.cellSize)];
 	vec4 newPos = vec4(p.position.xyz + velocity.xyz * pc.dt * gridInfo.cellSize, 1.0);
 
 	vec4 worldBounds = vec4(vec3(gridInfo.resolution.xyz) * gridInfo.cellSize * 0.5, 1.0);
@@ -57,5 +57,5 @@ void main()
 	//output the position of each vertex
 	gl_Position =  pc.cameraMatrix * newPos;
 	outColor = vec4(1.0, 0.0, 0.0, 1.0 * (pc.maxLifetime - particles[gl_VertexIndex].lifetime + 1) / pc.maxLifetime);
-	gl_PointSize = 3;
+	gl_PointSize = 1;
 }

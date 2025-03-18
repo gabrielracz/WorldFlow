@@ -25,8 +25,8 @@ struct Mesh
     Buffer vertexBuffer;
     VkDeviceAddress vertexBufferAddress;
     VkDeviceAddress indexBufferAddress {};
-    size_t numIndices;
-    size_t numVertices;
+    uint32_t numIndices;
+    uint32_t numVertices;
 
 	void Destroy(VmaAllocator allocator);
 };

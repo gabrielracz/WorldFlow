@@ -215,7 +215,7 @@ void SetDarkRedTheme()
     colors[ImGuiCol_WindowBg]               = ImVec4(0.00f, 0.00f, 0.00f, t);
     colors[ImGuiCol_ChildBg]                = ImVec4(0.00f, 0.00f, 0.00f, 0.00f);
     colors[ImGuiCol_PopupBg]                = ImVec4(0.05f, 0.00f, 0.00f, t);
-    colors[ImGuiCol_Border]                 = ImVec4(0.85f, 0.10f, 0.10f, t * 1.5);
+    colors[ImGuiCol_Border]                 = ImVec4(0.85f, 0.10f, 0.10f, t * 1.5f);
     colors[ImGuiCol_BorderShadow]           = ImVec4(0.00f, 0.00f, 0.00f, 0.00f);
     
     // Headers - Deeper red for normal state, brighter for interaction

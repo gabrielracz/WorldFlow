@@ -63,7 +63,7 @@ bool loadGltfMeshes(std::filesystem::path filePath, std::vector<std::vector<Vert
 
                 fastgltf::iterateAccessor<std::uint32_t>(gltf, indexaccessor,
                     [&](std::uint32_t idx) {
-                        indices.push_back(idx + initial_vtx);
+                        indices.push_back(idx + (uint32_t)initial_vtx);
                     });
             }
 

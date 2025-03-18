@@ -54,7 +54,7 @@ struct ComputePipeline
 	void Bind(VkCommandBuffer cmd)
 	{
 		vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, this->pipeline);
-		vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, this->layout, 0, this->descriptorSets.size(), this->descriptorSets.data(), 0, nullptr);
+		vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, this->layout, 0, (uint32_t)this->descriptorSets.size(), this->descriptorSets.data(), 0, nullptr);
 	}
 };
 
@@ -69,7 +69,7 @@ struct GraphicsPipeline
 	{
 		vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, this->pipeline);
         if(this->descriptorSets.size() > 0) {
-            vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, this->layout, 0, this->descriptorSets.size(), this->descriptorSets.data(), 0, nullptr);
+            vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, this->layout, 0, (uint32_t)this->descriptorSets.size(), this->descriptorSets.data(), 0, nullptr);
         }
 
 	}
@@ -171,7 +171,7 @@ struct TimestampQueryPool
             sizeof(uint64_t) * 2,  // Stride includes both timestamp and availability
             VK_QUERY_RESULT_64_BIT | VK_QUERY_RESULT_WITH_AVAILABILITY_BIT);
         
-        for(int i = 0; i < queryCount; i++) {
+        for(uint32_t i = 0; i < queryCount; i++) {
             uint32_t qix = firstQuery * 2 + i * 2;
             if(pendingResults[qix + 1] != 0) {
                 results[i] = pendingResults[qix]; // push to results if availability is 1
