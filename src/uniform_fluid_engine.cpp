@@ -122,7 +122,7 @@ namespace Constants
 constexpr size_t VoxelGridResolution = 64;
 // constexpr glm::uvec4 VoxelGridDimensions = glm::uvec4(VoxelGridResolution, VoxelGridResolution, VoxelGridResolution, 1);
 // constexpr glm::uvec4 VoxelGridDimensions = glm::uvec4(64, 64, 64, 1);
-constexpr glm::uvec4 VoxelGridDimensions = glm::uvec4(256, 96, 256, 1);
+constexpr glm::uvec4 VoxelGridDimensions = glm::uvec4(128, 96, 128, 1);
 // constexpr glm::uvec4 VoxelGridDimensions = glm::uvec4(16,16,16,1);
 
 const uint32_t NumVoxelGridCells = VoxelGridDimensions.x * VoxelGridDimensions.y * VoxelGridDimensions.z;
@@ -707,7 +707,7 @@ UniformFluidEngine::initResources()
 		VMA_MEMORY_USAGE_GPU_ONLY
 	);
 
-	Particle particles[Constants::NumParticles];
+	Particle* particles = new Particle[Constants::NumParticles];
 	for(int i = 0; i < Constants::NumParticles; i++) {
 		particles[i].position = glm::vec4((glm::vec3(rand(), rand(), rand()) / (float)RAND_MAX - 0.5f) * glm::vec3(Constants::VoxelGridDimensions) * (float)Constants::VoxelCellSize, 1.0);
 		particles[i].mass = 0.01f;
