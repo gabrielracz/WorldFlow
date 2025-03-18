@@ -9,8 +9,8 @@ layout(std430, binding = 0) buffer FluidInfo {
 	FluidGridInfo gridInfo;
 };
 
-layout(std430, binding = 1) buffer FluidGrid {
-	FluidGridCell grid[];
+layout(std430, binding = 1) buffer FluidGridReferencesBuffer {
+	FluidGridReferences grid;
 };
 
 layout(push_constant) uniform PushConstants {
@@ -25,25 +25,24 @@ vec4 sampleVelocity(uvec3 center, ivec3 offset)
 	bvec3 ge = greaterThanEqual(cell, ivec3(0));
 	bvec3 le = lessThan(cell, ivec3(gridInfo.resolution.xyz));
 	bool valid = all(ge) && all(le);
-	if(!valid) {return grid[getGridIndex(center, gridInfo.resolution)].velocity;}
+	if(!valid) {return grid.velocityBuffer.data[getGridIndex(center, gridInfo.resolution)];}
 	// if(!valid) {return vec4(0.0, 0.0, 0.0, 1.0);}
 
-	bool occ = checkFlag(grid[getGridIndex(cell, gridInfo.resolution)].flags, FLAG_OCCUPIED);
+	bool occ = (grid.flagsBuffer.data[getGridIndex(cell, gridInfo.resolution)] & FLAG_OCCUPIED) > 0;
 	if(occ) {return vec4(0.0);}
 	// if(occ) {return grid[getGridIndex(center, gridInfo.resolution)].velocity * abs(vec4(1.0 - abs(vec3(offset)), 1.0));}// 
 
-	return grid[getGridIndex(cell, gridInfo.resolution)].velocity;
+	return grid.velocityBuffer.data[getGridIndex(cell, gridInfo.resolution)];
 }
 
 void main()
 {
 	uvec3 center = gl_GlobalInvocationID;
-	// uvec3 center = getRedBlackPosition(gl_GlobalInvocationID, pc.redBlack);
+	// uvec.3 center = getRedBlackPosition(gl_GlobalInvocationID, pc.redBlack);
 	uint index = getGridIndex(center, gridInfo.resolution);
-	FluidGridCell cell = grid[index];
 
 	// Alternate updates in alternating checkerboard pattern to avoid atomics
-	if(mod(center.x + center.y + center.z + pc.redBlack, 2) == 0){
+	if((center.x + center.y + center.z + pc.redBlack) % 2 == 0){
 		return;
 	}
 
@@ -53,7 +52,7 @@ void main()
 	const vec4 d = sampleVelocity(center, ivec3(0, -1, 0));
 	const vec4 f = sampleVelocity(center, ivec3(0, 0, 1));
 	const vec4 b = sampleVelocity(center, ivec3(0, 0, -1));
-	const vec4 c = cell.velocity;
+	const vec4 c = grid.velocityBuffer.data[index];
 
     const float diffRate =  0.000010;
 	const float N = 1.0/(gridInfo.cellSize*gridInfo.cellSize);
@@ -61,11 +60,11 @@ void main()
 
     const vec4 newVel = (c + a*(l + r + u + d + f + b)) / (1+6*a);
 
-	const vec4 result = SOR(cell.velocity, newVel, gridInfo.resolution.x);
+	const vec4 result = SOR(c, newVel, gridInfo.resolution.x);
 	// const vec4 result = newVel;
 
     // guarded by red-black
-    grid[index].velocity = result;
+    grid.velocityBuffer.data[index] = result;
 
     // atomicExchange(grid[index].velocity.x, result.x);
     // atomicExchange(grid[index].velocity.y, result.y);

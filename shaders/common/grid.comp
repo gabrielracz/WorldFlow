@@ -20,23 +20,23 @@ struct FluidGridInfo
 #extension GL_EXT_shader_explicit_arithmetic_types_int64 : enable
 
 layout (buffer_reference, std430) buffer VelocityBuffer {
-    vec4 velocity[];
+    vec4 data[];
 };
 
 layout (buffer_reference, std430) buffer DensityBuffer {
-    float density[];
+    float data[];
 };
 
 layout (buffer_reference, std430) buffer PressureBuffer {
-    float pressure[];
+    float data[];
 };
 
 layout (buffer_reference, std430) buffer DivergenceBuffer {
-    float divergence[];
+    float data[];
 };
 
 layout(buffer_reference, std430) buffer FlagsBuffer {
-    uint flags[];
+    uint data[];
 };
 
 struct FluidGridReferences
@@ -57,6 +57,16 @@ FluidGridCell zeroGridCell() {
 	// return FluidGridCell(vec4(0.0), 0.0, 0.0, 0.0, 0);
 }
 
+void clearGridCell(FluidGridReferences grid, uint index)
+{
+    
+    grid.velocityBuffer.data[index]   = vec4(0.0);
+    grid.densityBuffer.data[index]    = 0.0;
+    grid.pressureBuffer.data[index]   = 0.0;
+    grid.divergenceBuffer.data[index] = 0.0;
+    grid.flagsBuffer.data[index]      = 0;
+}
+
 bool checkFlag(uint flags, uint mask)
 {
 	return (flags & mask) > 0;
@@ -69,7 +79,7 @@ bool isWithinGridBounds(uvec3 p, uvec4 gridResolution)
            p.z < gridResolution.z;
 }
 
-#define CHUNK_FLATTENED_INDEXING
+// #define CHUNK_FLATTENED_INDEXING
 #ifdef CHUNK_FLATTENED_INDEXING
 uint getGridIndex(uvec3 index, uvec4 gridResolution)
 {
@@ -175,14 +185,14 @@ uvec3 getRedBlackPosition(uvec3 threadID, uvec4 gridResolution, uint redBlack)
     return uvec3(threadID.x, threadID.y, z);
 }
 
-float SOR(float old, float new, uint N)
+float SOR(float old, float new, float N)
 {
 	float alpha = 2.0 / (1.0 + sin(3.14159 / N));
 	float result = alpha * new + (1 - alpha) * old;
 	return result;
 }
 
-vec4 SOR(vec4 old, vec4 new, uint N)
+vec4 SOR(vec4 old, vec4 new, float N)
 {
 	const float alpha = 2.0 / (1.0 + sin(3.14159 / N));
 	vec4 result = alpha * new + (1 - alpha) * old;

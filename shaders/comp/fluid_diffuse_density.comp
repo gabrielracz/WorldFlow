@@ -9,8 +9,8 @@ layout(std430, binding = 0) buffer FluidInfo {
 	FluidGridInfo gridInfo;
 };
 
-layout(std430, binding = 1) buffer FluidGrid {
-	FluidGridCell grid[];
+layout(std430, binding = 1) buffer FluidGridReferencesBuffer {
+	FluidGridReferences grid;
 };
 
 layout(push_constant) uniform PushConstants {
@@ -21,11 +21,16 @@ layout(push_constant) uniform PushConstants {
 
 float sampleDensity(uvec3 center, ivec3 offset)
 {
-	uvec3 cell = center + offset;
-	bool valid = all(greaterThanEqual(cell, uvec3(0))) && all(lessThan(cell, gridInfo.resolution.xyz)) && !(grid[getGridIndex(cell, gridInfo.resolution)].flags > 0);
-	if(!valid) {return grid[getGridIndex(center, gridInfo.resolution)].density;}
-	if(!valid) {return 0.0;}
-	return grid[getGridIndex(cell, gridInfo.resolution)].density;
+	ivec3 cell = ivec3(center) + offset;
+	bvec3 ge = greaterThanEqual(cell, ivec3(0));
+	bvec3 le = lessThan(cell, ivec3(gridInfo.resolution.xyz));
+	bool valid = all(ge) && all(le);
+	if(!valid) {return grid.densityBuffer.data[getGridIndex(center, gridInfo.resolution)];}
+
+	bool occ = (grid.flagsBuffer.data[getGridIndex(cell, gridInfo.resolution)] & FLAG_OCCUPIED) > 0;
+	if(occ) {return grid.densityBuffer.data[getGridIndex(center, gridInfo.resolution)];}
+
+	return grid.densityBuffer.data[getGridIndex(cell, gridInfo.resolution)];
 }
 
 void main()
@@ -33,10 +38,9 @@ void main()
 	uvec3 center = gl_GlobalInvocationID;
 	// uvec3 center = getRedBlackPosition(gl_GlobalInvocationID, pc.redBlack);
 	uint index = getGridIndex(center, gridInfo.resolution);
-	FluidGridCell cell = grid[index];
 
 	// Alternate updates in alternating checkerboard pattern to avoid atomics
-	if(mod(center.x + center.y + center.z + pc.redBlack, 2) == 0){
+	if((center.x + center.y + center.z + pc.redBlack % 2) == 0){
 		return;
 	}
 
@@ -46,14 +50,14 @@ void main()
 	float d = sampleDensity(center, ivec3(0, -1, 0));
 	float f = sampleDensity(center, ivec3(0, 0, 1));
 	float b = sampleDensity(center, ivec3(0, 0, -1));
-	float c = cell.density;
+	float c = grid.densityBuffer.data[index];
 
     const float diffRate =  0.000015;
 	const float N = 1.0/(gridInfo.cellSize*gridInfo.cellSize);
     const float a = diffRate*pc.dt*N; 
 
     const float newDns = (c + a*(l + r + u + d + f + b)) / (1+6*a); // backwards stable
-	const float result = SOR(cell.density, newDns, gridInfo.resolution.x);
+	const float result = SOR(c, newDns, gridInfo.resolution.x);
 
-	grid[index].density = result;
+	grid.densityBuffer.data[index] = result;
 }

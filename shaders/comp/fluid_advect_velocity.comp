@@ -10,8 +10,8 @@ layout(std430, binding = 0) buffer FluidInfo {
 	FluidGridInfo gridInfo;
 };
 
-layout(std430, binding = 1) buffer FluidGrid {
-	FluidGridCell grid[];
+layout(std430, binding = 1) buffer FluidGridReferencesBuffer {
+	FluidGridReferences grid;
 };
 
 layout(push_constant) uniform PushConstants {
@@ -31,36 +31,24 @@ vec4 sampleVelocity(uvec3 center, ivec3 offset)
 	bvec3 ge = greaterThanEqual(cell, ivec3(0));
 	bvec3 le = lessThan(cell, ivec3(gridInfo.resolution.xyz));
 	bool valid = all(ge) && all(le);
-	if(!valid) {return grid[getGridIndex(center, gridInfo.resolution)].velocity;}
-	//if(!valid) {return vec4(0.0, 0.0, 0.0, 1.0);}
+	if(!valid) {return grid.velocityBuffer.data[getGridIndex(center, gridInfo.resolution)];}
+	// if(!valid) {return vec4(0.0, 0.0, 0.0, 1.0);}
 
-	bool occ = checkFlag(grid[getGridIndex(cell, gridInfo.resolution)].flags, FLAG_OCCUPIED);
+	bool occ = (grid.flagsBuffer.data[getGridIndex(cell, gridInfo.resolution)] & FLAG_OCCUPIED) > 0;
 	if(occ) {return vec4(0.0);}
 	// if(occ) {return grid[getGridIndex(center, gridInfo.resolution)].velocity * abs(vec4(1.0 - abs(vec3(offset)), 1.0));}// 
 
-	return grid[getGridIndex(cell, gridInfo.resolution)].velocity;
+	return grid.velocityBuffer.data[getGridIndex(cell, gridInfo.resolution)];
 }
-
-void atomicSetVelocity(uint index, vec3 newVelocity) {
-	atomicExchange(grid[index].velocity.x, newVelocity.x);
-	atomicExchange(grid[index].velocity.y, newVelocity.y);
-	atomicExchange(grid[index].velocity.z, newVelocity.z);
-}
-
 
 void main()
 {
 	uint index = getGridIndex(gl_GlobalInvocationID, gridInfo.resolution);
-	FluidGridCell cell = grid[index];
-	// center grid cell position
-	// vec3 pos = vec3(gl_GlobalInvocationID) + vec3(0.49, 0.49, 0.49);
-	// vec3 pos = vec3(gl_GlobalInvocationID) + vec3(0.5);
-	vec3 pos = vec3(gl_GlobalInvocationID) + 0.5;
-	// vec3 pos = vec3(gl_GlobalInvocationID);
+	vec3 pos = vec3(gl_GlobalInvocationID) + 0.5; // center grid cell position
 
 	// FIXME
-	vec3 pastPos = traceVelocityField(pos, cell.velocity.xyz, pc.dt);
-	if(any(greaterThanEqual(pastPos, vec3(gridInfo.resolution.xyz))) || any(lessThan(pastPos, vec3(0.0)))) {
+	vec3 pastPos = traceVelocityField(pos, grid.velocityBuffer.data[index].xyz, pc.dt);
+	if(any(greaterThanEqual(pastPos, vec3(gridInfo.resolution.xyz))) || any(lessThan(pastPos, vec3(0.5)))) {
 		vec3 clampedPos = clamp(pastPos, vec3(0.5), vec3(gridInfo.resolution.xyz - 1) + vec3(0.5));
 		uint clampedIndex = getGridIndex(uvec3(floor(clampedPos)), gridInfo.resolution);
 		pastPos = clampedPos;
@@ -98,10 +86,9 @@ void main()
 	vec4 interpolatedVelocity = triInterp(c000, c100, c010, c110,
                                 c001, c101, c011, c111,
                                 weights);
-
 	// vec4 interpolatedVelocity = grid[getGridIndex(center, gridInfo.resolution)].velocity;
 
-	atomicExchange(grid[index].velocity.x, interpolatedVelocity.x);
-	atomicExchange(grid[index].velocity.y, interpolatedVelocity.y);
-	atomicExchange(grid[index].velocity.z, interpolatedVelocity.z);
+	atomicExchange(grid.velocityBuffer.data[index].x, interpolatedVelocity.x);
+	atomicExchange(grid.velocityBuffer.data[index].y, interpolatedVelocity.y);
+	atomicExchange(grid.velocityBuffer.data[index].z, interpolatedVelocity.z);
 }

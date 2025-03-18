@@ -10,8 +10,8 @@ layout(std430, binding = 0) buffer FluidInfo {
 	FluidGridInfo gridInfo;
 };
 
-layout(std430, binding = 1) buffer FluidGrid {
-	FluidGridCell grid[];
+layout(std430, binding = 1) buffer FluidGridReferencesBuffer {
+	FluidGridReferences grid;
 };
 
 layout(push_constant) uniform PushConstants {
@@ -25,20 +25,23 @@ vec4 sampleVelocity(uvec3 center, ivec3 offset)
 	ivec3 cell = ivec3(center) + offset;
 	bvec3 ge = greaterThanEqual(cell, ivec3(0));
 	bvec3 le = lessThan(cell, ivec3(gridInfo.resolution.xyz));
-	bool occ = checkFlag(grid[getGridIndex(cell, gridInfo.resolution)].flags, FLAG_OCCUPIED);
-	bool valid = all(ge) && all(le) && !occ;
-	// if(!valid) {return grid[getGridIndex(center, gridInfo.resolution)].velocity * abs(vec3(1.0 - abs(vec3(offset))));}
+	bool valid = all(ge) && all(le);
+	if(!valid) {return grid.velocityBuffer.data[getGridIndex(center, gridInfo.resolution)];}
+	// if(!valid) {return vec4(0.0, 0.0, 0.0, 1.0);}
+
+	bool occ = (grid.flagsBuffer.data[getGridIndex(cell, gridInfo.resolution)] & FLAG_OCCUPIED) > 0;
 	if(occ) {return vec4(0.0);}
-	if(!valid) {return grid[getGridIndex(center, gridInfo.resolution)].velocity;}
-	return grid[getGridIndex(cell, gridInfo.resolution)].velocity;
+	// if(occ) {return grid[getGridIndex(center, gridInfo.resolution)].velocity * abs(vec4(1.0 - abs(vec3(offset)), 1.0));}// 
+
+	return grid.velocityBuffer.data[getGridIndex(cell, gridInfo.resolution)];
 }
+
+
 
 void main()
 {
 	uint index = getGridIndex(gl_GlobalInvocationID, gridInfo.resolution);
-	FluidGridCell cell = grid[index];
-	// center grid cell position
-	vec3 pos = vec3(gl_GlobalInvocationID) + vec3(0.5, 0.5, 0.5);
+	vec3 pos = vec3(gl_GlobalInvocationID) + vec3(0.5, 0.5, 0.5); // center grid cell position
 	uvec3 center = gl_GlobalInvocationID;
 
 	const vec4 l = sampleVelocity(center, ivec3(-1, 0, 0));
@@ -47,7 +50,7 @@ void main()
 	const vec4 d = sampleVelocity(center, ivec3(0, -1, 0));
 	const vec4 f = sampleVelocity(center, ivec3(0, 0, 1));
 	const vec4 b = sampleVelocity(center, ivec3(0, 0, -1));
-	const vec4 oldVel = cell.velocity;
+	const vec4 oldVel = grid.velocityBuffer.data[index];
 
     float dx = gridInfo.resolution.x;
     vec4 flux = vec4(0);
@@ -63,5 +66,5 @@ void main()
 
     vec4 newVel = oldVel - flux * pc.dt;
 
-	grid[index].velocity = newVel;
+	grid.velocityBuffer.data[index] = newVel;
 }

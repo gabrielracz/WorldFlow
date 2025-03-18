@@ -2,6 +2,11 @@ vec3 clampVector(vec3 a, vec3 minVec, vec3 maxVec) {
     return min(max(a, minVec), maxVec);
 }
 
+float avg3(vec3 v)
+{
+    return (v.x + v.y + v.z)/3.0;
+}
+
 vec4 triInterp(vec4 c000, vec4 c100, vec4 c010, vec4 c110,
                vec4 c001, vec4 c101, vec4 c011, vec4 c111,
                vec3 weights) {

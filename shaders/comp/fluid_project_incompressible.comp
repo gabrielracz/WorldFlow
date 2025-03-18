@@ -10,8 +10,8 @@ layout(std430, binding = 0) buffer FluidInfo {
 	FluidGridInfo gridInfo;
 };
 
-layout(std430, binding = 1) buffer FluidGrid {
-	FluidGridCell grid[];
+layout(std430, binding = 1) buffer FluidGridReferencesBuffer {
+	FluidGridReferences grid;
 };
 
 layout(push_constant) uniform PushConstants {
@@ -25,19 +25,19 @@ float samplePressure(uvec3 center, ivec3 offset)
 	ivec3 cell = ivec3(center) + offset;
 	bvec3 ge = greaterThanEqual(cell, ivec3(0));
 	bvec3 le = lessThan(cell, ivec3(gridInfo.resolution.xyz));
-	bool occ = checkFlag(grid[getGridIndex(cell, gridInfo.resolution)].flags, FLAG_OCCUPIED);
-	bool valid = all(ge) && all(le) && !occ;
+	bool valid = all(ge) && all(le);
+	if(!valid) {return grid.pressureBuffer.data[getGridIndex(center, gridInfo.resolution)];}
+
+	bool occ = (grid.flagsBuffer.data[getGridIndex(cell, gridInfo.resolution)] & FLAG_OCCUPIED) > 0;
 	if(occ) {return 0.0;}
-	if(!valid) {return grid[getGridIndex(center, gridInfo.resolution)].pressure;}
 	// if(!valid) {return 0.0;}
-	return grid[getGridIndex(cell, gridInfo.resolution)].pressure;
+	return grid.pressureBuffer.data[getGridIndex(cell, gridInfo.resolution)];
 }
 
 void main()
 {
 	uvec3 center = gl_GlobalInvocationID;
 	uint index = getGridIndex(gl_GlobalInvocationID, gridInfo.resolution);
-	FluidGridCell cell = grid[index];
 
 	const float r = samplePressure(center, ivec3(1, 0, 0));
 	const float l = samplePressure(center, ivec3(-1, 0, 0));
@@ -45,7 +45,6 @@ void main()
 	const float d = samplePressure(center, ivec3(0, -1, 0));
 	const float f = samplePressure(center, ivec3(0, 0, 1));
 	const float b = samplePressure(center, ivec3(0, 0, -1));
-
 	const float h = gridInfo.cellSize;
 
 	float a = 0.000;
@@ -53,6 +52,6 @@ void main()
 	float gradY = 0.5 * (u - d - a) / h;
 	float gradZ = 0.5 * (f - b - a) / h;
 
-	vec4 newVelocity = cell.velocity - vec4(gradX, gradY, gradZ, 0.0);
-	grid[index].velocity = vec4(newVelocity.xyz, 1.0);
+	vec4 newVelocity = grid.velocityBuffer.data[index] - vec4(gradX, gradY, gradZ, 0.0);
+	grid.velocityBuffer.data[index] = vec4(newVelocity.xyz, 1.0);
 }
