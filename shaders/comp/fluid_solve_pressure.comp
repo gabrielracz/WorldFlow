@@ -41,7 +41,8 @@ void main()
 	uint index = getGridIndex(center, gridInfo.resolution);
 
 	// Alternate updates in alternating checkerboard pattern to avoid atomics
-	if((center.x + center.y + center.z + pc.redBlack % 2) == 0){
+	// if((center.x + center.y + center.z + pc.redBlack % 2) == 0){
+	if(mod(float(center.x + center.y + center.z + pc.redBlack), 2) == 0){
 		return;
 	}
 
@@ -56,11 +57,11 @@ void main()
     const float newPres = (grid.divergenceBuffer.data[index] + r + l + u + d + f + b) / 6.0;
 
 	// SOR
-	// const float result = SOR(oldPres, newPres, avg3(gridInfo.resolution.xyx));
-
-	float alpha = 1.7;
-	float result = alpha * newPres + (1 - alpha) * oldPres;
+	const float result = SOR(oldPres, newPres, avg3(gridInfo.resolution.xyx));
 	// const float result = newPres;
+
+	// float alpha = 1.5;
+	// float result = alpha * newPres + (1 - alpha) * oldPres;
 
     // guarded by red-black
     grid.pressureBuffer.data[index] = result;

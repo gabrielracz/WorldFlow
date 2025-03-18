@@ -188,7 +188,7 @@ uvec3 getRedBlackPosition(uvec3 threadID, uvec4 gridResolution, uint redBlack)
 float SOR(float old, float new, float N)
 {
 	float alpha = 2.0 / (1.0 + sin(3.14159 / N));
-	float result = alpha * new + (1 - alpha) * old;
+	float result = alpha * new + (1.0 - alpha) * old;
 	return result;
 }
 

@@ -43,7 +43,8 @@ void main()
 	uint index = getGridIndex(center, gridInfo.resolution);
 
 	// Alternate updates in alternating checkerboard pattern to avoid atomics
-	if((center.x + center.y + center.z + pc.redBlack) % 2 == 0){
+	// if((center.x + center.y + center.z + pc.redBlack) % 2 == 0){
+	if(mod(float(center.x + center.y + center.z + pc.redBlack), 2) == 0){
 		return;
 	}
 

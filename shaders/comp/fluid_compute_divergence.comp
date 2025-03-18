@@ -51,5 +51,5 @@ void main()
 
     const float div = -0.5 * gridInfo.cellSize * (r-l + u-d + f-b);
     grid.divergenceBuffer.data[index] = div;
-	grid.pressureBuffer.data[index] = 0.0;
+	// grid.pressureBuffer.data[index] = 0.0;
 }
