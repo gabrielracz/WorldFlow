@@ -31,13 +31,12 @@ void main()
     // Local thread ID within the workgroup
     uvec3 localID = gl_LocalInvocationID;
     
-    // Global position in the grid
-    uvec3 center = gl_WorkGroupID * uvec3(BLOCK_SIZE_X, BLOCK_SIZE_Y, BLOCK_SIZE_Z) + localID;
+    uvec3 globalPos = gl_WorkGroupID * uvec3(BLOCK_SIZE_X, BLOCK_SIZE_Y, BLOCK_SIZE_Z) + localID;
     uint index = getGridIndex(center, gridInfo.resolution);
     
-    // Load center cell into shared memory (including halo/boundary cells)
-    // +1 offset in shared mem to allow for boundary cells
     sharedDensity[localID.z+1][localID.y+1][localID.x+1] = grid.densityBuffer.data[index];
+    const int leftoff = -1;
+    const int rightoff = 1;
     
     // Load boundary cells - each thread loads extra cells
     // Carefully handling boundary conditions

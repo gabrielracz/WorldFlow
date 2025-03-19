@@ -60,6 +60,7 @@ private:
 	bool _shouldHideUI {false};
 	glm::vec3 _objectPosition{};
 	float _objectRadius;
+	float _objectOffset = 1.0;
 	int _renderType = 1;
 	glm::vec3 _sourcePosition {};
 	float _sourceRadius {};

@@ -48,8 +48,8 @@ void main()
 
 	// FIXME
 	vec3 pastPos = traceVelocityField(pos, grid.velocityBuffer.data[index].xyz, pc.dt);
-	if(any(greaterThanEqual(pastPos, vec3(gridInfo.resolution.xyz))) || any(lessThan(pastPos, vec3(0.5)))) {
-		vec3 clampedPos = clamp(pastPos, vec3(0.5), vec3(gridInfo.resolution.xyz - 1) + vec3(0.5));
+	if(any(greaterThan(pastPos, vec3(gridInfo.resolution.xyz) - 0.5)) || any(lessThan(pastPos, vec3(0.5)))) {
+		vec3 clampedPos = clamp(pastPos, vec3(0.5), vec3(gridInfo.resolution.xyz) - vec3(0.5));
 		uint clampedIndex = getGridIndex(uvec3(floor(clampedPos)), gridInfo.resolution);
 		pastPos = clampedPos;
 	}
@@ -57,10 +57,19 @@ void main()
 	ivec3 center = ivec3(floor(pastPos));
 	vec3 cellPos = fract(pastPos);
 	
+	if(cellPos == vec3(0.5)) {
+		vec4 interpolatedVelocity = grid.velocityBuffer.data[getGridIndex(center, gridInfo.resolution)];
+		atomicExchange(grid.velocityBuffer.data[index].x, interpolatedVelocity.x);
+		atomicExchange(grid.velocityBuffer.data[index].y, interpolatedVelocity.y);
+		atomicExchange(grid.velocityBuffer.data[index].z, interpolatedVelocity.z);
+		grid.debugBuffer.data[index].x = 3.0;
+		return;
+	}
+
     // Determine which neighboring cells to sample based on position
-    int i1 = (cellPos.x <= 0.5) ? -1 : 1;
-    int j1 = (cellPos.y <= 0.5) ? -1 : 1;
-    int k1 = (cellPos.z <= 0.5) ? -1 : 1;
+    int i1 = (cellPos.x < 0.5) ? -1 : 1;
+    int j1 = (cellPos.y < 0.5) ? -1 : 1;
+    int k1 = (cellPos.z < 0.5) ? -1 : 1;
     
     // Sample all 8 neighboring cells
     vec4 c000 = sampleVelocity(center, ivec3(0, 0, 0));
@@ -76,9 +85,9 @@ void main()
     // If cellPos < 0.5, we want weight to go from 0.5 to 0
     // If cellPos >= 0.5, we want weight to go from 0 to 0.5
     vec3 weights;
-    weights.x = (cellPos.x <= 0.5) ? (0.5 - cellPos.x) : (cellPos.x - 0.5);
-    weights.y = (cellPos.y <= 0.5) ? (0.5 - cellPos.y) : (cellPos.y - 0.5);
-    weights.z = (cellPos.z <= 0.5) ? (0.5 - cellPos.z) : (cellPos.z - 0.5);
+    weights.x = (cellPos.x < 0.5) ? (0.5 - cellPos.x) : (cellPos.x - 0.5);
+    weights.y = (cellPos.y < 0.5) ? (0.5 - cellPos.y) : (cellPos.y - 0.5);
+    weights.z = (cellPos.z < 0.5) ? (0.5 - cellPos.z) : (cellPos.z - 0.5);
 	
     // Normalize weights to [0,1] range
     weights *= 2.0;

@@ -58,7 +58,7 @@ void main()
     const float a = diffRate*pc.dt*N; 
 
     const float newDns = (c + a*(l + r + u + d + f + b)) / (1+6*a); // backwards stable
-	const float result = SOR(c, newDns, gridInfo.resolution.x);
+	const float result = SOR(c, newDns, avg3(gridInfo.resolution.xyz));
 
 	grid.densityBuffer.data[index] = result;
 }

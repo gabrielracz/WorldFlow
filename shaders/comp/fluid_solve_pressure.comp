@@ -58,9 +58,6 @@ void main()
 	const float result = SOR(oldPres, newPres, avg3(gridInfo.resolution.xyx));
 	// const float result = newPres;
 
-	// float alpha = 1.5;
-	// float result = alpha * newPres + (1 - alpha) * oldPres;
-
     // guarded by red-black
     grid.pressureBuffer.data[index] = result;
 	// atomicExchange(grid.pressureBuffer.data[index], result);

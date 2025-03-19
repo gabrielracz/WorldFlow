@@ -1,0 +1,13 @@
+
+uint getSubGridLevelIndex(uvec3 workGroupID, uint localGroupIndex) {
+    return getGridIndex(workgroupID, gl_)
+}
+
+
+if (pc.subGridLevel > 0) {
+    getSubGridLevelIndex(gl)
+}
+
+uint workGroupBrickOffset = getFlatGridIndex(gl_WorkGroupID, gl_NumWorkGroups);
+ivec3 localCellPos = ivec3(gl_LocalInvocatioID);
+uint cellIndex = workGroupBrickOffset + gl_LocalInvocationIndex

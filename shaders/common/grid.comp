@@ -3,16 +3,6 @@
 #define GRID_LOCAL_SIZE_Y 8
 #define GRID_LOCAL_SIZE_Z 8
 
-struct FluidGridCell
-{
-	vec4 velocity;
-	float density;
-    float pressure;
-    float divergence;
-    uint flags;
-    vec4 debug;
-};
-
 struct FluidGridInfo
 {
 	uvec4 resolution;
@@ -61,14 +51,8 @@ struct FluidGridReferences
 uint FLAG_OCCUPIED = 0x00000001;
 uint FLAG_SOURCE   = 0x00000002;
 
-FluidGridCell zeroGridCell() {
-	return FluidGridCell(vec4(0.0), 0.0, 0.0, 0.0, 0, vec4(0.0));
-	// return FluidGridCell(vec4(0.0), 0.0, 0.0, 0.0, 0);
-}
-
 void clearGridCell(FluidGridReferences grid, uint index)
 {
-    
     grid.velocityBuffer.data[index]   = vec4(0.0);
     grid.densityBuffer.data[index]    = 0.0;
     grid.pressureBuffer.data[index]   = 0.0;
@@ -82,7 +66,7 @@ bool checkFlag(uint flags, uint mask)
 }
 
 bool isRedBlackActive(uvec3 id, uint redBlack) {
-    return ((id.x + id.y + id.z + redBlack) % 2) == 0;
+    return ((id.x + id.y + id.z + redBlack) % 2) == 0
 }
 
 bool isWithinGridBounds(uvec3 p, uvec4 gridResolution)

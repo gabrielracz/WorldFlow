@@ -120,10 +120,10 @@ struct alignas(16) Particle
 /* CONSTANTS */
 namespace Constants
 {
-constexpr size_t VoxelGridResolution = 64;
+constexpr size_t VoxelGridResolution = 16;
 // constexpr glm::uvec4 VoxelGridDimensions = glm::uvec4(VoxelGridResolution, VoxelGridResolution, VoxelGridResolution, 1);
 // constexpr glm::uvec4 VoxelGridDimensions = glm::uvec4(64, 64, 64, 1);
-constexpr glm::uvec4 VoxelGridDimensions = glm::uvec4(256, 128, 256, 1);
+constexpr glm::uvec4 VoxelGridDimensions = glm::uvec4(256, 64, 256, 1);
 // constexpr glm::uvec4 VoxelGridDimensions = glm::uvec4(16,16,16,1);
 
 const uint32_t NumVoxelGridCells = VoxelGridDimensions.x * VoxelGridDimensions.y * VoxelGridDimensions.z;
@@ -570,6 +570,7 @@ UniformFluidEngine::drawUI()
 		ImGui::InputScalar("diffiter", ImGuiDataType_U32, &this->_diffusionIterations, &step);
 		ImGui::InputScalar("presiter", ImGuiDataType_U32, &this->_pressureIterations, &step);
 		ImGui::InputFloat3("sourcePos", glm::value_ptr(this->_sourcePosition));
+		ImGui::DragFloat("objOff", &this->_objectOffset, 0.25f);
 		this->_shouldClear = ImGui::Button("clear");
 	}
 
@@ -597,7 +598,7 @@ UniformFluidEngine::checkControls(KeyMap& keyMap, MouseMap& mouseMap, Mouse& mou
 	constexpr glm::vec3 c = Constants::VoxelGridCenter;
 	this->_objectPosition = Constants::VoxelGridCenter;
 	this->_shouldAddSources = false;
-	int offset = (int)(this->_objectRadius * Constants::VoxelGridResolution / 2.0f);
+	int offset = (int)(this->_objectRadius * Constants::VoxelGridResolution / 2.0f) * this->_objectOffset;
 	if(keyMap[SDLK_q]) {
 		this->_shouldAddSources = true;
 		this->_velocitySourceAmount = glm::vec3(v, 0.f, 0.f);
@@ -606,7 +607,7 @@ UniformFluidEngine::checkControls(KeyMap& keyMap, MouseMap& mouseMap, Mouse& mou
 	if(keyMap[SDLK_e]) {
 		this->_shouldAddSources = true;
 		this->_velocitySourceAmount = glm::vec3(-v, 0.f, 0.f);
-		this->_sourcePosition = glm::vec3(c.x*2 - offset, c.y, c.z);
+		this->_sourcePosition = glm::vec3(c.x*2 - 1 - offset, c.y, c.z);
 	}
 	if(keyMap[SDLK_w]) {
 		this->_shouldAddSources = true;
@@ -616,7 +617,7 @@ UniformFluidEngine::checkControls(KeyMap& keyMap, MouseMap& mouseMap, Mouse& mou
 	if(keyMap[SDLK_r]) {
 		this->_shouldAddSources = true;
 		this->_velocitySourceAmount = glm::vec3(0.f, 0.f, -v);
-		this->_sourcePosition = glm::vec3(c.x, c.y, c.z*2 - offset);
+		this->_sourcePosition = glm::vec3(c.x, c.y, c.z*2 - 1 - offset);
 	}
 	if(keyMap[SDLK_t]) {
 		this->_shouldAddSources = true;
@@ -626,7 +627,7 @@ UniformFluidEngine::checkControls(KeyMap& keyMap, MouseMap& mouseMap, Mouse& mou
 	if(keyMap[SDLK_y]) {
 		this->_shouldAddSources = true;
 		this->_velocitySourceAmount = glm::vec3(0.f, -v, 0.f);
-		this->_sourcePosition = glm::vec3(c.x, c.y*2 - offset, c.z);
+		this->_sourcePosition = glm::vec3(c.x, c.y*2 - 1 - offset, c.z);
 	}
 
 	if(keyMap[SDLK_z]) {

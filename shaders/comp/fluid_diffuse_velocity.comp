@@ -61,7 +61,7 @@ void main()
 
     const vec4 newVel = (c + a*(l + r + u + d + f + b)) / (1+6*a);
 
-	const vec4 result = SOR(c, newVel, gridInfo.resolution.x);
+	const vec4 result = SOR(c, newVel, avg3(gridInfo.resolution.xyz));
 	// const vec4 result = newVel;
 
     // guarded by red-black
