@@ -71,6 +71,7 @@ private:
 
 	uint32_t _diffusionIterations;
 	uint32_t _pressureIterations;
+	uint32_t _advectionIterations;
 	// std::vector<uint64_t> _timestamps;
 	TimestampQueryPool _timestamps;
 	std::vector<float> _timestampAverages;
@@ -102,6 +103,7 @@ private:
 	Buffer _buffFluidDivergence;
 	Buffer _buffFluidFlags;
 	Buffer _buffFluidDebug;
+	Buffer _buffFluidBrickOffsets;
 
 	Mesh _gridMesh;
 };

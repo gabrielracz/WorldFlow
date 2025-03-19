@@ -44,6 +44,94 @@ float triInterp(float c000, float c100, float c010, float c110,
     return mix(c0, c1, weights.z);
 }
 
+// Helper functions for cubic interpolation
+float h00(float t) { return 2.0*t*t*t - 3.0*t*t + 1.0; }
+float h10(float t) { return t*t*t - 2.0*t*t + t; }
+float h01(float t) { return -2.0*t*t*t + 3.0*t*t; }
+float h11(float t) { return t*t*t - t*t; }
+
+// Cubic interpolation with 8 points
+float cubicInterp8Point(float c000, float c100, float c010, float c110,
+                        float c001, float c101, float c011, float c111,
+                        vec3 weights) {
+    // We'll use the standard tricubic interpolation algorithm
+    // but estimate derivatives from our 8 data points
+    
+    // Derivatives in X direction
+    float dx000 = (c100 - c000);
+    float dx010 = (c110 - c010);
+    float dx001 = (c101 - c001);
+    float dx011 = (c111 - c011);
+    
+    // Estimate points using Hermite interpolation along X
+    float c00 = c000 * h00(weights.x) + dx000 * h10(weights.x) + 
+                c100 * h01(weights.x) + dx000 * h11(weights.x);
+    float c10 = c010 * h00(weights.x) + dx010 * h10(weights.x) + 
+                c110 * h01(weights.x) + dx010 * h11(weights.x);
+    float c01 = c001 * h00(weights.x) + dx001 * h10(weights.x) + 
+                c101 * h01(weights.x) + dx001 * h11(weights.x);
+    float c11 = c011 * h00(weights.x) + dx011 * h10(weights.x) + 
+                c111 * h01(weights.x) + dx011 * h11(weights.x);
+    
+    // Derivatives in Y direction
+    float dy0 = (c10 - c00);
+    float dy1 = (c11 - c01);
+    
+    // Interpolate along Y
+    float c0 = c00 * h00(weights.y) + dy0 * h10(weights.y) + 
+               c10 * h01(weights.y) + dy0 * h11(weights.y);
+    float c1 = c01 * h00(weights.y) + dy1 * h10(weights.y) + 
+               c11 * h01(weights.y) + dy1 * h11(weights.y);
+    
+    // Derivative in Z direction
+    float dz = (c1 - c0);
+    
+    // Final interpolation along Z
+    return c0 * h00(weights.z) + dz * h10(weights.z) + 
+           c1 * h01(weights.z) + dz * h11(weights.z);
+}
+
+vec4 cubicInterp8Point(vec4 c000, vec4 c100, vec4 c010, vec4 c110,
+                        vec4 c001, vec4 c101, vec4 c011, vec4 c111,
+                        vec3 weights) {
+    // We'll use the standard tricubic interpolation algorithm
+    // but estimate derivatives from our 8 data points
+    
+    // Derivatives in X direction
+    vec4 dx000 = (c100 - c000);
+    vec4 dx010 = (c110 - c010);
+    vec4 dx001 = (c101 - c001);
+    vec4 dx011 = (c111 - c011);
+    
+    // Estimate points using Hermite interpolation along X
+    vec4 c00 = c000 * h00(weights.x) + dx000 * h10(weights.x) + 
+                c100 * h01(weights.x) + dx000 * h11(weights.x);
+    vec4 c10 = c010 * h00(weights.x) + dx010 * h10(weights.x) + 
+                c110 * h01(weights.x) + dx010 * h11(weights.x);
+    vec4 c01 = c001 * h00(weights.x) + dx001 * h10(weights.x) + 
+                c101 * h01(weights.x) + dx001 * h11(weights.x);
+    vec4 c11 = c011 * h00(weights.x) + dx011 * h10(weights.x) + 
+                c111 * h01(weights.x) + dx011 * h11(weights.x);
+    
+    // Derivatives in Y direction
+    vec4 dy0 = (c10 - c00);
+    vec4 dy1 = (c11 - c01);
+    
+    // Interpolate along Y
+    vec4 c0 = c00 * h00(weights.y) + dy0 * h10(weights.y) + 
+               c10 * h01(weights.y) + dy0 * h11(weights.y);
+    vec4 c1 = c01 * h00(weights.y) + dy1 * h10(weights.y) + 
+               c11 * h01(weights.y) + dy1 * h11(weights.y);
+    
+    // Derivative in Z direction
+    vec4 dz = (c1 - c0);
+    
+    // Final interpolation along Z
+    return c0 * h00(weights.z) + dz * h10(weights.z) + 
+           c1 * h01(weights.z) + dz * h11(weights.z);
+}
+
+
 
 
 vec4 permute(vec4 x){return mod(((x*34.0)+1.0)*x, 289.0);}

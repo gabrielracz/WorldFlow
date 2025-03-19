@@ -79,9 +79,12 @@ void main()
     // Normalize weights to [0,1] range
     weights *= 2.0;
 
-	float interpolatedDensity = triInterp(c000, c100, c010, c110,
-                                c001, c101, c011, c111,
-                                weights);
+	// float interpolatedDensity = triInterp(c000, c100, c010, c110,
+    //                             c001, c101, c011, c111,
+    //                             weights);
+    float interpolatedDensity = cubicInterp8Point(c000, c100, c010, c110,
+                            c001, c101, c011, c111,
+                            weights);
 
 	// float interpolatedDensity = grid[getGridIndex(center, gridInfo.resolution)].density;
 

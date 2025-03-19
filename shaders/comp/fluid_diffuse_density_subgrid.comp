@@ -23,8 +23,18 @@ layout(push_constant) uniform PushConstants {
 #define BLOCK_SIZE_X GRID_LOCAL_SIZE_X
 #define BLOCK_SIZE_Y GRID_LOCAL_SIZE_Y
 #define BLOCK_SIZE_Z GRID_LOCAL_SIZE_Z
+#define CACHE_WIDTH  GRID_LOCAL_SIZE_X+2
+#define CACHE_HEIGHT GRID_LOCAL_SIZE_Y+2
+#define CACHE_DEPTH  GRID_LOCAL_SIZE_Z+2
+shared float sharedDensity[CACHE_DEPTH][CACHE_HEIGHT][CACHE_WIDTH];
 
-shared float sharedDensity[BLOCK_SIZE_Z+2][BLOCK_SIZE_Y+2][BLOCK_SIZE_X+2];
+void loadSharedCache(inout float sharedCache[CACHE_DEPTH][CACHE_HEIGHT][CACHE_WIDTH], uint globalIndex, uvec3 localID, uvec3 globalID)
+{
+    sharedDensity[localID.z+1][localID.y+1][localID.x+1] = grid.densityBuffer.data[globalIndex];
+    // bool isOnBoundary = any(equal(localID, 0)) || any(equal(localID, uvec3(BLOCK_SIZE_X, BLOCK_SIZE_Y, BLOCK_SIZE_Z)));
+    return;
+}
+
 
 void main()
 {
@@ -32,11 +42,10 @@ void main()
     uvec3 localID = gl_LocalInvocationID;
     
     uvec3 globalPos = gl_WorkGroupID * uvec3(BLOCK_SIZE_X, BLOCK_SIZE_Y, BLOCK_SIZE_Z) + localID;
+    uvec3 center = globalPos;
     uint index = getGridIndex(center, gridInfo.resolution);
     
     sharedDensity[localID.z+1][localID.y+1][localID.x+1] = grid.densityBuffer.data[index];
-    const int leftoff = -1;
-    const int rightoff = 1;
     
     // Load boundary cells - each thread loads extra cells
     // Carefully handling boundary conditions
@@ -89,10 +98,8 @@ void main()
             grid.densityBuffer.data[getGridIndex(pos, gridInfo.resolution)] : 
             sharedDensity[BLOCK_SIZE_Z][localID.y+1][localID.x+1];
     }
-    
     // Ensure all threads finish loading before computation
     barrier();
-    memoryBarrierShared();
     
     // Skip computation if this is not the right "color" in red-black pattern
 	if(isRedBlackActive(center, pc.redBlack)){
