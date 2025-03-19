@@ -100,6 +100,7 @@ private:
 	Buffer _buffFluidPressure;
 	Buffer _buffFluidDivergence;
 	Buffer _buffFluidFlags;
+	Buffer _buffFluidDebug;
 
 	Mesh _gridMesh;
 };

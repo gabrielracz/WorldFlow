@@ -1,4 +1,8 @@
 
+#define GRID_LOCAL_SIZE_X 8
+#define GRID_LOCAL_SIZE_Y 8
+#define GRID_LOCAL_SIZE_Z 8
+
 struct FluidGridCell
 {
 	vec4 velocity;
@@ -39,6 +43,10 @@ layout(buffer_reference, std430) buffer FlagsBuffer {
     uint data[];
 };
 
+layout(buffer_reference, std430) buffer DebugBuffer {
+    vec4 data[];
+};
+
 struct FluidGridReferences
 {
     VelocityBuffer   velocityBuffer;
@@ -46,6 +54,7 @@ struct FluidGridReferences
     PressureBuffer   pressureBuffer;
     DivergenceBuffer divergenceBuffer;
     FlagsBuffer      flagsBuffer;
+    DebugBuffer      debugBuffer;
 };
 
 
@@ -70,6 +79,10 @@ void clearGridCell(FluidGridReferences grid, uint index)
 bool checkFlag(uint flags, uint mask)
 {
 	return (flags & mask) > 0;
+}
+
+bool isRedBlackActive(uvec3 id, uint redBlack) {
+    return ((id.x + id.y + id.z + redBlack) % 2) == 0;
 }
 
 bool isWithinGridBounds(uvec3 p, uvec4 gridResolution)
