@@ -112,6 +112,7 @@ Renderer::Update(float dt)
     updatePerformanceCounters(dt);
     pollEvents();
     if(this->_resizeRequested) {
+		std::cout << "resize" << std::endl;
         resizeSwapchain();
         initCamera();
         this->_mouse.first_captured = true;
@@ -1011,6 +1012,12 @@ int
 Renderer::eventCallback(void* userdata, SDL_Event* event)
 {
 	Renderer* renderer = (Renderer*) userdata;
+	if(event->type == SDL_WINDOWEVENT) {
+		if (event->window.event == SDL_WINDOWEVENT_RESIZED) {
+			renderer->_resizeRequested = true;
+		}
+	}
+
 	if(event->type == SDL_MOUSEBUTTONDOWN) {
         int button = event->button.button;
 		renderer->_mouseMap[button] = true;

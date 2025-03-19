@@ -122,10 +122,10 @@ struct alignas(16) Particle
 /* CONSTANTS */
 namespace Constants
 {
-constexpr size_t VoxelGridResolution = 64;
+constexpr size_t VoxelGridResolution = 16;
 // constexpr glm::uvec4 VoxelGridDimensions = glm::uvec4(VoxelGridResolution, VoxelGridResolution, VoxelGridResolution, 1);
 // constexpr glm::uvec4 VoxelGridDimensions = glm::uvec4(64, 64, 64, 1);
-constexpr glm::uvec4 VoxelGridDimensions = glm::uvec4(256, 128, 256, 1);
+constexpr glm::uvec4 VoxelGridDimensions = glm::uvec4(128, 32, 128, 1);
 // constexpr glm::uvec4 VoxelGridDimensions = glm::uvec4(16,16,16,1);
 
 const uint32_t NumVoxelGridCells = VoxelGridDimensions.x * VoxelGridDimensions.y * VoxelGridDimensions.z;
