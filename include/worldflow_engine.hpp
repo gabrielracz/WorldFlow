@@ -4,12 +4,14 @@
 #include "worldflow_structs.hpp"
 #include "renderer_structs.hpp"
 #include "vma.hpp"
-#include "image.hpp"
 #include "buffer.hpp"
 
 #include <atomic>
 
+
 class Renderer;
+
+namespace wf {
 
 struct WFSettings
 {
@@ -17,6 +19,28 @@ struct WFSettings
 	unsigned int numGridLevels {2};
 };
 
+struct SubGrid
+{
+	glm::uvec4 resolution;
+	glm::vec4 center;
+	float cellSize;
+
+	Buffer buffGpuReferences;
+	Buffer buffFluidVelocity;
+	Buffer buffFluidDensity;
+	Buffer buffFluidPressure;
+	Buffer buffFluidDivergence;
+	Buffer buffFluidFlags;
+	Buffer buffFluidDebug;
+};
+
+
+struct WorldFlowGrid
+{
+	std::vector<SubGrid> subgrids;
+	WorldFlowGridGpu gpuRefs;
+	Buffer buffWorldFlowGridGpu;
+};
 
 class WorldFlow
 {
@@ -105,19 +129,19 @@ private:
 	Buffer _buffStaging;
 	Buffer _buffGridLines;
 	
-	std::vector<Buffer> _gridBuffers;
-	std::vector<WorldFlowGrid> _grids;
+	// std::vector<Buffer> _gridBuffers;
+	// std::vector<WorldFlowGrid> _grids;
+	WorldFlowGrid _grid;
 	
-	Buffer _buffWorldFlowGrid;
-	Buffer _buffFluidVelocity;
-	Buffer _buffFluidDensity;
-	Buffer _buffFluidPressure;
-	Buffer _buffFluidDivergence;
-	Buffer _buffFluidFlags;
-	Buffer _buffFluidDebug;
-	Buffer _buffFluidBrickOffsets;
+	// Buffer _buffWorldFlowGrid;
+	// Buffer _buffFluidVelocity;
+	// Buffer _buffFluidDensity;
+	// Buffer _buffFluidPressure;
+	// Buffer _buffFluidDivergence;
+	// Buffer _buffFluidFlags;
+	// Buffer _buffFluidDebug;
 
 	Mesh _gridMesh;
 };
-
+}
 #endif

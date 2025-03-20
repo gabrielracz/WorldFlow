@@ -1,4 +1,4 @@
-#include "uniform_fluid_engine.hpp"
+// #include "uniform_fluid_engine.hpp"
 #include "worldflow_engine.hpp"
 #include "worldflow_structs.hpp"
 #include "fluid_engine_structs.hpp"
@@ -20,7 +20,7 @@
 
 #include "vk_initializers.h"
 
-/* CONSTANTS */
+namespace wf {
 namespace Constants
 {
 // constexpr glm::uvec4 VoxelGridDimensions = glm::uvec4(64, 16, 64, 1);
@@ -62,7 +62,7 @@ WorldFlow::WorldFlow(Renderer& renderer)
 	: _renderer(renderer), _diffusionIterations(Constants::NumDiffusionIterations), _pressureIterations(Constants::NumPressureIterations),
 	  _advectionIterations(Constants::NumAdvectionIterations) {
 		
-		this->_grids.resize(2);
+		this->_grid.subgrids.resize(1);
 }
 
 WorldFlow::~WorldFlow() {}
@@ -647,49 +647,57 @@ WorldFlow::initResources()
 		VMA_MEMORY_USAGE_CPU_ONLY
 	);
 
-	// FLUID PROPERTY BUFFERS
 	VkBufferUsageFlags fluidBufferUsage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT;
 	VmaMemoryUsage fluidMemoryUsage = VMA_MEMORY_USAGE_GPU_ONLY;
-	for(uint32_t i = 0; i < this->_grids.size(); i++) {
-		
-		WorldFlowGrid& wfg = this->_grids[i];
-		this->_renderer.CreateBuffer(this->_buffFluidVelocity, Constants::NumVoxelGridCells * sizeof(FluidVelocity), fluidBufferUsage, fluidMemoryUsage);
-		this->_renderer.CreateBuffer(this->_buffFluidDensity, Constants::NumVoxelGridCells * sizeof(FluidDensity), fluidBufferUsage, fluidMemoryUsage);
-		this->_renderer.CreateBuffer(this->_buffFluidPressure, Constants::NumVoxelGridCells * sizeof(FluidPressure), fluidBufferUsage, fluidMemoryUsage);
-		this->_renderer.CreateBuffer(this->_buffFluidDivergence, Constants::NumVoxelGridCells * sizeof(FluidDivergence), fluidBufferUsage, fluidMemoryUsage);
-		this->_renderer.CreateBuffer(this->_buffFluidFlags, Constants::NumVoxelGridCells * sizeof(FluidFlags), fluidBufferUsage, fluidMemoryUsage);
-		this->_renderer.CreateBuffer(this->_buffFluidDebug, Constants::NumVoxelGridCells * sizeof(FluidDebug), fluidBufferUsage, fluidMemoryUsage);
-		this->_renderer.CreateBuffer(this->_buffFluidBrickOffsets, Constants::NumVoxelGridCells * sizeof(FluidBrickOffsets), fluidBufferUsage, fluidMemoryUsage);
-		this->_renderer.ImmediateSubmit([this](VkCommandBuffer cmd) {
-			vkCmdFillBuffer(cmd, this->_buffFluidVelocity.bufferHandle, 0, VK_WHOLE_SIZE, 0);
-			vkCmdFillBuffer(cmd, this->_buffFluidDensity.bufferHandle, 0, VK_WHOLE_SIZE, 0);
-			vkCmdFillBuffer(cmd, this->_buffFluidPressure.bufferHandle, 0, VK_WHOLE_SIZE, 0);
-			vkCmdFillBuffer(cmd, this->_buffFluidDivergence.bufferHandle, 0, VK_WHOLE_SIZE, 0);
-			vkCmdFillBuffer(cmd, this->_buffFluidFlags.bufferHandle, 0, VK_WHOLE_SIZE, 0);
-			vkCmdFillBuffer(cmd, this->_buffFluidDebug.bufferHandle, 0, VK_WHOLE_SIZE, 0);
-			vkCmdFillBuffer(cmd, this->_buffFluidBrickOffsets.bufferHandle, 0, VK_WHOLE_SIZE, 0);
-		});
+
+	// MASTER GRID
+	this->_renderer.CreateBuffer(this->_grid.buffWorldFlowGridGpu, sizeof(WorldFlowGridGpu), fluidBufferUsage, fluidMemoryUsage);
+
+	// FLUID PROPERTY BUFFERS
+	for(uint32_t i = 0; i < this->_grid.subgrids.size(); i++) {
+		wf::SubGrid& sg = this->_grid.subgrids[i];
+		sg.resolution = Constants::VoxelGridDimensions;
+		sg.center = glm::vec4(0.0);
+		sg.cellSize = Constants::VoxelCellSize;
+
+		this->_renderer.CreateBuffer(sg.buffFluidVelocity, Constants::NumVoxelGridCells * sizeof(FluidVelocity), fluidBufferUsage, fluidMemoryUsage);
+		this->_renderer.CreateBuffer(sg.buffFluidDensity, Constants::NumVoxelGridCells * sizeof(FluidDensity), fluidBufferUsage, fluidMemoryUsage);
+		this->_renderer.CreateBuffer(sg.buffFluidPressure, Constants::NumVoxelGridCells * sizeof(FluidPressure), fluidBufferUsage, fluidMemoryUsage);
+		this->_renderer.CreateBuffer(sg.buffFluidDivergence, Constants::NumVoxelGridCells * sizeof(FluidDivergence), fluidBufferUsage, fluidMemoryUsage);
+		this->_renderer.CreateBuffer(sg.buffFluidFlags, Constants::NumVoxelGridCells * sizeof(FluidFlags), fluidBufferUsage, fluidMemoryUsage);
+		this->_renderer.CreateBuffer(sg.buffFluidDebug, Constants::NumVoxelGridCells * sizeof(FluidDebug), fluidBufferUsage, fluidMemoryUsage);
+
+		this->_renderer.CreateBuffer(sg.buffGpuReferences, sizeof(SubGridGpuReferences), fluidBufferUsage, fluidMemoryUsage);
 	}
 
-	this->_renderer.CreateBuffer(
-		this->_buffWorldFlowGrid, sizeof(WorldFlowGrid),
-		VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
-		VMA_MEMORY_USAGE_GPU_ONLY
-	);
-	this->_renderer.ImmediateSubmit([this](VkCommandBuffer cmd){
-		WorldFlowGrid refs = {
-			.velocityBufferReference = this->_buffFluidVelocity.deviceAddress,
-			.densityBufferReference = this->_buffFluidDensity.deviceAddress,
-			.pressureBufferReference = this->_buffFluidPressure.deviceAddress,
-			.divergenceBufferReference = this->_buffFluidDivergence.deviceAddress,
-			.flagsBufferReference = this->_buffFluidFlags.deviceAddress,
-			.debugBufferReference = this->_buffFluidDebug.deviceAddress,
+	this->_renderer.ImmediateSubmit([this](VkCommandBuffer cmd) {
+		for(wf::SubGrid& grid : this->_grid.subgrids) {
+			vkCmdFillBuffer(cmd, grid.buffFluidVelocity.bufferHandle, 0, VK_WHOLE_SIZE, 0);
+			vkCmdFillBuffer(cmd, grid.buffFluidDensity.bufferHandle, 0, VK_WHOLE_SIZE, 0);
+			vkCmdFillBuffer(cmd, grid.buffFluidPressure.bufferHandle, 0, VK_WHOLE_SIZE, 0);
+			vkCmdFillBuffer(cmd, grid.buffFluidDivergence.bufferHandle, 0, VK_WHOLE_SIZE, 0);
+			vkCmdFillBuffer(cmd, grid.buffFluidFlags.bufferHandle, 0, VK_WHOLE_SIZE, 0);
+			vkCmdFillBuffer(cmd, grid.buffFluidDebug.bufferHandle, 0, VK_WHOLE_SIZE, 0);
 
-			.resolution = Constants::VoxelGridDimensions,
-			.center = glm::vec4(0.0),
-			.cellSize = Constants::VoxelCellSize,
-		};
-		vkCmdUpdateBuffer(cmd, this->_buffWorldFlowGrid.bufferHandle, 0, sizeof(refs), &refs);
+			SubGridGpuReferences refs = {
+				.velocityBufferReference = grid.buffFluidVelocity.deviceAddress,
+				.densityBufferReference = grid.buffFluidDensity.deviceAddress,
+				.pressureBufferReference = grid.buffFluidPressure.deviceAddress,
+				.divergenceBufferReference = grid.buffFluidDivergence.deviceAddress,
+				.flagsBufferReference = grid.buffFluidFlags.deviceAddress,
+				.debugBufferReference = grid.buffFluidDebug.deviceAddress,
+
+				.resolution = grid.resolution,
+				.center = grid.center,
+				.cellSize = grid.cellSize
+			};
+			vkCmdUpdateBuffer(cmd, grid.buffGpuReferences.bufferHandle, 0, sizeof(refs), &refs);
+		}
+
+
+	});
+
+	this->_renderer.ImmediateSubmit([this](VkCommandBuffer cmd){
 	});
 	return true;
 }
@@ -703,7 +711,7 @@ WorldFlow::initPipelines()
 
     this->_renderer.CreateGraphicsPipeline(this->_graphicsParticles, SHADER_DIRECTORY"/particles.vert.spv", SHADER_DIRECTORY"/particles.frag.spv", "", {
 		BufferDescriptor(0, 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, this->_buffFluidInfo.bufferHandle, sizeof(FluidGridInfo)),
-		BufferDescriptor(0, 1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, this->_buffWorldFlowGrid.bufferHandle, sizeof(WorldFlowGrid)),
+		BufferDescriptor(0, 1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, this->_buffWorldFlowGrid.bufferHandle, sizeof(WorldFlowGridGPU)),
 		BufferDescriptor(0, 2, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, this->_buffParticles.bufferHandle, Constants::NumParticles * sizeof(Particle))
 	}, VK_SHADER_STAGE_VERTEX_BIT, sizeof(ParticlesPushConstants),
 	{.inputTopology = VK_PRIMITIVE_TOPOLOGY_POINT_LIST, .blendMode = BlendMode::Additive, .pushConstantsStages = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT});
@@ -713,7 +721,7 @@ WorldFlow::initPipelines()
 	
 	// COMPUTE
     this->_renderer.CreateComputePipeline(this->_computeRaycastVoxelGrid, SHADER_DIRECTORY"/grid_tracer.comp.spv", {
-		BufferDescriptor(0, 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, this->_buffWorldFlowGrid.bufferHandle, sizeof(WorldFlowGrid)),
+		BufferDescriptor(0, 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, this->_buffWorldFlowGrid.bufferHandle, sizeof(WorldFlowGridGPU)),
         ImageDescriptor(0, 1, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, this->_renderer.GetDrawImage().imageView, VK_NULL_HANDLE, this->_renderer.GetDrawImage().layout),
 		BufferDescriptor(0, 2, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, this->_buffFluidInfo.bufferHandle, sizeof(FluidGridInfo)),
     },
@@ -721,49 +729,49 @@ WorldFlow::initPipelines()
 
 	this->_renderer.CreateComputePipeline(this->_computeAddSources, SHADER_DIRECTORY"/fluid_add_sources.comp.spv", {
 		BufferDescriptor(0, 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, this->_buffFluidInfo.bufferHandle, sizeof(FluidGridInfo)),
-		BufferDescriptor(0, 1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, this->_buffWorldFlowGrid.bufferHandle, sizeof(WorldFlowGrid))
+		BufferDescriptor(0, 1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, this->_buffWorldFlowGrid.bufferHandle, sizeof(WorldFlowGridGPU))
 	},
 	sizeof(AddFluidPropertiesPushConstants));
 
 	// TODO: Refactor these to return Descriptor IDS and use those.
 	this->_renderer.CreateComputePipeline(this->_computeDiffuseVelocity, SHADER_DIRECTORY"/fluid_diffuse_velocity.comp.spv", {
 		BufferDescriptor(0, 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, this->_buffFluidInfo.bufferHandle, sizeof(FluidGridInfo)),
-		BufferDescriptor(0, 1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, this->_buffWorldFlowGrid.bufferHandle, sizeof(WorldFlowGrid))
+		BufferDescriptor(0, 1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, this->_buffWorldFlowGrid.bufferHandle, sizeof(WorldFlowGridGPU))
 	},
 	sizeof(FluidPushConstants));
 
 	this->_renderer.CreateComputePipeline(this->_computeDiffuseDensity, SHADER_DIRECTORY"/fluid_diffuse_density.comp.spv", {
 		BufferDescriptor(0, 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, this->_buffFluidInfo.bufferHandle, sizeof(FluidGridInfo)),
-		BufferDescriptor(0, 1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, this->_buffWorldFlowGrid.bufferHandle, sizeof(WorldFlowGrid))
+		BufferDescriptor(0, 1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, this->_buffWorldFlowGrid.bufferHandle, sizeof(WorldFlowGridGPU))
 	},
 	sizeof(FluidPushConstants));
 	this->_renderer.CreateComputePipeline(this->_computeAdvectVelocity, SHADER_DIRECTORY"/fluid_advect_velocity.comp.spv", {
 		BufferDescriptor(0, 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, this->_buffFluidInfo.bufferHandle, sizeof(FluidGridInfo)),
-		BufferDescriptor(0, 1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, this->_buffWorldFlowGrid.bufferHandle, sizeof(WorldFlowGrid))
+		BufferDescriptor(0, 1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, this->_buffWorldFlowGrid.bufferHandle, sizeof(WorldFlowGridGPU))
 	},
 	sizeof(FluidPushConstants));
 
 	this->_renderer.CreateComputePipeline(this->_computeAdvectDensity, SHADER_DIRECTORY"/fluid_advect_density.comp.spv", {
 		BufferDescriptor(0, 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, this->_buffFluidInfo.bufferHandle, sizeof(FluidGridInfo)),
-		BufferDescriptor(0, 1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, this->_buffWorldFlowGrid.bufferHandle, sizeof(WorldFlowGrid))
+		BufferDescriptor(0, 1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, this->_buffWorldFlowGrid.bufferHandle, sizeof(WorldFlowGridGPU))
 	},
 	sizeof(FluidPushConstants));
 
 	this->_renderer.CreateComputePipeline(this->_computeDivergence, SHADER_DIRECTORY"/fluid_compute_divergence.comp.spv", {
 		BufferDescriptor(0, 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, this->_buffFluidInfo.bufferHandle, sizeof(FluidGridInfo)),
-		BufferDescriptor(0, 1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, this->_buffWorldFlowGrid.bufferHandle, sizeof(WorldFlowGrid))
+		BufferDescriptor(0, 1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, this->_buffWorldFlowGrid.bufferHandle, sizeof(WorldFlowGridGPU))
 	},
 	sizeof(FluidPushConstants));
 
 	this->_renderer.CreateComputePipeline(this->_computeSolvePressure, SHADER_DIRECTORY"/fluid_solve_pressure.comp.spv", {
 		BufferDescriptor(0, 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, this->_buffFluidInfo.bufferHandle, sizeof(FluidGridInfo)),
-		BufferDescriptor(0, 1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, this->_buffWorldFlowGrid.bufferHandle, sizeof(WorldFlowGrid))
+		BufferDescriptor(0, 1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, this->_buffWorldFlowGrid.bufferHandle, sizeof(WorldFlowGridGPU))
 	},
 	sizeof(FluidPushConstants));
 
 	this->_renderer.CreateComputePipeline(this->_computeProjectIncompressible, SHADER_DIRECTORY"/fluid_project_incompressible.comp.spv", {
 		BufferDescriptor(0, 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, this->_buffFluidInfo.bufferHandle, sizeof(FluidGridInfo)),
-		BufferDescriptor(0, 1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, this->_buffWorldFlowGrid.bufferHandle, sizeof(WorldFlowGrid))
+		BufferDescriptor(0, 1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, this->_buffWorldFlowGrid.bufferHandle, sizeof(WorldFlowGridGPU))
 	},
 	sizeof(FluidPushConstants));
 
@@ -813,4 +821,5 @@ WorldFlow::initPreProcess()
 		vkCmdCopyBuffer(cmd, this->_buffStaging.bufferHandle, this->_gridMesh.vertexBuffer.bufferHandle, 1, &copy);
 	});
 	return true;
+}
 }
