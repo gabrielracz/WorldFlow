@@ -15,10 +15,6 @@ layout(set = 0, binding = 0) readonly buffer WorldFlowGridBuffer {
 
 layout(rgba32f, set = 0, binding = 1) uniform image2D outputImage;
 
-layout(binding = 2) readonly buffer FluidInfo {
-    FluidGridInfo gridInfo;
-};
-
 layout(push_constant) uniform constants {
     mat4 inverseProjection;  // Inverse projection matrix
     mat4 inverseView;        // Inverse view matrix
