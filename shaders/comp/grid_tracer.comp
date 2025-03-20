@@ -183,7 +183,7 @@ vec4 traceVoxels(vec3 rayOrigin, vec3 rayDir) {
             else if(pc.renderType == 5) {
                 density = grid.debugBuffer.data[index].x;
             }
-
+			density *= (gridInfo.cellSize * 64.0);
             float contribution = abs(density) * pc.stepSize;
             float attenuation = exp(-t * 0.07);
 

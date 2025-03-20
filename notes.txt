@@ -1,0 +1,17 @@
+Desktop 60fps Cell Limit: 256*128*256 	= 8,388,608
+
+Possible config:
+
+				DIM				#CELLS			
+	root    	128*32*128		524,288	
+	subgrid 	512*128*512		33,554,432
+								~1/4 coarse cells can be refined
+	1GB VRAM total
+
+Laptop 60fps Cell Limit: 128*32*128 	= 524,2888
+	root    	64*16*64		65536
+	subgrid     256*64*256		4,194,304
+								~1/4 coarse cells can be refined
+
+cubic interp over 
+scattered data interpolants

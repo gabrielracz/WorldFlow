@@ -37,12 +37,11 @@ float samplePressure(uvec3 center, ivec3 offset)
 void main()
 {
 	uvec3 center = gl_GlobalInvocationID;
-	// uvec3 center = getRedBlackPosition(gl_GlobalInvocationID, gridInfo.resolution, pc.redBlack);
-	uint index = getGridIndex(center, gridInfo.resolution);
-
 	if(!isRedBlackActive(center, pc.redBlack)){
 		return;
 	}
+	uint index = getGridIndex(center, gridInfo.resolution);
+
 
 	const float r = samplePressure(center, ivec3(1, 0, 0));
 	const float l = samplePressure(center, ivec3(-1, 0, 0));
