@@ -92,7 +92,7 @@ vec4 traceVoxels(vec3 rayOrigin, vec3 rayDir) {
     vec4 accumColor = vec4(0.0);
     
     // Calculate world-space dimensions of the grid
-    vec3 worldSize = pc.gridSize * gridInfo.cellSize;
+    vec3 worldSize = pc.gridSize * grid.cellSize;
     vec3 gridMin = -worldSize * 0.5;
     vec3 gridMax = worldSize * 0.5;
     
@@ -122,7 +122,7 @@ vec4 traceVoxels(vec3 rayOrigin, vec3 rayDir) {
     ivec3 mapPos = clamp(ivec3(floor(voxelPos)), ivec3(0), ivec3(pc.gridSize - 1));
     
     // Calculate delta t for moving one voxel in each direction
-    vec3 tDelta = abs(gridInfo.cellSize / rayDir);
+    vec3 tDelta = abs(grid.cellSize / rayDir);
     
     // Calculate next crossing points
     vec3 nextCrossing = vec3(mapPos) + max(step, 0.0);
@@ -131,10 +131,10 @@ vec4 traceVoxels(vec3 rayOrigin, vec3 rayDir) {
     // Calculate accurate tMax values for each axis
     for (int i = 0; i < 3; i++) {
         if (rayDir[i] > 0.0) {
-            float worldCrossing = gridMin[i] + (nextCrossing[i] * gridInfo.cellSize);
+            float worldCrossing = gridMin[i] + (nextCrossing[i] * grid.cellSize);
             tMaxAxis[i] = tNear + (worldCrossing - rayOrigin[i]) / rayDir[i];
         } else if (rayDir[i] < 0.0) {
-            float worldCrossing = gridMin[i] + ((nextCrossing[i] - 1.0) * gridInfo.cellSize);
+            float worldCrossing = gridMin[i] + ((nextCrossing[i] - 1.0) * grid.cellSize);
             tMaxAxis[i] = tNear + (worldCrossing - rayOrigin[i]) / rayDir[i];
         } else {
             tMaxAxis[i] = FLT_MAX;
@@ -145,7 +145,7 @@ vec4 traceVoxels(vec3 rayOrigin, vec3 rayDir) {
     // Main ray traversal loop
     ivec3 prevMapPos = mapPos;
     for (int i = 0; i < 256+128; i++) {
-        uint index = getGridIndex(uvec3(mapPos), gridInfo.resolution);
+        uint index = getGridIndex(uvec3(mapPos), grid.resolution);
         
         // Bounds check
         if(all(greaterThanEqual(mapPos, ivec3(0))) && all(lessThan(mapPos, ivec3(pc.gridSize)))) {
@@ -153,10 +153,10 @@ vec4 traceVoxels(vec3 rayOrigin, vec3 rayDir) {
             vec4 color = pc.baseColor;
             if((voxelData[index].flags & FLAG_OCCUPIED) > 0) {
                 // vec3 worldPos = rayOrigin + t * rayDir;
-                vec3 worldPos = gridToWorld(index, gridInfo.resolution, gridInfo.cellSize);
+                vec3 worldPos = gridToWorld(index, grid.resolution, grid.cellSize);
                 vec3 normal = calculateNormal(mapPos, prevMapPos);
                 vec3 viewDir = rayDir;
-				// vec3 lightVec = normalize(pc.lightSource.xyz - (vec3(mapPos.xyz) * vec3(gridInfo.cellSize)));
+				// vec3 lightVec = normalize(pc.lightSource.xyz - (vec3(mapPos.xyz) * vec3(grid.cellSize)));
 				vec3 lightVec = normalize(worldPos - pc.lightSource.xyz);
 
                 vec4 litColor = lighting(color, lightVec, normal);

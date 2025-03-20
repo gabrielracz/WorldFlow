@@ -10,8 +10,8 @@ layout(std430, binding = 0) buffer FluidInfo {
 	FluidGridInfo gridInfo;
 };
 
-layout(std430, binding = 1) buffer FluidGridReferencesBuffer {
-	FluidGridReferences grid;
+layout(std430, binding = 1) buffer WorldFlowGridBuffer {
+	WorldFlowGrid grid;
 };
 
 layout(push_constant) uniform PushConstants {
@@ -29,28 +29,28 @@ vec4 sampleVelocity(uvec3 center, ivec3 offset)
 {
 	ivec3 cell = ivec3(center) + offset;
 	bvec3 ge = greaterThanEqual(cell, ivec3(0));
-	bvec3 le = lessThan(cell, ivec3(gridInfo.resolution.xyz));
+	bvec3 le = lessThan(cell, ivec3(grid.resolution.xyz));
 	bool valid = all(ge) && all(le);
-	if(!valid) {return grid.velocityBuffer.data[getGridIndex(center, gridInfo.resolution)];}
+	if(!valid) {return grid.velocityBuffer.data[getGridIndex(center, grid.resolution)];}
 	// if(!valid) {return vec4(0.0, 0.0, 0.0, 1.0);}
 
-	bool occ = (grid.flagsBuffer.data[getGridIndex(cell, gridInfo.resolution)] & FLAG_OCCUPIED) > 0;
+	bool occ = (grid.flagsBuffer.data[getGridIndex(cell, grid.resolution)] & FLAG_OCCUPIED) > 0;
 	if(occ) {return vec4(0.0);}
-	// if(occ) {return grid[getGridIndex(center, gridInfo.resolution)].velocity * abs(vec4(1.0 - abs(vec3(offset)), 1.0));}// 
+	// if(occ) {return grid[getGridIndex(center, grid.resolution)].velocity * abs(vec4(1.0 - abs(vec3(offset)), 1.0));}// 
 
-	return grid.velocityBuffer.data[getGridIndex(cell, gridInfo.resolution)];
+	return grid.velocityBuffer.data[getGridIndex(cell, grid.resolution)];
 }
 
 void main()
 {
-	uint index = getGridIndex(gl_GlobalInvocationID, gridInfo.resolution);
+	uint index = getGridIndex(gl_GlobalInvocationID, grid.resolution);
 	vec3 pos = vec3(gl_GlobalInvocationID) + 0.5; // center grid cell position
 
 	// FIXME
 	vec3 pastPos = traceVelocityField(pos, grid.velocityBuffer.data[index].xyz, pc.dt);
-	if(any(greaterThan(pastPos, vec3(gridInfo.resolution.xyz) - 0.5)) || any(lessThan(pastPos, vec3(0.5)))) {
-		vec3 clampedPos = clamp(pastPos, vec3(0.5), vec3(gridInfo.resolution.xyz) - vec3(0.5));
-		uint clampedIndex = getGridIndex(uvec3(floor(clampedPos)), gridInfo.resolution);
+	if(any(greaterThan(pastPos, vec3(grid.resolution.xyz) - 0.5)) || any(lessThan(pastPos, vec3(0.5)))) {
+		vec3 clampedPos = clamp(pastPos, vec3(0.5), vec3(grid.resolution.xyz) - vec3(0.5));
+		uint clampedIndex = getGridIndex(uvec3(floor(clampedPos)), grid.resolution);
 		pastPos = clampedPos;
 	}
 
@@ -58,7 +58,7 @@ void main()
 	vec3 cellPos = fract(pastPos);
 	
 	if(cellPos == vec3(0.5)) {
-		vec4 interpolatedVelocity = grid.velocityBuffer.data[getGridIndex(center, gridInfo.resolution)];
+		vec4 interpolatedVelocity = grid.velocityBuffer.data[getGridIndex(center, grid.resolution)];
 		atomicExchange(grid.velocityBuffer.data[index].x, interpolatedVelocity.x);
 		atomicExchange(grid.velocityBuffer.data[index].y, interpolatedVelocity.y);
 		atomicExchange(grid.velocityBuffer.data[index].z, interpolatedVelocity.z);
@@ -92,13 +92,10 @@ void main()
     // Normalize weights to [0,1] range
     weights *= 2.0;
 
-	// vec4 interpolatedVelocity = triInterp(c000, c100, c010, c110,
-    //                             c001, c101, c011, c111,
-    //                             weights);
-	vec4 interpolatedVelocity = cubicInterp8Point(c000, c100, c010, c110,
+	vec4 interpolatedVelocity = triInterp(c000, c100, c010, c110,
                                 c001, c101, c011, c111,
                                 weights);
-	// vec4 interpolatedVelocity = grid[getGridIndex(center, gridInfo.resolution)].velocity;
+	// vec4 interpolatedVelocity = grid[getGridIndex(center, grid.resolution)].velocity;
 
 	atomicExchange(grid.velocityBuffer.data[index].x, interpolatedVelocity.x);
 	atomicExchange(grid.velocityBuffer.data[index].y, interpolatedVelocity.y);

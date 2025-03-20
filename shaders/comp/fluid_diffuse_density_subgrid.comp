@@ -10,8 +10,8 @@ layout(std430, binding = 0) buffer FluidInfo {
 	FluidGridInfo gridInfo;
 };
 
-layout(std430, binding = 1) buffer FluidGridReferencesBuffer {
-	FluidGridReferences grid;
+layout(std430, binding = 1) buffer WorldFlowGridBuffer {
+	WorldFlowGrid grid;
 };
 
 layout(push_constant) uniform PushConstants {
@@ -43,7 +43,7 @@ void main()
     
     uvec3 globalPos = gl_WorkGroupID * uvec3(BLOCK_SIZE_X, BLOCK_SIZE_Y, BLOCK_SIZE_Z) + localID;
     uvec3 center = globalPos;
-    uint index = getGridIndex(center, gridInfo.resolution);
+    uint index = getGridIndex(center, grid.resolution);
     
     sharedDensity[localID.z+1][localID.y+1][localID.x+1] = grid.densityBuffer.data[index];
     
@@ -52,16 +52,16 @@ void main()
     if (localID.x == 0 && center.x > 0) {
         uvec3 pos = center + uvec3(-1, 0, 0);
         sharedDensity[localID.z+1][localID.y+1][0] = 
-            all(lessThan(pos, gridInfo.resolution.xyz)) ? 
-            grid.densityBuffer.data[getGridIndex(pos, gridInfo.resolution)] : 
+            all(lessThan(pos, grid.resolution.xyz)) ? 
+            grid.densityBuffer.data[getGridIndex(pos, grid.resolution)] : 
             sharedDensity[localID.z+1][localID.y+1][1];
     }
     
-    if (localID.x == BLOCK_SIZE_X-1 && center.x < gridInfo.resolution.x-1) {
+    if (localID.x == BLOCK_SIZE_X-1 && center.x < grid.resolution.x-1) {
         uvec3 pos = center + uvec3(1, 0, 0);
         sharedDensity[localID.z+1][localID.y+1][BLOCK_SIZE_X+1] = 
-            all(lessThan(pos, gridInfo.resolution.xyz)) ? 
-            grid.densityBuffer.data[getGridIndex(pos, gridInfo.resolution)] : 
+            all(lessThan(pos, grid.resolution.xyz)) ? 
+            grid.densityBuffer.data[getGridIndex(pos, grid.resolution)] : 
             sharedDensity[localID.z+1][localID.y+1][BLOCK_SIZE_X];
     }
     
@@ -69,16 +69,16 @@ void main()
     if (localID.y == 0 && center.y > 0) {
         uvec3 pos = center + uvec3(0, -1, 0);
         sharedDensity[localID.z+1][0][localID.x+1] = 
-            all(lessThan(pos, gridInfo.resolution.xyz)) ? 
-            grid.densityBuffer.data[getGridIndex(pos, gridInfo.resolution)] : 
+            all(lessThan(pos, grid.resolution.xyz)) ? 
+            grid.densityBuffer.data[getGridIndex(pos, grid.resolution)] : 
             sharedDensity[localID.z+1][1][localID.x+1];
     }
     
-    if (localID.y == BLOCK_SIZE_Y-1 && center.y < gridInfo.resolution.y-1) {
+    if (localID.y == BLOCK_SIZE_Y-1 && center.y < grid.resolution.y-1) {
         uvec3 pos = center + uvec3(0, 1, 0);
         sharedDensity[localID.z+1][BLOCK_SIZE_Y+1][localID.x+1] = 
-            all(lessThan(pos, gridInfo.resolution.xyz)) ? 
-            grid.densityBuffer.data[getGridIndex(pos, gridInfo.resolution)] : 
+            all(lessThan(pos, grid.resolution.xyz)) ? 
+            grid.densityBuffer.data[getGridIndex(pos, grid.resolution)] : 
             sharedDensity[localID.z+1][BLOCK_SIZE_Y][localID.x+1];
     }
     
@@ -86,16 +86,16 @@ void main()
     if (localID.z == 0 && center.z > 0) {
         uvec3 pos = center + uvec3(0, 0, -1);
         sharedDensity[0][localID.y+1][localID.x+1] = 
-            all(lessThan(pos, gridInfo.resolution.xyz)) ? 
-            grid.densityBuffer.data[getGridIndex(pos, gridInfo.resolution)] : 
+            all(lessThan(pos, grid.resolution.xyz)) ? 
+            grid.densityBuffer.data[getGridIndex(pos, grid.resolution)] : 
             sharedDensity[1][localID.y+1][localID.x+1];
     }
     
-    if (localID.z == BLOCK_SIZE_Z-1 && center.z < gridInfo.resolution.z-1) {
+    if (localID.z == BLOCK_SIZE_Z-1 && center.z < grid.resolution.z-1) {
         uvec3 pos = center + uvec3(0, 0, 1);
         sharedDensity[BLOCK_SIZE_Z+1][localID.y+1][localID.x+1] = 
-            all(lessThan(pos, gridInfo.resolution.xyz)) ? 
-            grid.densityBuffer.data[getGridIndex(pos, gridInfo.resolution)] : 
+            all(lessThan(pos, grid.resolution.xyz)) ? 
+            grid.densityBuffer.data[getGridIndex(pos, grid.resolution)] : 
             sharedDensity[BLOCK_SIZE_Z][localID.y+1][localID.x+1];
     }
     // Ensure all threads finish loading before computation
@@ -114,11 +114,11 @@ void main()
         
         // Same calculation as before
         const float diffRate = 0.000015;
-        const float N = 1.0/(gridInfo.cellSize*gridInfo.cellSize);
+        const float N = 1.0/(grid.cellSize*grid.cellSize);
         const float a = diffRate*pc.dt*N; 
         
         const float newDns = (c + a*(l + r + u + d + f + b)) / (1+6*a);
-        const float result = SOR(c, newDns, avg3(gridInfo.resolution.xyz));
+        const float result = SOR(c, newDns, avg3(grid.resolution.xyz));
         
         // Write result back to global memory
         grid.densityBuffer.data[index] = result;

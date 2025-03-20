@@ -10,8 +10,8 @@ layout(std430, binding = 0) buffer FluidInfo {
 	FluidGridInfo gridInfo;
 };
 
-layout(std430, binding = 1) buffer FluidGridReferencesBuffer {
-	FluidGridReferences grid;
+layout(std430, binding = 1) buffer WorldFlowGridBuffer {
+	WorldFlowGrid grid;
 };
 
 layout(push_constant) uniform PushConstants {
@@ -24,21 +24,21 @@ float sampleDensity(uvec3 center, ivec3 offset)
 {
 	ivec3 cell = ivec3(center) + offset;
 	bvec3 ge = greaterThanEqual(cell, ivec3(0));
-	bvec3 le = lessThan(cell, ivec3(gridInfo.resolution.xyz));
+	bvec3 le = lessThan(cell, ivec3(grid.resolution.xyz));
 	bool valid = all(ge) && all(le);
-	if(!valid) {return grid.densityBuffer.data[getGridIndex(center, gridInfo.resolution)];}
+	if(!valid) {return grid.densityBuffer.data[getGridIndex(center, grid.resolution)];}
 
-	bool occ = (grid.flagsBuffer.data[getGridIndex(cell, gridInfo.resolution)] & FLAG_OCCUPIED) > 0;
-	if(occ) {return grid.densityBuffer.data[getGridIndex(center, gridInfo.resolution)];}
+	bool occ = (grid.flagsBuffer.data[getGridIndex(cell, grid.resolution)] & FLAG_OCCUPIED) > 0;
+	if(occ) {return grid.densityBuffer.data[getGridIndex(center, grid.resolution)];}
 
-	return grid.densityBuffer.data[getGridIndex(cell, gridInfo.resolution)];
+	return grid.densityBuffer.data[getGridIndex(cell, grid.resolution)];
 }
 
 void main()
 {
 	uvec3 center = gl_GlobalInvocationID;
 	// uvec3 center = getRedBlackPosition(gl_GlobalInvocationID, pc.redBlack);
-	uint index = getGridIndex(center, gridInfo.resolution);
+	uint index = getGridIndex(center, grid.resolution);
 
 	// Alternate updates in alternating checkerboard pattern to avoid atomics
 	if(!isRedBlackActive(center, pc.redBlack)){
@@ -54,11 +54,11 @@ void main()
 	float c = grid.densityBuffer.data[index];
 
     const float diffRate =  0.0000015;
-	const float N = 1.0/(gridInfo.cellSize*gridInfo.cellSize);
+	const float N = 1.0/(grid.cellSize*grid.cellSize);
     const float a = diffRate*pc.dt*N; 
 
     const float newDns = (c + a*(l + r + u + d + f + b)) / (1+6*a); // backwards stable
-	const float result = SOR(c, newDns, avg3(gridInfo.resolution.xyz));
+	const float result = SOR(c, newDns, avg3(grid.resolution.xyz));
 
 	grid.densityBuffer.data[index] = result;
 }

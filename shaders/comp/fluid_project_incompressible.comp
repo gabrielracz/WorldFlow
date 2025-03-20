@@ -10,8 +10,8 @@ layout(std430, binding = 0) buffer FluidInfo {
 	FluidGridInfo gridInfo;
 };
 
-layout(std430, binding = 1) buffer FluidGridReferencesBuffer {
-	FluidGridReferences grid;
+layout(std430, binding = 1) buffer WorldFlowGridBuffer {
+	WorldFlowGrid grid;
 };
 
 layout(push_constant) uniform PushConstants {
@@ -24,20 +24,20 @@ float samplePressure(uvec3 center, ivec3 offset)
 {
 	ivec3 cell = ivec3(center) + offset;
 	bvec3 ge = greaterThanEqual(cell, ivec3(0));
-	bvec3 le = lessThan(cell, ivec3(gridInfo.resolution.xyz));
+	bvec3 le = lessThan(cell, ivec3(grid.resolution.xyz));
 	bool valid = all(ge) && all(le);
-	if(!valid) {return grid.pressureBuffer.data[getGridIndex(center, gridInfo.resolution)];}
+	if(!valid) {return grid.pressureBuffer.data[getGridIndex(center, grid.resolution)];}
 
-	bool occ = (grid.flagsBuffer.data[getGridIndex(cell, gridInfo.resolution)] & FLAG_OCCUPIED) > 0;
+	bool occ = (grid.flagsBuffer.data[getGridIndex(cell, grid.resolution)] & FLAG_OCCUPIED) > 0;
 	if(occ) {return 0.0;}
 	// if(!valid) {return 0.0;}
-	return grid.pressureBuffer.data[getGridIndex(cell, gridInfo.resolution)];
+	return grid.pressureBuffer.data[getGridIndex(cell, grid.resolution)];
 }
 
 void main()
 {
 	uvec3 center = gl_GlobalInvocationID;
-	uint index = getGridIndex(gl_GlobalInvocationID, gridInfo.resolution);
+	uint index = getGridIndex(gl_GlobalInvocationID, grid.resolution);
 
 	const float r = samplePressure(center, ivec3(1, 0, 0));
 	const float l = samplePressure(center, ivec3(-1, 0, 0));
@@ -45,7 +45,7 @@ void main()
 	const float d = samplePressure(center, ivec3(0, -1, 0));
 	const float f = samplePressure(center, ivec3(0, 0, 1));
 	const float b = samplePressure(center, ivec3(0, 0, -1));
-	const float h = gridInfo.cellSize;
+	const float h = grid.cellSize;
 
 	float a = 0.000;
 	float gradX = 0.5 * (r - l - a) / h;

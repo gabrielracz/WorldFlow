@@ -15,8 +15,8 @@ layout(set = 0, binding = 0) readonly buffer FluidInfo {
     FluidGridInfo gridInfo;
 };
 
-layout(set = 0, binding = 1) readonly buffer FluidGridReferencesBuffer {
-    FluidGridReferences grid;
+layout(set = 0, binding = 1) readonly buffer WorldFlowGridBuffer {
+    WorldFlowGrid grid;
 };
 
 
@@ -38,17 +38,17 @@ void main()
 	// load vertex from device address
 	Particle p = particles[gl_VertexIndex];
 	if(p.lifetime > pc.maxLifetime) {
-		p.position = vec4((vec3(rand(gl_VertexIndex + pc.elapsed), rand(gl_VertexIndex*2.31321 + pc.elapsed), rand(gl_VertexIndex*3.321321 + pc.elapsed)) - 0.5) * gridInfo.resolution.xyz * gridInfo.cellSize
+		p.position = vec4((vec3(rand(gl_VertexIndex + pc.elapsed), rand(gl_VertexIndex*2.31321 + pc.elapsed), rand(gl_VertexIndex*3.321321 + pc.elapsed)) - 0.5) * grid.resolution.xyz * grid.cellSize
 		,1.0);
 		p.lifetime = 0.0;
 	}
 
-	vec3 res = gridInfo.resolution.xyz;
+	vec3 res = grid.resolution.xyz;
 	vec3 ix = p.position.xyz;
-	vec4 velocity = grid.velocityBuffer.data[worldToGridIndex(p.position.xyz, gridInfo.resolution, gridInfo.cellSize)];
-	vec4 newPos = vec4(p.position.xyz + velocity.xyz * pc.dt * gridInfo.cellSize, 1.0);
+	vec4 velocity = grid.velocityBuffer.data[worldToGridIndex(p.position.xyz, grid.resolution, grid.cellSize)];
+	vec4 newPos = vec4(p.position.xyz + velocity.xyz * pc.dt * grid.cellSize, 1.0);
 
-	vec4 worldBounds = vec4(vec3(gridInfo.resolution.xyz) * gridInfo.cellSize * 0.5, 1.0);
+	vec4 worldBounds = vec4(vec3(grid.resolution.xyz) * grid.cellSize * 0.5, 1.0);
 	clamp(newPos, -worldBounds, worldBounds);
 	// vec4 newPos = vec4(p.position.xyz + velocity * pc.dt * p.mass, 1.0);
 	particles[gl_VertexIndex].position = newPos;

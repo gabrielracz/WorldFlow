@@ -1,0 +1,108 @@
+#ifndef WF_STRUCTS_HPP_
+#define WF_STRUCTS_HPP_
+
+typedef glm::vec4  FluidVelocity;
+typedef float      FluidDensity;
+typedef float      FluidPressure;
+typedef float      FluidDivergence;
+typedef uint32_t   FluidFlags;
+typedef glm::vec4  FluidDebug;
+typedef uint32_t   FluidBrickOffsets;
+struct alignas(16) WorldFlowGrid
+{
+	uint64_t velocityBufferReference;
+	uint64_t densityBufferReference;
+	uint64_t pressureBufferReference;
+	uint64_t divergenceBufferReference;
+	uint64_t flagsBufferReference;
+	uint64_t debugBufferReference;
+
+    glm::uvec4 resolution;
+    glm::vec4 center;
+    float cellSize;
+};
+
+/* STRUCTS */
+struct alignas(16) FluidGridCell
+{
+	glm::vec4 velocity;
+	float density;
+	float pressure;
+	float divergence;
+	int occupied;
+	glm::vec4 padding;
+};
+
+
+struct alignas(16) FluidGridInfo
+{
+	glm::uvec4 resolution;
+	glm::vec4 position;
+	float cellSize;
+};
+
+struct alignas(16) FluidPushConstants
+{
+	float time;
+	float dt;
+	uint32_t redBlack;
+};
+
+struct alignas(16) AddFluidPropertiesPushConstants
+{
+	glm::vec4 sourcePosition;
+	glm::vec4 velocity;
+	glm::vec4 objectPosition;
+	float elapsed;
+	float dt;
+	float sourceRadius;
+	int addVelocity;
+	int addDensity;
+    float density;
+	uint32_t objectType;
+	float objectRadius;
+	float decayRate;
+	int clear;
+};
+const auto s = sizeof(AddFluidPropertiesPushConstants);
+
+struct alignas(16) ParticlesPushConstants
+{
+    glm::mat4 cameraMatrix;
+	float dt;
+	float elapsed;
+	float maxLifetime;
+};
+
+struct alignas(16) GenerateLinesPushConstants
+{
+	uint64_t vertexBufferAddress;
+};
+
+struct alignas(16) DrawLinesPushConstants
+{
+	glm::mat4 renderMatrix;
+	uint64_t vertexBufferAddress;
+};
+
+enum Timestamps : uint32_t
+{
+	StartFrame = 0,
+	AddFluidProperties,
+	VelocityDiffusion,
+	VelocityAdvect,
+	PressureSolve,
+	DensityDiffusion,
+	DensityAdvect,
+	FluidRender,
+	NumTimestamps
+};
+
+struct alignas(16) Particle
+{
+	glm::vec4 position {};
+	float mass {};
+	float lifetime {}; 
+};
+
+#endif

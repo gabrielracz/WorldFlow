@@ -1,6 +1,7 @@
-#ifndef UNIFORM_FLUID_ENGINE_HPP_
-#define UNIFORM_FLUID_ENGINE_HPP_
+#ifndef WORLDFLOW_ENGINE_HPP_
+#define WORLDFLOW_ENGINE_HPP_
 
+#include "worldflow_structs.hpp"
 #include "renderer_structs.hpp"
 #include "vma.hpp"
 #include "image.hpp"
@@ -10,11 +11,18 @@
 
 class Renderer;
 
-class UniformFluidEngine
+struct WFSettings
+{
+	glm::uvec4 resolution;
+	unsigned int numGridLevels {2};
+};
+
+
+class WorldFlow
 {
 public:
-	UniformFluidEngine(Renderer& renderer);
-	~UniformFluidEngine();
+	WorldFlow(Renderer& renderer);
+	~WorldFlow();
 
 	bool Init();
 
@@ -80,7 +88,6 @@ private:
 	GraphicsPipeline _graphicsRenderMesh;
 	GraphicsPipeline _graphicsParticles;
 	GraphicsPipeline _graphicsGridLines;
-	ComputePipeline _computeRaycastVoxelGrid;
 	ComputePipeline _computeAddSources;
 	ComputePipeline _computeDiffuseVelocity;
 	ComputePipeline _computeAdvectVelocity;
@@ -90,6 +97,7 @@ private:
 	ComputePipeline _computeDiffuseDensity;
 	ComputePipeline _computeAdvectDensity;
 	ComputePipeline _computeGenerateGridLines;
+	ComputePipeline _computeRaycastVoxelGrid;
 
 	Buffer _buffFluidGrid;
 	Buffer _buffFluidInfo;
@@ -97,7 +105,10 @@ private:
 	Buffer _buffStaging;
 	Buffer _buffGridLines;
 	
-	Buffer _buffFluidGridReferences;
+	std::vector<Buffer> _gridBuffers;
+	std::vector<WorldFlowGrid> _grids;
+	
+	Buffer _buffWorldFlowGrid;
 	Buffer _buffFluidVelocity;
 	Buffer _buffFluidDensity;
 	Buffer _buffFluidPressure;
@@ -108,8 +119,5 @@ private:
 
 	Mesh _gridMesh;
 };
-
-
-
 
 #endif

@@ -10,8 +10,8 @@ layout(std430, binding = 0) buffer FluidInfo {
 	FluidGridInfo gridInfo;
 };
 
-layout(std430, binding = 1) buffer FluidGridReferencesBuffer {
-	FluidGridReferences grid;
+layout(std430, binding = 1) buffer WorldFlowGridBuffer {
+	WorldFlowGrid grid;
 };
 
 layout(push_constant) uniform PushConstants {
@@ -38,10 +38,10 @@ float manhattanDistance(vec3 p1, vec3 p2) {
 void main()
 {
     uvec3 pos = gl_GlobalInvocationID;
-    if (!isWithinGridBounds(pos, gridInfo.resolution)) {
+    if (!isWithinGridBounds(pos, grid.resolution)) {
         return;
     }
-    uint index = getGridIndex(pos, gridInfo.resolution);
+    uint index = getGridIndex(pos, grid.resolution);
 
     grid.flagsBuffer.data[index] = 0;
     grid.pressureBuffer.data[index] = 0.0;
