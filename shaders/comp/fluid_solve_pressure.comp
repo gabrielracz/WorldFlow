@@ -7,16 +7,17 @@
 layout(local_size_x = GRID_LOCAL_SIZE_X, local_size_y = GRID_LOCAL_SIZE_Y, local_size_z = GRID_LOCAL_SIZE_Z) in;
 
 layout(std430, binding = 0) buffer WorldFlowGridBuffer {
-	WorldFlowGrid grid;
+	WorldFlowGrid wfGrid;
 };
 
 layout(push_constant) uniform PushConstants {
 	float elapsed;
 	float dt;
 	uint redBlack;
+    uint subgridLevel;
 } pc;
 
-float samplePressure(uvec3 center, ivec3 offset)
+float samplePressure(WorldFlowSubGrid grid, uvec3 center, ivec3 offset)
 {
 	ivec3 cell = ivec3(center) + offset;
 	bvec3 ge = greaterThanEqual(cell, ivec3(0));
@@ -32,6 +33,7 @@ float samplePressure(uvec3 center, ivec3 offset)
 }
 void main()
 {
+    WorldFlowSubGrid grid = wfGrid.subgrids[pc.subgridLevel].ref;
 	uvec3 center = gl_GlobalInvocationID;
 	if(!isRedBlackActive(center, pc.redBlack)){
 		return;
@@ -39,12 +41,12 @@ void main()
 	uint index = getGridIndex(center, grid.resolution);
 
 
-	const float r = samplePressure(center, ivec3(1, 0, 0));
-	const float l = samplePressure(center, ivec3(-1, 0, 0));
-	const float u = samplePressure(center, ivec3(0, 1, 0));
-	const float d = samplePressure(center, ivec3(0, -1, 0));
-	const float f = samplePressure(center, ivec3(0, 0, 1));
-	const float b = samplePressure(center, ivec3(0, 0, -1));
+	const float r = samplePressure(grid, center, ivec3(1, 0, 0));
+	const float l = samplePressure(grid, center, ivec3(-1, 0, 0));
+	const float u = samplePressure(grid, center, ivec3(0, 1, 0));
+	const float d = samplePressure(grid, center, ivec3(0, -1, 0));
+	const float f = samplePressure(grid, center, ivec3(0, 0, 1));
+	const float b = samplePressure(grid, center, ivec3(0, 0, -1));
 
 	const float oldPres = grid.pressureBuffer.data[index];
     const float newPres = (grid.divergenceBuffer.data[index] + r + l + u + d + f + b) / 6.0;

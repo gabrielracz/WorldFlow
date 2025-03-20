@@ -1,6 +1,21 @@
 #ifndef WF_STRUCTS_HPP_
 #define WF_STRUCTS_HPP_
 
+#include <glm/glm.hpp>
+
+namespace wf {
+
+namespace Constants {
+	constexpr uint32_t MAX_SUBGRID_LEVELS = 4;
+	static_assert(MAX_SUBGRID_LEVELS % 2 == 0 && MAX_SUBGRID_LEVELS > 0); // ensure 16 byte alignment
+}
+
+struct alignas(16) WorldFlowGridGpu
+{
+	uint64_t subgridReferences[Constants::MAX_SUBGRID_LEVELS] = {0};
+	uint32_t subgridCount {};
+};
+
 typedef glm::vec4  FluidVelocity;
 typedef float      FluidDensity;
 typedef float      FluidPressure;
@@ -8,7 +23,7 @@ typedef float      FluidDivergence;
 typedef uint32_t   FluidFlags;
 typedef glm::vec4  FluidDebug;
 typedef uint32_t   FluidBrickOffsets;
-struct alignas(16) WorldFlowGrid
+struct alignas(16) SubGridGpuReferences
 {
 	uint64_t velocityBufferReference;
 	uint64_t densityBufferReference;
@@ -46,6 +61,7 @@ struct alignas(16) FluidPushConstants
 	float time;
 	float dt;
 	uint32_t redBlack;
+	uint32_t subgridLevel;
 };
 
 struct alignas(16) AddFluidPropertiesPushConstants
@@ -104,5 +120,5 @@ struct alignas(16) Particle
 	float mass {};
 	float lifetime {}; 
 };
-
+}
 #endif

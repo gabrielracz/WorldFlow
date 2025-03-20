@@ -7,13 +7,14 @@
 layout(local_size_x = GRID_LOCAL_SIZE_X, local_size_y = GRID_LOCAL_SIZE_Y, local_size_z = GRID_LOCAL_SIZE_Z) in;
 
 layout(std430, binding = 0) buffer WorldFlowGridBuffer {
-	WorldFlowGrid grid;
+	WorldFlowGrid wfGrid;
 };
 
 layout(push_constant) uniform PushConstants {
 	float elapsed;
 	float dt;
 	uint redBlack;
+    uint subgridLevel;
 } pc;
 
 #define BLOCK_SIZE_X GRID_LOCAL_SIZE_X
@@ -24,6 +25,7 @@ shared float sharedDensity[BLOCK_SIZE_Z+2][BLOCK_SIZE_Y+2][BLOCK_SIZE_X+2];
 
 void main()
 {
+    WorldFlowSubGrid grid = wfGrid.subgrids[pc.subgridLevel].ref;
     // Local thread ID within the workgroup
     uvec3 localID = gl_LocalInvocationID;
     

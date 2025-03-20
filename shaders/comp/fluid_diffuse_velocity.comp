@@ -7,16 +7,17 @@
 layout(local_size_x = GRID_LOCAL_SIZE_X, local_size_y = GRID_LOCAL_SIZE_Y, local_size_z = GRID_LOCAL_SIZE_Z) in;
 
 layout(std430, binding = 0) buffer WorldFlowGridBuffer {
-	WorldFlowGrid grid;
+	WorldFlowGrid wfGrid;
 };
 
 layout(push_constant) uniform PushConstants {
 	float elapsed;
 	float dt;
 	uint redBlack;
+    uint subgridLevel;
 } pc;
 
-vec4 sampleVelocity(uvec3 center, ivec3 offset)
+vec4 sampleVelocity(WorldFlowSubGrid grid, uvec3 center, ivec3 offset)
 {
 	ivec3 cell = ivec3(center) + offset;
 	bvec3 ge = greaterThanEqual(cell, ivec3(0));
@@ -34,6 +35,7 @@ vec4 sampleVelocity(uvec3 center, ivec3 offset)
 
 void main()
 {
+    WorldFlowSubGrid grid = wfGrid.subgrids[pc.subgridLevel].ref;
 	uvec3 center = gl_GlobalInvocationID;
 	// uvec.3 center = getRedBlackPosition(gl_GlobalInvocationID, pc.redBlack);
 	uint index = getGridIndex(center, grid.resolution);
@@ -43,12 +45,12 @@ void main()
 		return;
 	}
 
-	const vec4 r = sampleVelocity(center, ivec3(1, 0, 0));
-	const vec4 l = sampleVelocity(center, ivec3(-1, 0, 0));
-	const vec4 u = sampleVelocity(center, ivec3(0, 1, 0));
-	const vec4 d = sampleVelocity(center, ivec3(0, -1, 0));
-	const vec4 f = sampleVelocity(center, ivec3(0, 0, 1));
-	const vec4 b = sampleVelocity(center, ivec3(0, 0, -1));
+	const vec4 r = sampleVelocity(grid, center, ivec3(1, 0, 0));
+	const vec4 l = sampleVelocity(grid, center, ivec3(-1, 0, 0));
+	const vec4 u = sampleVelocity(grid, center, ivec3(0, 1, 0));
+	const vec4 d = sampleVelocity(grid, center, ivec3(0, -1, 0));
+	const vec4 f = sampleVelocity(grid, center, ivec3(0, 0, 1));
+	const vec4 b = sampleVelocity(grid, center, ivec3(0, 0, -1));
 	const vec4 c = grid.velocityBuffer.data[index];
 
     const float diffRate =  0.000010;

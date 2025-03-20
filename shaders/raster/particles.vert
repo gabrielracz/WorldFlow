@@ -11,16 +11,12 @@ struct Particle {
 
 layout (location = 0) out vec4 outColor;
 
-layout(set = 0, binding = 0) readonly buffer FluidInfo {
-    FluidGridInfo gridInfo;
-};
-
-layout(set = 0, binding = 1) readonly buffer WorldFlowGridBuffer {
-    WorldFlowGrid grid;
+layout(set = 0, binding = 0) readonly buffer WorldFlowGridBuffer {
+    WorldFlowGrid wfGrid;
 };
 
 
-layout(set = 0, binding = 2) buffer ParticleBuffer {
+layout(set = 0, binding = 1) buffer ParticleBuffer {
 	Particle particles[];
 };
 
@@ -35,6 +31,7 @@ float rand(float co) { return fract(sin(co*(91.3458)) * 47453.5453); }
 
 void main() 
 {
+	WorldFlowSubGrid grid = wfGrid.subgrids[0].ref;
 	// load vertex from device address
 	Particle p = particles[gl_VertexIndex];
 	if(p.lifetime > pc.maxLifetime) {

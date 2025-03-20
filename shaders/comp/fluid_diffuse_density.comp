@@ -7,16 +7,17 @@
 layout(local_size_x = GRID_LOCAL_SIZE_X, local_size_y = GRID_LOCAL_SIZE_Y, local_size_z = GRID_LOCAL_SIZE_Z) in;
 
 layout(std430, binding = 0) buffer WorldFlowGridBuffer {
-	WorldFlowGrid grid;
+	WorldFlowGrid wfGrid;
 };
 
 layout(push_constant) uniform PushConstants {
 	float elapsed;
 	float dt;
 	uint redBlack;
+    uint subgridLevel;
 } pc;
 
-float sampleDensity(uvec3 center, ivec3 offset)
+float sampleDensity(WorldFlowSubGrid grid, uvec3 center, ivec3 offset)
 {
 	ivec3 cell = ivec3(center) + offset;
 	bvec3 ge = greaterThanEqual(cell, ivec3(0));
@@ -32,6 +33,7 @@ float sampleDensity(uvec3 center, ivec3 offset)
 
 void main()
 {
+    WorldFlowSubGrid grid = wfGrid.subgrids[pc.subgridLevel].ref;
 	uvec3 center = gl_GlobalInvocationID;
 	// uvec3 center = getRedBlackPosition(gl_GlobalInvocationID, pc.redBlack);
 	uint index = getGridIndex(center, grid.resolution);
@@ -41,12 +43,12 @@ void main()
 		return;
 	}
 
-	float l = sampleDensity(center, ivec3(-1, 0, 0));
-	float r = sampleDensity(center, ivec3(1, 0, 0));
-	float u = sampleDensity(center, ivec3(0, 1, 0));
-	float d = sampleDensity(center, ivec3(0, -1, 0));
-	float f = sampleDensity(center, ivec3(0, 0, 1));
-	float b = sampleDensity(center, ivec3(0, 0, -1));
+	float l = sampleDensity(grid, center, ivec3(-1, 0, 0));
+	float r = sampleDensity(grid, center, ivec3(1, 0, 0));
+	float u = sampleDensity(grid, center, ivec3(0, 1, 0));
+	float d = sampleDensity(grid, center, ivec3(0, -1, 0));
+	float f = sampleDensity(grid, center, ivec3(0, 0, 1));
+	float b = sampleDensity(grid, center, ivec3(0, 0, -1));
 	float c = grid.densityBuffer.data[index];
 
     const float diffRate =  0.0000015;

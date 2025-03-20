@@ -7,21 +7,22 @@
 layout(local_size_x = GRID_LOCAL_SIZE_X, local_size_y = GRID_LOCAL_SIZE_Y, local_size_z = GRID_LOCAL_SIZE_Z) in;
 
 layout(std430, binding = 0) buffer WorldFlowGridBuffer {
-	WorldFlowGrid grid;
+	WorldFlowGrid wfGrid;
 };
 
 layout(push_constant) uniform PushConstants {
 	float elapsed;
 	float dt;
 	uint redBlack;
+    uint subgridLevel;
 } pc;
+
 vec3 traceVelocityField(vec3 pos, vec3 velocity, float dt)
 {
-    // TODO: more sophisticated path trace?
     return pos + (velocity * -dt);
 }
 
-vec4 sampleVelocity(uvec3 center, ivec3 offset)
+vec4 sampleVelocity(WorldFlowSubGrid grid, uvec3 center, ivec3 offset)
 {
 	ivec3 cell = ivec3(center) + offset;
 	bvec3 ge = greaterThanEqual(cell, ivec3(0));
@@ -39,6 +40,7 @@ vec4 sampleVelocity(uvec3 center, ivec3 offset)
 
 void main()
 {
+    WorldFlowSubGrid grid = wfGrid.subgrids[pc.subgridLevel].ref;
 	uint index = getGridIndex(gl_GlobalInvocationID, grid.resolution);
 	vec3 pos = vec3(gl_GlobalInvocationID) + 0.5; // center grid cell position
 
@@ -68,14 +70,14 @@ void main()
     int k1 = (cellPos.z < 0.5) ? -1 : 1;
     
     // Sample all 8 neighboring cells
-    vec4 c000 = sampleVelocity(center, ivec3(0, 0, 0));
-    vec4 c100 = sampleVelocity(center, ivec3(i1, 0, 0));
-    vec4 c010 = sampleVelocity(center, ivec3(0, j1, 0));
-    vec4 c110 = sampleVelocity(center, ivec3(i1, j1, 0));
-    vec4 c001 = sampleVelocity(center, ivec3(0, 0, k1));
-    vec4 c101 = sampleVelocity(center, ivec3(i1, 0, k1));
-    vec4 c011 = sampleVelocity(center, ivec3(0, j1, k1));
-    vec4 c111 = sampleVelocity(center, ivec3(i1, j1, k1));
+    vec4 c000 = sampleVelocity(grid, center, ivec3(0, 0, 0));
+    vec4 c100 = sampleVelocity(grid, center, ivec3(i1, 0, 0));
+    vec4 c010 = sampleVelocity(grid, center, ivec3(0, j1, 0));
+    vec4 c110 = sampleVelocity(grid, center, ivec3(i1, j1, 0));
+    vec4 c001 = sampleVelocity(grid, center, ivec3(0, 0, k1));
+    vec4 c101 = sampleVelocity(grid, center, ivec3(i1, 0, k1));
+    vec4 c011 = sampleVelocity(grid, center, ivec3(0, j1, k1));
+    vec4 c111 = sampleVelocity(grid, center, ivec3(i1, j1, k1));
     
     // Calculate interpolation weights
     // If cellPos < 0.5, we want weight to go from 0.5 to 0

@@ -10,7 +10,7 @@ layout(local_size_x = 8, local_size_y = 8) in;
 
 // Input data structures
 layout(set = 0, binding = 0) readonly buffer WorldFlowGridBuffer {
-    WorldFlowGrid grid;
+    WorldFlowGrid wfGrid;
 };
 
 layout(rgba32f, set = 0, binding = 1) uniform image2D outputImage;
@@ -85,8 +85,8 @@ vec4 lighting(vec4 pixel, vec3 lightvec, vec3 norm) {
 
 
 vec4 traceVoxels(vec3 rayOrigin, vec3 rayDir) {
+    WorldFlowSubGrid grid = wfGrid.subgrids[0].ref;
     vec4 accumColor = vec4(0.0);
-    
     // Calculate world-space dimensions of the grid
     vec3 worldSize = pc.gridSize * grid.cellSize;
     vec3 gridMin = -worldSize * 0.5;

@@ -1,7 +1,7 @@
 // #define VMA_IMPLEMENTATION
 // #include "vk_mem_alloc.h"
 #include "vma.hpp"
-#include "worldflow_engine.hpp"
+#include "wf_fluid_engine.hpp"
 #include "uniform_fluid_engine.hpp"
 #include "fluid_engine.hpp"
 #include "renderer.hpp"
@@ -15,7 +15,7 @@ int main(int argc, char* argv[])
         return EXIT_FAILURE;
     }
 
-	WorldFlow fluidEngine(renderer);
+	wf::WorldFlow fluidEngine(renderer);
 	if(!fluidEngine.Init()) {
         std::cout << "[ERROR] Failed to initialize fluid engine" << std::endl;
 		return EXIT_FAILURE;

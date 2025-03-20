@@ -7,13 +7,14 @@
 layout(local_size_x = GRID_LOCAL_SIZE_X, local_size_y = GRID_LOCAL_SIZE_Y, local_size_z = GRID_LOCAL_SIZE_Z) in;
 
 layout(std430, binding = 0) buffer WorldFlowGridBuffer {
-	WorldFlowGrid grid;
+	WorldFlowGrid wfGrid;
 };
 
 layout(push_constant) uniform PushConstants {
 	float elapsed;
 	float dt;
 	uint redBlack;
+    uint subgridLevel;
 } pc;
 
 #define BLOCK_SIZE_X GRID_LOCAL_SIZE_X
@@ -24,16 +25,17 @@ layout(push_constant) uniform PushConstants {
 #define CACHE_DEPTH  GRID_LOCAL_SIZE_Z+2
 shared float sharedDensity[CACHE_DEPTH][CACHE_HEIGHT][CACHE_WIDTH];
 
-void loadSharedCache(inout float sharedCache[CACHE_DEPTH][CACHE_HEIGHT][CACHE_WIDTH], uint globalIndex, uvec3 localID, uvec3 globalID)
-{
-    sharedDensity[localID.z+1][localID.y+1][localID.x+1] = grid.densityBuffer.data[globalIndex];
-    // bool isOnBoundary = any(equal(localID, 0)) || any(equal(localID, uvec3(BLOCK_SIZE_X, BLOCK_SIZE_Y, BLOCK_SIZE_Z)));
-    return;
-}
+// void loadSharedCache(inout float sharedCache[CACHE_DEPTH][CACHE_HEIGHT][CACHE_WIDTH], uint globalIndex, uvec3 localID, uvec3 globalID)
+// {
+//     sharedDensity[localID.z+1][localID.y+1][localID.x+1] = grid.densityBuffer.data[globalIndex];
+//     // bool isOnBoundary = any(equal(localID, 0)) || any(equal(localID, uvec3(BLOCK_SIZE_X, BLOCK_SIZE_Y, BLOCK_SIZE_Z)));
+//     return;
+// }
 
 
 void main()
 {
+    WorldFlowSubGrid grid = wfGrid.subgrids[pc.subgridLevel].ref;
     // Local thread ID within the workgroup
     uvec3 localID = gl_LocalInvocationID;
     

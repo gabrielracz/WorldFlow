@@ -7,21 +7,22 @@
 layout(local_size_x = GRID_LOCAL_SIZE_X, local_size_y = GRID_LOCAL_SIZE_Y, local_size_z = GRID_LOCAL_SIZE_Z) in;
 
 layout(std430, binding = 0) buffer WorldFlowGridBuffers {
-	WorldFlowGrid grid;
+	WorldFlowGrid wfGrid;
 };
 
 layout(push_constant) uniform PushConstants {
 	float elapsed;
 	float dt;
 	uint redBlack;
+    uint subgridLevel;
 } pc;
+
 vec3 traceVelocityField(vec3 pos, vec3 velocity, float dt)
 {
-    // TODO: more sophisticated path trace?
     return pos + (velocity * -dt);
 }
 
-float sampleDensity(uvec3 center, ivec3 offset)
+float sampleDensity(WorldFlowSubGrid grid, uvec3 center, ivec3 offset)
 {
 	ivec3 cell = ivec3(center) + offset;
 	bvec3 ge = greaterThanEqual(cell, ivec3(0));
@@ -37,6 +38,7 @@ float sampleDensity(uvec3 center, ivec3 offset)
 
 void main()
 {
+    WorldFlowSubGrid grid = wfGrid.subgrids[pc.subgridLevel].ref;
 	uint index = getGridIndex(gl_GlobalInvocationID, grid.resolution);
 	vec3 pos = vec3(gl_GlobalInvocationID) + vec3(0.5, 0.5, 0.5); // center grid cell position
 
@@ -55,14 +57,14 @@ void main()
     int k1 = (cellPos.z <= 0.5) ? -1 : 1;
     
     // Sample all 8 neighboring cells
-    float c000 = sampleDensity(center, ivec3(0, 0, 0));
-    float c100 = sampleDensity(center, ivec3(i1, 0, 0));
-    float c010 = sampleDensity(center, ivec3(0, j1, 0));
-    float c110 = sampleDensity(center, ivec3(i1, j1, 0));
-    float c001 = sampleDensity(center, ivec3(0, 0, k1));
-    float c101 = sampleDensity(center, ivec3(i1, 0, k1));
-    float c011 = sampleDensity(center, ivec3(0, j1, k1));
-    float c111 = sampleDensity(center, ivec3(i1, j1, k1));
+    float c000 = sampleDensity(grid, center, ivec3(0, 0, 0));
+    float c100 = sampleDensity(grid, center, ivec3(i1, 0, 0));
+    float c010 = sampleDensity(grid, center, ivec3(0, j1, 0));
+    float c110 = sampleDensity(grid, center, ivec3(i1, j1, 0));
+    float c001 = sampleDensity(grid, center, ivec3(0, 0, k1));
+    float c101 = sampleDensity(grid, center, ivec3(i1, 0, k1));
+    float c011 = sampleDensity(grid, center, ivec3(0, j1, k1));
+    float c111 = sampleDensity(grid, center, ivec3(i1, j1, k1));
     
     // Calculate interpolation weights
     // If cellPos < 0.5, we want weight to go from 0.5 to 0
