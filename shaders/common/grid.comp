@@ -1,5 +1,5 @@
 
-#define GRID_LOCAL_SIZE_X 8
+#define GRID_LOCAL_SIZE_X 16
 #define GRID_LOCAL_SIZE_Y 8
 #define GRID_LOCAL_SIZE_Z 8
 
@@ -93,7 +93,7 @@ bool isWithinGridBounds(uvec3 p, uvec4 gridResolution)
            p.z < gridResolution.z;
 }
 
-#define CHUNK_FLATTENED_INDEXING
+// #define CHUNK_FLATTENED_INDEXING
 #ifdef CHUNK_FLATTENED_INDEXING
 uint getGridIndex(uvec3 index, uvec4 gridResolution)
 {

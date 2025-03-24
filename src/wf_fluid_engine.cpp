@@ -25,6 +25,7 @@ namespace Constants
 {
 // constexpr glm::uvec4 VoxelGridDimensions = glm::uvec4(64, 16, 64, 1);
 constexpr glm::uvec4 VoxelGridDimensions = glm::uvec4(256, 128, 256, 1);
+// constexpr glm::uvec4 VoxelGridDimensions = glm::uvec4(512, 128, 512, 1);
 constexpr size_t VoxelGridResolution = VoxelGridDimensions.x/4;
 
 const uint32_t NumVoxelGridCells = VoxelGridDimensions.x * VoxelGridDimensions.y * VoxelGridDimensions.z;
@@ -38,7 +39,7 @@ constexpr uint32_t NumGridLines = VoxelGridDimensions.y*VoxelGridDimensions.z + 
 const glm::uvec3 GridGroups = glm::uvec3(VoxelGridDimensions.y*VoxelGridDimensions.z, VoxelGridDimensions.x*VoxelGridDimensions.y, VoxelGridDimensions.x*VoxelGridDimensions.z);
 
 // constexpr uint32_t LocalGroupSize = 8;
-constexpr glm::uvec3 LocalGroupSize = glm::uvec3(8, 8, 8);
+constexpr glm::uvec3 LocalGroupSize = glm::uvec3(16, 8, 8);
 
 constexpr uint32_t NumAdvectionIterations = 1;
 constexpr uint32_t NumDiffusionIterations = 4;

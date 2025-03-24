@@ -37,7 +37,6 @@ void main()
     WorldFlowSubGrid grid = wfGrid.subgrids[pc.subgridLevel].ref;
 	uvec3 center = gl_GlobalInvocationID;
 	uint index = getGridIndex(center, grid.resolution);
-
 	// grid[index].debug.x = float(encodeMorton3D(center)) / float(grid.resolution.x * grid.resolution.y * grid.resolution.z);
 
 	const float r = sampleVelocity(grid, center, ivec3(1, 0, 0 )).x;

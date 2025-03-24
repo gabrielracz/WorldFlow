@@ -39,7 +39,6 @@ void main()
 	uvec3 center = gl_GlobalInvocationID;
 	// uvec.3 center = getRedBlackPosition(gl_GlobalInvocationID, pc.redBlack);
 	uint index = getGridIndex(center, grid.resolution);
-
 	// Alternate updates in alternating checkerboard pattern to avoid atomics
 	if(!isRedBlackActive(center, pc.redBlack)){
 		return;

@@ -131,6 +131,71 @@ vec4 cubicInterp8Point(vec4 c000, vec4 c100, vec4 c010, vec4 c110,
            c1 * h01(weights.z) + dz * h11(weights.z);
 }
 
+float cubicInterp(float a, float b, float c, float d, float t) {
+    // Catmull-Rom cubic interpolation weights
+    float t2 = t * t;
+    float t3 = t2 * t;
+    
+    // Catmull-Rom basis matrix coefficients
+    float c0 = -0.5 * a + 1.5 * b - 1.5 * c + 0.5 * d;
+    float c1 = a - 2.5 * b + 2.0 * c - 0.5 * d;
+    float c2 = -0.5 * a + 0.5 * c;
+    float c3 = b;
+    
+    // Cubic polynomial evaluation
+    return c0 * t3 + c1 * t2 + c2 * t + c3;
+}
+
+float polyInterp(float c000, float c100, float c010, float c110,
+                float c001, float c101, float c011, float c111,
+                vec3 weights) {
+    // Interpolate along x-axis with Catmull-Rom
+    float x0 = cubicInterp(c000, c010, c110, c100, weights.x);
+    float x1 = cubicInterp(c001, c011, c111, c101, weights.x);
+    
+    // Interpolate along y-axis with Catmull-Rom
+    float y0 = cubicInterp(x0, x1, x1, x0, weights.y);
+    
+    // Final z-axis interpolation with a simple cubic interpolation
+    float z0 = cubicInterp(c000, c001, c011, c010, weights.z);
+    float z1 = cubicInterp(c100, c101, c111, c110, weights.z);
+    
+    // Interpolate between z results
+    return mix(z0, z1, weights.z);
+}
+
+vec4 cubicInterp(vec4 a, vec4 b, vec4 c, vec4 d, float t) {
+    // Catmull-Rom cubic interpolation weights
+    float t2 = t * t;
+    float t3 = t2 * t;
+    
+    // Catmull-Rom basis matrix coefficients
+    vec4 c0 = -0.5 * a + 1.5 * b - 1.5 * c + 0.5 * d;
+    vec4 c1 = a - 2.5 * b + 2.0 * c - 0.5 * d;
+    vec4 c2 = -0.5 * a + 0.5 * c;
+    vec4 c3 = b;
+    
+    // Cubic polynomial evaluation
+    return c0 * t3 + c1 * t2 + c2 * t + c3;
+}
+
+vec4 polyInterp(vec4 c000, vec4 c100, vec4 c010, vec4 c110,
+                vec4 c001, vec4 c101, vec4 c011, vec4 c111,
+                vec3 weights) {
+    // Interpolate along x-axis with Catmull-Rom
+    vec4 x0 = cubicInterp(c000, c010, c110, c100, weights.x);
+    vec4 x1 = cubicInterp(c001, c011, c111, c101, weights.x);
+    
+    // Interpolate along y-axis with Catmull-Rom
+    vec4 y0 = cubicInterp(x0, x1, x1, x0, weights.y);
+    
+    // Final z-axis interpolation with a simple cubic interpolation
+    vec4 z0 = cubicInterp(c000, c001, c011, c010, weights.z);
+    vec4 z1 = cubicInterp(c100, c101, c111, c110, weights.z);
+    
+    // Interpolate between z results
+    return mix(z0, z1, weights.z);
+}
 
 
 
