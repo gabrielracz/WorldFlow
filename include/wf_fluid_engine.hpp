@@ -13,7 +13,7 @@ class Renderer;
 
 namespace wf {
 
-struct WFSettings
+struct Settings
 {
 	glm::uvec4 resolution;
 	unsigned int numGridLevels {2};
@@ -32,6 +32,7 @@ struct SubGrid
 	Buffer buffFluidDivergence;
 	Buffer buffFluidFlags;
 	Buffer buffFluidDebug;
+	Buffer buffFluidIndexOffsets;
 };
 
 

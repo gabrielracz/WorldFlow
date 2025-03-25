@@ -2,6 +2,7 @@
 #define WF_STRUCTS_HPP_
 
 #include <glm/glm.hpp>
+#include <glm/gtc/type_precision.hpp>
 
 namespace wf {
 
@@ -10,9 +11,17 @@ namespace Constants {
 	static_assert(MAX_SUBGRID_LEVELS % 2 == 0 && MAX_SUBGRID_LEVELS > 0); // ensure 16 byte alignment
 }
 
+struct alignas(16) DispatchIndirectCommand
+{
+	uint32_t x;
+	uint32_t y;
+	uint32_t z;
+};
+
 struct alignas(16) WorldFlowGridGpu
 {
 	uint64_t subgridReferences[Constants::MAX_SUBGRID_LEVELS] = {0};
+	uint64_t dispatchCommandReferences[Constants::MAX_SUBGRID_LEVELS] = {0};
 	uint32_t subgridCount {};
 };
 
@@ -22,7 +31,7 @@ typedef float      FluidPressure;
 typedef float      FluidDivergence;
 typedef uint32_t   FluidFlags;
 typedef glm::vec4  FluidDebug;
-typedef uint32_t   FluidBrickOffsets;
+typedef uint32_t   FluidIndexOffsets;
 struct alignas(16) SubGridGpuReferences
 {
 	uint64_t velocityBufferReference;
@@ -31,6 +40,8 @@ struct alignas(16) SubGridGpuReferences
 	uint64_t divergenceBufferReference;
 	uint64_t flagsBufferReference;
 	uint64_t debugBufferReference;
+	uint64_t indexOffsetsBufferReference;
+	uint64_t padding = {1337};
 
     glm::uvec4 resolution;
     glm::vec4 center;

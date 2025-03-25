@@ -136,7 +136,17 @@ vec4 traceVoxels(vec3 rayOrigin, vec3 rayDir) {
             tMaxAxis[i] = FLT_MAX;
         }
     }
+
+    vec3 cmp = tMaxAxis - t;
+    if (cmp.x < cmp.y && cmp.x < cmp.z) {
+        t = tMaxAxis.x;
+    } else if (cmp.y < cmp.z) {
+        t = tMaxAxis.y;
+    } else {
+        t = tMaxAxis.z;
+    }
     
+    float tPrev = t;
     int missteps = 0;
     // Main ray traversal loop
     ivec3 prevMapPos = mapPos;
@@ -180,7 +190,9 @@ vec4 traceVoxels(vec3 rayOrigin, vec3 rayDir) {
                 density = grid.debugBuffer.data[index].x;
             }
 			density *= (grid.cellSize * 64.0);
-            float contribution = abs(density) * pc.stepSize;
+            // float contribution = abs(density) * pc.stepSize;
+            float contribution = abs(density) * (t - tPrev) * 5;
+
             float attenuation = exp(-t * 0.07);
 
 			vec4 heatColor = viridisColor(abs(density));
@@ -201,6 +213,7 @@ vec4 traceVoxels(vec3 rayOrigin, vec3 rayDir) {
         }
         
         prevMapPos = mapPos;
+        tPrev = t;
 
         // Find axis of next crossing
         vec3 compare = tMaxAxis - t;

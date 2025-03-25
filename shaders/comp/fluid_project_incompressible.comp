@@ -42,12 +42,13 @@ void main()
 	const float d = samplePressure(grid, center, ivec3(0, -1, 0));
 	const float f = samplePressure(grid, center, ivec3(0, 0, 1));
 	const float b = samplePressure(grid, center, ivec3(0, 0, -1));
+	// const float c = grid.pressureBuffer.data[index];
+	const float c = 0.0;
 	const float h = grid.cellSize;
 
-	float a = 0.000;
-	float gradX = 0.5 * (r - l - a) / h;
-	float gradY = 0.5 * (u - d - a) / h;
-	float gradZ = 0.5 * (f - b - a) / h;
+	float gradX = 0.5 * (r - l) / h;
+	float gradY = 0.5 * (u - d) / h;
+	float gradZ = 0.5 * (f - b) / h;
 
 	vec4 newVelocity = grid.velocityBuffer.data[index] - vec4(gradX, gradY, gradZ, 0.0);
 	grid.velocityBuffer.data[index] = vec4(newVelocity.xyz, 1.0);

@@ -24,7 +24,8 @@ namespace wf {
 namespace Constants
 {
 // constexpr glm::uvec4 VoxelGridDimensions = glm::uvec4(64, 16, 64, 1);
-constexpr glm::uvec4 VoxelGridDimensions = glm::uvec4(256, 128, 256, 1);
+constexpr glm::uvec4 VoxelGridDimensions = glm::uvec4(128, 64, 128, 1);
+// constexpr glm::uvec4 VoxelGridDimensions = glm::uvec4(256, 64, 256, 1);
 // constexpr glm::uvec4 VoxelGridDimensions = glm::uvec4(512, 128, 512, 1);
 constexpr size_t VoxelGridResolution = VoxelGridDimensions.x/4;
 
@@ -61,7 +62,7 @@ rollingAverage(float& currentValue, float newValue) {
 /* CLASS */
 WorldFlow::WorldFlow(Renderer& renderer)
 	: _renderer(renderer), _diffusionIterations(Constants::NumDiffusionIterations), _pressureIterations(Constants::NumPressureIterations),
-	  _advectionIterations(Constants::NumAdvectionIterations), _grid{.numSubgrids = 1} {
+	  _advectionIterations(Constants::NumAdvectionIterations), _grid{.numSubgrids = 2} {
 }
 
 WorldFlow::~WorldFlow() {}
@@ -100,11 +101,11 @@ WorldFlow::update(VkCommandBuffer cmd, float dt)
 	solvePressure(cmd);
 	if(this->_shouldProjectIncompressible)
 		projectIncompressible(cmd);
-		// computeDivergence(cmd);
 	this->_timestamps.write(cmd, Timestamps::PressureSolve, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
 
 	diffuseDensity(cmd, dt);
 	this->_timestamps.write(cmd, Timestamps::DensityDiffusion, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
+
 	advectDensity(cmd, dt);
 	this->_timestamps.write(cmd, Timestamps::DensityAdvect, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
 
@@ -621,9 +622,9 @@ WorldFlow::initResources()
 	// FLUID PROPERTY BUFFERS
 	for(uint32_t i = 0; i < this->_grid.numSubgrids; i++) {
 		wf::SubGrid& sg = this->_grid.subgrids[i];
-		sg.resolution = Constants::VoxelGridDimensions;
+		sg.resolution = Constants::VoxelGridDimensions * (i+1);
 		sg.center = glm::vec4(0.0);
-		sg.cellSize = Constants::VoxelCellSize;
+		sg.cellSize = Constants::VoxelCellSize / (i+1);
 
 		this->_renderer.CreateBuffer(sg.buffFluidVelocity, Constants::NumVoxelGridCells * sizeof(FluidVelocity), fluidBufferUsage, fluidMemoryUsage);
 		this->_renderer.CreateBuffer(sg.buffFluidDensity, Constants::NumVoxelGridCells * sizeof(FluidDensity), fluidBufferUsage, fluidMemoryUsage);
@@ -631,6 +632,7 @@ WorldFlow::initResources()
 		this->_renderer.CreateBuffer(sg.buffFluidDivergence, Constants::NumVoxelGridCells * sizeof(FluidDivergence), fluidBufferUsage, fluidMemoryUsage);
 		this->_renderer.CreateBuffer(sg.buffFluidFlags, Constants::NumVoxelGridCells * sizeof(FluidFlags), fluidBufferUsage, fluidMemoryUsage);
 		this->_renderer.CreateBuffer(sg.buffFluidDebug, Constants::NumVoxelGridCells * sizeof(FluidDebug), fluidBufferUsage, fluidMemoryUsage);
+		this->_renderer.CreateBuffer(sg.buffFluidIndexOffsets, Constants::NumVoxelGridCells * sizeof(FluidIndexOffsets), fluidBufferUsage, fluidMemoryUsage);
 		this->_renderer.CreateBuffer(sg.buffGpuReferences, sizeof(SubGridGpuReferences), fluidBufferUsage, fluidMemoryUsage);
 
 		this->_grid.gpuRefs.subgridReferences[i] = sg.buffGpuReferences.deviceAddress;
