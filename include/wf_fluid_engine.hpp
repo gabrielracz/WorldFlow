@@ -26,6 +26,7 @@ struct SubGrid
 	float cellSize;
 
 	Buffer buffGpuReferences;
+	Buffer buffDispatchCommand;
 	Buffer buffFluidVelocity;
 	Buffer buffFluidDensity;
 	Buffer buffFluidPressure;
@@ -40,6 +41,7 @@ struct Grid
 {
 	SubGrid subgrids[Constants::MAX_SUBGRID_LEVELS];
 	uint32_t numSubgrids;
+
 	WorldFlowGridGpu gpuRefs;
 	Buffer buffWorldFlowGridGpu;
 };
@@ -56,6 +58,8 @@ private:
 	void drawUI();
 	void preFrame();
 	void update(VkCommandBuffer cmd, float dt);
+	void generateActiveOffsets(VkCommandBuffer cmd);
+	void generateIndirectCommands(VkCommandBuffer cmd);
 	void addSources(VkCommandBuffer cmd, float dt);
 	void diffuseVelocity(VkCommandBuffer cmd, float dt);
 	void advectVelocity(VkCommandBuffer cmd, float dt);
@@ -70,7 +74,7 @@ private:
 	void generateGridLines(VkCommandBuffer cmd);
 	void drawGrid(VkCommandBuffer cmd);
 
-	void dispatchFluid(VkCommandBuffer cmd, const glm::uvec3& factor = {1, 1, 1});
+	void dispatchFluid(VkCommandBuffer cmd, const SubGrid& sg, const glm::uvec3& factor = {1, 1, 1});
 	// void getTimestampQueries();
 
 	void checkControls(KeyMap& keyMap, MouseMap& mouseMap, Mouse& mouse, float dt);
@@ -100,8 +104,8 @@ private:
 	glm::vec3 _sourcePosition {};
 	float _sourceRadius {};
 	glm::vec3 _velocitySourceAmount {};
-	float _densityAmount = 0.25f;
-	float _velocitySpeed = 10.0f;
+	float _densityAmount = 2.5f;
+	float _velocitySpeed = 100.0f;
 	float _decayRate = 0.1f;
 
 	uint32_t _diffusionIterations;
@@ -114,6 +118,8 @@ private:
 	GraphicsPipeline _graphicsRenderMesh;
 	GraphicsPipeline _graphicsParticles;
 	GraphicsPipeline _graphicsGridLines;
+	ComputePipeline _computeGenerateIndirectCommands;
+	ComputePipeline _computeGenerateActiveOffsets;
 	ComputePipeline _computeAddSources;
 	ComputePipeline _computeDiffuseVelocity;
 	ComputePipeline _computeAdvectVelocity;

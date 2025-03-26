@@ -25,12 +25,11 @@ namespace Constants
 {
 // constexpr glm::uvec4 VoxelGridDimensions = glm::uvec4(64, 16, 64, 1);
 constexpr glm::uvec4 VoxelGridDimensions = glm::uvec4(128, 64, 128, 1);
-// constexpr glm::uvec4 VoxelGridDimensions = glm::uvec4(256, 64, 256, 1);
+// constexpr glm::uvec4 VoxelGridDimensions = glm::uvec4(256, 128, 256, 1);
 // constexpr glm::uvec4 VoxelGridDimensions = glm::uvec4(512, 128, 512, 1);
 constexpr size_t VoxelGridResolution = VoxelGridDimensions.x/4;
 
 const uint32_t NumVoxelGridCells = VoxelGridDimensions.x * VoxelGridDimensions.y * VoxelGridDimensions.z;
-const size_t VoxelGridSize = NumVoxelGridCells * sizeof(FluidGridCell);
 const float VoxelGridScale = 2.0f;
 const uint32_t VoxelDiagonal = VoxelGridDimensions.x + VoxelGridDimensions.y + VoxelGridDimensions.z;
 constexpr glm::vec3 VoxelGridCenter = glm::vec3(VoxelGridDimensions) * 0.5f + glm::vec3(1.0);
@@ -39,8 +38,7 @@ constexpr float VoxelCellSize = 1.0 / VoxelGridResolution;
 constexpr uint32_t NumGridLines = VoxelGridDimensions.y*VoxelGridDimensions.z + VoxelGridDimensions.x*VoxelGridDimensions.y + VoxelGridDimensions.x*VoxelGridDimensions.z;
 const glm::uvec3 GridGroups = glm::uvec3(VoxelGridDimensions.y*VoxelGridDimensions.z, VoxelGridDimensions.x*VoxelGridDimensions.y, VoxelGridDimensions.x*VoxelGridDimensions.z);
 
-// constexpr uint32_t LocalGroupSize = 8;
-constexpr glm::uvec3 LocalGroupSize = glm::uvec3(16, 8, 8);
+constexpr glm::uvec3 LocalGroupSize = glm::uvec3(8, 8, 8);
 
 constexpr uint32_t NumAdvectionIterations = 1;
 constexpr uint32_t NumDiffusionIterations = 4;
@@ -89,6 +87,11 @@ WorldFlow::update(VkCommandBuffer cmd, float dt)
 	dt = (this->_useTickRate) ? this->_tickRate : dt * this->_tickRate;
 	this->_timestamps.reset(this->_renderer.GetDevice());
 	this->_timestamps.write(cmd, Timestamps::StartFrame, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT);
+
+	generateActiveOffsets(cmd);
+	// generateIndirectCommands(cmd);
+	this->_timestamps.write(cmd, Timestamps::GenerateCommands, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
+
 	addSources(cmd, dt);
 	this->_timestamps.write(cmd, Timestamps::AddFluidProperties, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
 
@@ -109,19 +112,41 @@ WorldFlow::update(VkCommandBuffer cmd, float dt)
 	advectDensity(cmd, dt);
 	this->_timestamps.write(cmd, Timestamps::DensityAdvect, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
 
-	// drawGrid(cmd);
 	if(this->_shouldRenderFluid)
 		renderVoxelVolume(cmd);
+	// drawGrid(cmd);
 	// renderParticles(cmd, dt);
 	this->_timestamps.write(cmd, Timestamps::FluidRender, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
 	
 }
 
 void
+WorldFlow::generateActiveOffsets(VkCommandBuffer cmd)
+{
+	this->_computeGenerateActiveOffsets.Bind(cmd);
+	for(uint32_t i = 1; i < this->_grid.numSubgrids; i++) {
+		SubGrid& sg = this->_grid.subgrids[i];
+		uint32_t clearIndexCount = 0;
+		vkCmdUpdateBuffer(cmd, sg.buffGpuReferences.bufferHandle, offsetof(SubGridGpuReferences, indexCount), sizeof(uint32_t), &clearIndexCount);
+		VkBufferMemoryBarrier clearBarrier = sg.buffGpuReferences.CreateBarrier(VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_MEMORY_READ_BIT | VK_ACCESS_MEMORY_WRITE_BIT);
+		vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT | VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, 0, 1, &clearBarrier, 0, 0);
+
+		const GenerateActiveOffsetsPushConstants pc = {
+			.subgridLevel = i-1
+		};
+		vkCmdPushConstants(cmd, this->_computeGenerateActiveOffsets.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(pc), &pc);
+		dispatchFluid(cmd, this->_grid.subgrids[i-1]);
+
+		VkBufferMemoryBarrier barrier = this->_grid.subgrids[i-1].buffGpuReferences.CreateBarrier(VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT);
+		vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, 0, 1, &barrier, 0, 0);
+	}
+}
+
+void
 WorldFlow::addSources(VkCommandBuffer cmd, float dt)
 {
+	SubGrid& sg = this->_grid.subgrids[0];
 	this->_computeAddSources.Bind(cmd);
-
 	const AddFluidPropertiesPushConstants pc = {
 		.sourcePosition = glm::vec4(this->_sourcePosition, 1.0),
 		.velocity = glm::vec4(this->_velocitySourceAmount, 1.0),
@@ -138,7 +163,7 @@ WorldFlow::addSources(VkCommandBuffer cmd, float dt)
 		.clear = this->_shouldClear
 	};
 	vkCmdPushConstants(cmd, this->_computeAddSources.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(pc), &pc);
-	dispatchFluid(cmd);
+	dispatchFluid(cmd, sg);
 	VkBufferMemoryBarrier barriers[] = {
 		this->_grid.subgrids[0].buffFluidVelocity.CreateBarrier(VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT),
 		this->_grid.subgrids[0].buffFluidDensity.CreateBarrier(VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT),
@@ -153,6 +178,7 @@ WorldFlow::addSources(VkCommandBuffer cmd, float dt)
 void
 WorldFlow::diffuseVelocity(VkCommandBuffer cmd, float dt)
 {
+	SubGrid& sg = this->_grid.subgrids[0];
 	this->_computeDiffuseVelocity.Bind(cmd);
 	for(uint32_t i = 0; i < this->_diffusionIterations; i++) {
 		FluidPushConstants pc = {
@@ -162,7 +188,7 @@ WorldFlow::diffuseVelocity(VkCommandBuffer cmd, float dt)
 		};
 		vkCmdPushConstants(cmd, this->_computeDiffuseVelocity.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(pc), &pc);
 
-		dispatchFluid(cmd);
+		dispatchFluid(cmd, sg);
 
 		VkBufferMemoryBarrier barriers[] = {
 			this->_grid.subgrids[0].buffFluidVelocity.CreateBarrier(VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT)
@@ -174,6 +200,7 @@ WorldFlow::diffuseVelocity(VkCommandBuffer cmd, float dt)
 void
 WorldFlow::diffuseDensity(VkCommandBuffer cmd, float dt)
 {
+	SubGrid& sg = this->_grid.subgrids[0];
 	this->_computeDiffuseDensity.Bind(cmd);
 
 	for(uint32_t i = 0; i < this->_diffusionIterations; i++) {
@@ -184,7 +211,7 @@ WorldFlow::diffuseDensity(VkCommandBuffer cmd, float dt)
 		};
 		vkCmdPushConstants(cmd, this->_computeDiffuseDensity.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(pc), &pc);
 
-		dispatchFluid(cmd);
+		dispatchFluid(cmd, sg);
 
 		VkBufferMemoryBarrier barriers[] = {
 			this->_grid.subgrids[0].buffFluidDensity.CreateBarrier(VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT)
@@ -196,12 +223,13 @@ WorldFlow::diffuseDensity(VkCommandBuffer cmd, float dt)
 void
 WorldFlow::advectVelocity(VkCommandBuffer cmd, float dt)
 {
+	SubGrid& sg = this->_grid.subgrids[0];
 	this->_computeAdvectVelocity.Bind(cmd);
 	
 	for(uint32_t i = 0; i < this->_advectionIterations; i++) {
 		FluidPushConstants pc = {.dt = dt/(float)this->_advectionIterations};
 		vkCmdPushConstants(cmd, this->_computeAdvectVelocity.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(FluidPushConstants), &pc);
-		dispatchFluid(cmd);
+		dispatchFluid(cmd, sg);
 		VkBufferMemoryBarrier barriers[] = {
 			this->_grid.subgrids[0].buffFluidVelocity.CreateBarrier(VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT)
 		};
@@ -212,12 +240,13 @@ WorldFlow::advectVelocity(VkCommandBuffer cmd, float dt)
 void
 WorldFlow::advectDensity(VkCommandBuffer cmd, float dt)
 {
+	SubGrid& sg = this->_grid.subgrids[0];
 	this->_computeAdvectDensity.Bind(cmd);
 
 	for(uint32_t i = 0; i < this->_advectionIterations; i++) {
 		FluidPushConstants pc = {.dt = dt/(float)this->_advectionIterations};
 		vkCmdPushConstants(cmd, this->_computeAdvectDensity.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(FluidPushConstants), &pc);
-		dispatchFluid(cmd);
+		dispatchFluid(cmd, sg);
 		VkBufferMemoryBarrier barriers[] = {
 			this->_grid.subgrids[0].buffFluidDensity.CreateBarrier(VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT)
 		};
@@ -228,10 +257,11 @@ WorldFlow::advectDensity(VkCommandBuffer cmd, float dt)
 void
 WorldFlow::computeDivergence(VkCommandBuffer cmd)
 {
+	SubGrid& sg = this->_grid.subgrids[0];
 	this->_computeDivergence.Bind(cmd);
 	FluidPushConstants pc{};
 	vkCmdPushConstants(cmd, this->_computeDivergence.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(pc), &pc);
-	dispatchFluid(cmd);
+	dispatchFluid(cmd, sg);
 	VkBufferMemoryBarrier barriers[] = {
 		this->_grid.subgrids[0].buffFluidDivergence.CreateBarrier(VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT)
 	};
@@ -241,6 +271,7 @@ WorldFlow::computeDivergence(VkCommandBuffer cmd)
 void
 WorldFlow::solvePressure(VkCommandBuffer cmd)
 {
+	SubGrid& sg = this->_grid.subgrids[0];
 	this->_computeSolvePressure.Bind(cmd);
 
 	for(uint32_t i = 0; i < this->_pressureIterations; i++) {
@@ -249,7 +280,7 @@ WorldFlow::solvePressure(VkCommandBuffer cmd)
 		};
 		vkCmdPushConstants(cmd, this->_computeSolvePressure.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(pc), &pc);
 
-		dispatchFluid(cmd, glm::uvec3(1, 1, 1));
+		dispatchFluid(cmd, sg);
 
 		VkBufferMemoryBarrier barriers[] = {
 			this->_grid.subgrids[0].buffFluidPressure.CreateBarrier(VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT)
@@ -261,10 +292,11 @@ WorldFlow::solvePressure(VkCommandBuffer cmd)
 void
 WorldFlow::projectIncompressible(VkCommandBuffer cmd)
 {
+	SubGrid& sg = this->_grid.subgrids[0];
 	this->_computeProjectIncompressible.Bind(cmd);
 	FluidPushConstants pc{};
 	vkCmdPushConstants(cmd, this->_computeProjectIncompressible.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(pc), &pc);
-	dispatchFluid(cmd);
+	dispatchFluid(cmd, sg);
 	VkBufferMemoryBarrier barriers[] = {
 		this->_grid.subgrids[0].buffFluidVelocity.CreateBarrier(VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT)
 	};
@@ -393,10 +425,10 @@ WorldFlow::drawGrid(VkCommandBuffer cmd)
 }
 
 void
-WorldFlow::dispatchFluid(VkCommandBuffer cmd, const glm::uvec3& factor)
+WorldFlow::dispatchFluid(VkCommandBuffer cmd, const SubGrid& sg, const glm::uvec3& factor)
 {
 	// const glm::uvec4 groups = (Constants::VoxelGridDimensions / Constants::LocalGroupSize) / glm::uvec4(factor, 1.0);
-	const glm::uvec3 groups = (glm::uvec3(Constants::VoxelGridDimensions) / Constants::LocalGroupSize) / factor;
+	const glm::uvec3 groups = (glm::uvec3(sg.resolution) / Constants::LocalGroupSize) / factor;
 	vkCmdDispatch(cmd, groups.x, groups.y, groups.z);
 }
 
@@ -408,7 +440,8 @@ WorldFlow::preFrame()
 
 	const uint32_t statReportPeriod = 7;
 	this->_timestampAverages[Timestamps::StartFrame] = this->_timestamps.getDelta(Timestamps::StartFrame, Timestamps::FluidRender);
-	this->_timestampAverages[Timestamps::AddFluidProperties] = this->_timestamps.getDelta(Timestamps::StartFrame, Timestamps::AddFluidProperties);
+	this->_timestampAverages[Timestamps::GenerateCommands] = this->_timestamps.getDelta(Timestamps::StartFrame, Timestamps::GenerateCommands);
+	this->_timestampAverages[Timestamps::AddFluidProperties] = this->_timestamps.getDelta(Timestamps::GenerateCommands, Timestamps::AddFluidProperties);
 	this->_timestampAverages[Timestamps::VelocityDiffusion] =  this->_timestamps.getDelta(Timestamps::AddFluidProperties, Timestamps::VelocityDiffusion);
 	this->_timestampAverages[Timestamps::VelocityAdvect] =  this->_timestamps.getDelta(Timestamps::VelocityDiffusion, Timestamps::VelocityAdvect);
 	this->_timestampAverages[Timestamps::PressureSolve] =  this->_timestamps.getDelta(Timestamps::VelocityAdvect, Timestamps::PressureSolve);
@@ -438,7 +471,8 @@ WorldFlow::drawUI()
 		const float frameTime = this->_timestampAverages[Timestamps::StartFrame];
 		ImGui::Text("FPS:       %3.2f", 1.0/(frameTime/1000.0));
 		ImGui::Text("Total:     %3.2f ms", frameTime);
-		ImGui::Text("Add:       %3.2f ms", this->_timestampAverages[Timestamps::AddFluidProperties]);
+		ImGui::Text("GenCmd:    %3.2f ms", this->_timestampAverages[Timestamps::GenerateCommands]);
+		ImGui::Text("AddSrc:    %3.2f ms", this->_timestampAverages[Timestamps::AddFluidProperties]);
 		ImGui::Text("VelDiff:   %3.2f ms", this->_timestampAverages[Timestamps::VelocityDiffusion]);
 		ImGui::Text("VelAdvect: %3.2f ms", this->_timestampAverages[Timestamps::VelocityAdvect]);
 		ImGui::Text("Pressure:  %3.2f ms", this->_timestampAverages[Timestamps::PressureSolve]);
@@ -462,11 +496,11 @@ WorldFlow::drawUI()
     ImGui::SetNextWindowPos(ImVec2(pad, windowSize.y + pad), ImGuiCond_Always);
     ImGui::SetNextWindowSize(ImVec2(0, 0)); // Auto-sizing
 	if(ImGui::Begin("controls", nullptr, ImGuiWindowFlags_NoTitleBar)) {
-		ImGui::DragFloat("obj", &this->_objectRadius, 0.01f, 0.5f);
-		ImGui::DragFloat("src", &this->_sourceRadius, 0.01f, 0.5f);
-		ImGui::DragFloat("dns", &this->_densityAmount, 0.01f, 1.0f);
+		ImGui::DragFloat("obj", &this->_objectRadius, 0.01f);
+		ImGui::DragFloat("src", &this->_sourceRadius, 0.01f);
+		ImGui::DragFloat("dns", &this->_densityAmount, 0.1f);
 		ImGui::DragFloat("decay", &this->_decayRate, 0.01f);
-		ImGui::DragFloat("vel", &this->_velocitySpeed, 0.025f);
+		ImGui::DragFloat("vel", &this->_velocitySpeed, 0.25f);
 		const uint32_t step = 1;
 		ImGui::InputScalar("diffiter", ImGuiDataType_U32, &this->_diffusionIterations, &step);
 		ImGui::InputScalar("presiter", ImGuiDataType_U32, &this->_pressureIterations, &step);
@@ -548,7 +582,7 @@ WorldFlow::checkControls(KeyMap& keyMap, MouseMap& mouseMap, Mouse& mouse, float
 	}
 
 
-	for(int i = 1; i <= 5; i++) {
+	for(int i = 1; i <= 9; i++) {
 		if(keyMap[SDLK_0 + i] && keyMap[SDLK_LSHIFT]) {
 			this->_renderType = i;
 			keyMap[SDLK_0 + i] = false;
@@ -634,6 +668,7 @@ WorldFlow::initResources()
 		this->_renderer.CreateBuffer(sg.buffFluidDebug, Constants::NumVoxelGridCells * sizeof(FluidDebug), fluidBufferUsage, fluidMemoryUsage);
 		this->_renderer.CreateBuffer(sg.buffFluidIndexOffsets, Constants::NumVoxelGridCells * sizeof(FluidIndexOffsets), fluidBufferUsage, fluidMemoryUsage);
 		this->_renderer.CreateBuffer(sg.buffGpuReferences, sizeof(SubGridGpuReferences), fluidBufferUsage, fluidMemoryUsage);
+		this->_renderer.CreateBuffer(sg.buffDispatchCommand, sizeof(DispatchIndirectCommand), fluidBufferUsage, fluidMemoryUsage);
 
 		this->_grid.gpuRefs.subgridReferences[i] = sg.buffGpuReferences.deviceAddress;
 	}
@@ -655,10 +690,13 @@ WorldFlow::initResources()
 				.divergenceBufferReference = sg.buffFluidDivergence.deviceAddress,
 				.flagsBufferReference = sg.buffFluidFlags.deviceAddress,
 				.debugBufferReference = sg.buffFluidDebug.deviceAddress,
+				.indexOffsetsBufferReference = sg.buffFluidIndexOffsets.deviceAddress,
+				.dispatchCommandReference = sg.buffDispatchCommand.deviceAddress,
 
 				.resolution = sg.resolution,
 				.center = sg.center,
-				.cellSize = sg.cellSize
+				.cellSize = sg.cellSize,
+				.indexCount = 0
 			};
 			vkCmdUpdateBuffer(cmd, sg.buffGpuReferences.bufferHandle, 0, sizeof(refs), &refs);
 		}
@@ -689,6 +727,11 @@ WorldFlow::initPipelines()
         ImageDescriptor(0, 1, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, this->_renderer.GetDrawImage().imageView, VK_NULL_HANDLE, this->_renderer.GetDrawImage().layout),
     },
     sizeof(RayTracerPushConstants));
+
+	this->_renderer.CreateComputePipeline(this->_computeGenerateActiveOffsets, SHADER_DIRECTORY"/fluid_generate_indirect_commands.comp.spv", {
+		BufferDescriptor(0, 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, this->_grid.buffWorldFlowGridGpu.bufferHandle, sizeof(WorldFlowGridGpu)),
+	},
+	sizeof(GenerateActiveOffsetsPushConstants));
 
 	this->_renderer.CreateComputePipeline(this->_computeAddSources, SHADER_DIRECTORY"/fluid_add_sources.comp.spv", {
 		BufferDescriptor(0, 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, this->_grid.buffWorldFlowGridGpu.bufferHandle, sizeof(WorldFlowGridGpu)),

@@ -918,10 +918,10 @@ bool
 Renderer::initDescriptorPool()
 {
     std::vector<DescriptorPool::DescriptorQuantity> sizes = {
-        {VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 5},
+        {VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 3},
         {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 10}
     };
-    this->_descriptorPool.init(this->_device, 10, sizes);
+    this->_descriptorPool.init(this->_device, 20, sizes);
     this->_deletionQueue.push([&]() {
         this->_descriptorPool.destroy(this->_device);
     });

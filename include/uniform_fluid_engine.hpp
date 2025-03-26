@@ -22,6 +22,7 @@ private:
 	void drawUI();
 	void preFrame();
 	void update(VkCommandBuffer cmd, float dt);
+	void generateIndirectCommands(VkCommandBuffer cmd);
 	void addSources(VkCommandBuffer cmd, float dt);
 	void diffuseVelocity(VkCommandBuffer cmd, float dt);
 	void advectVelocity(VkCommandBuffer cmd, float dt);

@@ -21,7 +21,6 @@ struct alignas(16) DispatchIndirectCommand
 struct alignas(16) WorldFlowGridGpu
 {
 	uint64_t subgridReferences[Constants::MAX_SUBGRID_LEVELS] = {0};
-	uint64_t dispatchCommandReferences[Constants::MAX_SUBGRID_LEVELS] = {0};
 	uint32_t subgridCount {};
 };
 
@@ -41,30 +40,17 @@ struct alignas(16) SubGridGpuReferences
 	uint64_t flagsBufferReference;
 	uint64_t debugBufferReference;
 	uint64_t indexOffsetsBufferReference;
-	uint64_t padding = {1337};
+	uint64_t dispatchCommandReference;
 
     glm::uvec4 resolution;
     glm::vec4 center;
     float cellSize;
+	uint32_t indexCount;
 };
 
-/* STRUCTS */
-struct alignas(16) FluidGridCell
+struct alignas(16) GenerateActiveOffsetsPushConstants
 {
-	glm::vec4 velocity;
-	float density;
-	float pressure;
-	float divergence;
-	int occupied;
-	glm::vec4 padding;
-};
-
-
-struct alignas(16) FluidGridInfo
-{
-	glm::uvec4 resolution;
-	glm::vec4 position;
-	float cellSize;
+	uint32_t subgridLevel;
 };
 
 struct alignas(16) FluidPushConstants
@@ -115,6 +101,7 @@ struct alignas(16) DrawLinesPushConstants
 enum Timestamps : uint32_t
 {
 	StartFrame = 0,
+	GenerateCommands,
 	AddFluidProperties,
 	VelocityDiffusion,
 	VelocityAdvect,

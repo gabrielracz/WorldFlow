@@ -1,0 +1,34 @@
+#version 460
+#extension GL_GOOGLE_include_directive : enable
+// #extension GL_EXT_debug_printf: enable
+#include "../common/grid.comp"
+#include "../common/utils.comp"
+
+layout(local_size_x = GRID_LOCAL_SIZE_X, local_size_y = GRID_LOCAL_SIZE_Y, local_size_z = GRID_LOCAL_SIZE_Z) in;
+
+layout(std430, binding = 0) buffer WorldFlowGridBuffer {
+	WorldFlowGrid wfGrid;
+};
+
+layout(push_constant) uniform PushConstants {
+    uint subgridLevel;
+} pc;
+
+
+
+void main()
+{
+    WorldFlowSubGrid grid = wfGrid.subgrids[pc.subgridLevel].ref;
+    uvec3 pos = gl_GlobalInvocationID;
+    uint flatGridIndex = getGridIndex(pos, grid.resolution);
+    if((grid.flagsBuffer.data[flatGridIndex] & FLAG_ACTIVE) == 0) {
+        return;
+    }
+
+    uint offsetDstIndex = atomicAdd(wfGrid.subgrids[pc.subgridLevel+1].ref.indexCount, 1);
+    wfGrid.subgrids[pc.subgridLevel+1].ref.indexOffsets.data[offsetDstIndex] = flatGridIndex;
+
+    // if (!isWithinGridBounds(pos, grid.resolution)) {
+    //     return;
+    // }
+}

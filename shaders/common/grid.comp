@@ -1,5 +1,5 @@
 
-#define GRID_LOCAL_SIZE_X 16
+#define GRID_LOCAL_SIZE_X 8
 #define GRID_LOCAL_SIZE_Y 8
 #define GRID_LOCAL_SIZE_Z 8
 
@@ -8,6 +8,16 @@
 #extension GL_EXT_scalar_block_layout: enable
 
 /* STRUCTS */
+
+struct DispatchIndirectCommand
+{
+    uint x, y, z;
+};
+
+layout(buffer_reference, std430) buffer DispatchIndirectCommandReference {
+    DispatchIndirectCommand groups;
+};
+
 
 layout (buffer_reference, std430) buffer VelocityBuffer {
     vec4 data[];
@@ -42,6 +52,7 @@ const uint FLAG_SOURCE         = 1 << 1;
 const uint FLAG_SUBDIVIDED     = 1 << 2;
 const uint FLAG_SHOULD_REFINE  = 1 << 3;
 const uint FLAG_SHOULD_COARSEN = 1 << 4;
+const uint FLAG_ACTIVE         = 1 << 5;
 
 struct WorldFlowSubGrid
 {
@@ -52,33 +63,23 @@ struct WorldFlowSubGrid
     FlagsBuffer         flagsBuffer;
     DebugBuffer         debugBuffer;
     IndexOffsetsBuffer  indexOffsets;
+    DispatchIndirectCommandReference dispatch;
 
     uvec4 resolution;
     vec4 center;
     float cellSize;
+    uint indexCount;
 };
 
-struct DispatchIndirectCommand
-{
-    uint x;
-    uint y;
-    uint z;
-};
 
 layout(buffer_reference, std430) buffer WorldFlowSubgridReference {
     WorldFlowSubGrid ref;
 };
 
-layout(buffer_reference, std430) buffer DispatchIndirectCommandReference {
-    DispatchIndirectCommand groups;
-};
-
-
 #define MAX_SUBGRID_LEVELS 4
 struct WorldFlowGrid
 {
 	WorldFlowSubgridReference subgrids[MAX_SUBGRID_LEVELS];
-    DispatchIndirectCommandReference dispatch[MAX_SUBGRID_LEVELS];
 	uint subgridCount;
 };
 
@@ -104,7 +105,7 @@ bool isWithinGridBounds(uvec3 p, uvec4 gridResolution)
            p.z < gridResolution.z;
 }
 
-// #define CHUNK_FLATTENED_INDEXING
+#define CHUNK_FLATTENED_INDEXING
 #ifdef CHUNK_FLATTENED_INDEXING
 uint getGridIndex(uvec3 index, uvec4 gridResolution)
 {

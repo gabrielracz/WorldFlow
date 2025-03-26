@@ -159,7 +159,7 @@ vec4 traceVoxels(vec3 rayOrigin, vec3 rayDir) {
         if(all(greaterThanEqual(mapPos, ivec3(0))) && all(lessThan(mapPos, ivec3(pc.gridSize)))) {
             float density = 0.0;
             vec4 color = pc.baseColor;
-            if((grid.flagsBuffer.data[index] & FLAG_OCCUPIED) > 0) {
+            if((grid.flagsBuffer.data[index] & FLAG_OCCUPIED) > 0 && pc.renderType < 5) {
                 // vec3 worldPos = rayOrigin + t * rayDir;
                 vec3 worldPos = gridToWorld(index, grid.resolution, grid.cellSize);
                 vec3 normal = calculateNormal(mapPos, prevMapPos);
@@ -189,8 +189,10 @@ vec4 traceVoxels(vec3 rayOrigin, vec3 rayDir) {
             else if(pc.renderType == 5) {
                 density = grid.debugBuffer.data[index].x;
             }
+            else if(pc.renderType == 6) {
+                density = ((grid.flagsBuffer.data[index] & FLAG_ACTIVE) > 0) ? 1.0 : 0.0;
+            }
 			density *= (grid.cellSize * 64.0);
-            // float contribution = abs(density) * pc.stepSize;
             float contribution = abs(density) * (t - tPrev) * 5;
 
             float attenuation = exp(-t * 0.07);
