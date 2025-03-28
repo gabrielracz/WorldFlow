@@ -19,16 +19,4 @@ layout(push_constant) uniform PushConstants {
 void main()
 {
     WorldFlowSubGrid grid = wfGrid.subgrids[pc.subgridLevel].ref;
-    uvec3 pos = gl_GlobalInvocationID;
-    uint flatGridIndex = getGridIndex(pos, grid.resolution);
-    if((grid.flagsBuffer.data[flatGridIndex] & FLAG_ACTIVE) == 0) {
-        return;
-    }
-
-    uint offsetDstIndex = atomicAdd(wfGrid.subgrids[pc.subgridLevel+1].ref.indexCount, 1);
-    wfGrid.subgrids[pc.subgridLevel+1].ref.indexOffsets.data[offsetDstIndex] = flatGridIndex;
-
-    // if (!isWithinGridBounds(pos, grid.resolution)) {
-    //     return;
-    // }
 }

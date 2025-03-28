@@ -48,7 +48,7 @@ struct alignas(16) SubGridGpuReferences
 	uint32_t indexCount;
 };
 
-struct alignas(16) GenerateActiveOffsetsPushConstants
+struct alignas(16) SubgridLevelPushConstants
 {
 	uint32_t subgridLevel;
 };

@@ -58,7 +58,7 @@ private:
 	void drawUI();
 	void preFrame();
 	void update(VkCommandBuffer cmd, float dt);
-	void generateActiveOffsets(VkCommandBuffer cmd);
+	void generateSubgridOffsets(VkCommandBuffer cmd);
 	void generateIndirectCommands(VkCommandBuffer cmd);
 	void addSources(VkCommandBuffer cmd, float dt);
 	void diffuseVelocity(VkCommandBuffer cmd, float dt);
@@ -119,7 +119,7 @@ private:
 	GraphicsPipeline _graphicsParticles;
 	GraphicsPipeline _graphicsGridLines;
 	ComputePipeline _computeGenerateIndirectCommands;
-	ComputePipeline _computeGenerateActiveOffsets;
+	ComputePipeline _computeGenerateSubgridOffsets;
 	ComputePipeline _computeAddSources;
 	ComputePipeline _computeDiffuseVelocity;
 	ComputePipeline _computeAdvectVelocity;

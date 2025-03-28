@@ -24,9 +24,9 @@ namespace wf {
 namespace Constants
 {
 // constexpr glm::uvec4 VoxelGridDimensions = glm::uvec4(64, 16, 64, 1);
-constexpr glm::uvec4 VoxelGridDimensions = glm::uvec4(128, 64, 128, 1);
+// constexpr glm::uvec4 VoxelGridDimensions = glm::uvec4(128, 64, 128, 1);
 // constexpr glm::uvec4 VoxelGridDimensions = glm::uvec4(256, 128, 256, 1);
-// constexpr glm::uvec4 VoxelGridDimensions = glm::uvec4(512, 128, 512, 1);
+constexpr glm::uvec4 VoxelGridDimensions = glm::uvec4(512, 128, 128, 1);
 constexpr size_t VoxelGridResolution = VoxelGridDimensions.x/4;
 
 const uint32_t NumVoxelGridCells = VoxelGridDimensions.x * VoxelGridDimensions.y * VoxelGridDimensions.z;
@@ -88,7 +88,7 @@ WorldFlow::update(VkCommandBuffer cmd, float dt)
 	this->_timestamps.reset(this->_renderer.GetDevice());
 	this->_timestamps.write(cmd, Timestamps::StartFrame, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT);
 
-	generateActiveOffsets(cmd);
+	generateSubgridOffsets(cmd);
 	// generateIndirectCommands(cmd);
 	this->_timestamps.write(cmd, Timestamps::GenerateCommands, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
 
@@ -121,9 +121,10 @@ WorldFlow::update(VkCommandBuffer cmd, float dt)
 }
 
 void
-WorldFlow::generateActiveOffsets(VkCommandBuffer cmd)
+WorldFlow::generateSubgridOffsets(VkCommandBuffer cmd)
 {
-	this->_computeGenerateActiveOffsets.Bind(cmd);
+	// generate subgrid access offsets at finer resolutions for active cell chunks
+	this->_computeGenerateSubgridOffsets.Bind(cmd);
 	for(uint32_t i = 1; i < this->_grid.numSubgrids; i++) {
 		SubGrid& sg = this->_grid.subgrids[i];
 		uint32_t clearIndexCount = 0;
@@ -131,15 +132,21 @@ WorldFlow::generateActiveOffsets(VkCommandBuffer cmd)
 		VkBufferMemoryBarrier clearBarrier = sg.buffGpuReferences.CreateBarrier(VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_MEMORY_READ_BIT | VK_ACCESS_MEMORY_WRITE_BIT);
 		vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT | VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, 0, 1, &clearBarrier, 0, 0);
 
-		const GenerateActiveOffsetsPushConstants pc = {
+		const SubgridLevelPushConstants pc = {
 			.subgridLevel = i-1
 		};
-		vkCmdPushConstants(cmd, this->_computeGenerateActiveOffsets.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(pc), &pc);
+		vkCmdPushConstants(cmd, this->_computeGenerateSubgridOffsets.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(pc), &pc);
 		dispatchFluid(cmd, this->_grid.subgrids[i-1]);
 
 		VkBufferMemoryBarrier barrier = this->_grid.subgrids[i-1].buffGpuReferences.CreateBarrier(VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT);
 		vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, 0, 1, &barrier, 0, 0);
 	}
+}
+
+void
+WorldFlow::generateIndirectCommands(VkCommandBuffer cmd)
+{
+	
 }
 
 void
@@ -728,10 +735,15 @@ WorldFlow::initPipelines()
     },
     sizeof(RayTracerPushConstants));
 
-	this->_renderer.CreateComputePipeline(this->_computeGenerateActiveOffsets, SHADER_DIRECTORY"/fluid_generate_indirect_commands.comp.spv", {
+	this->_renderer.CreateComputePipeline(this->_computeGenerateSubgridOffsets, SHADER_DIRECTORY"/fluid_generate_subgrid_offsets.comp.spv", {
 		BufferDescriptor(0, 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, this->_grid.buffWorldFlowGridGpu.bufferHandle, sizeof(WorldFlowGridGpu)),
 	},
-	sizeof(GenerateActiveOffsetsPushConstants));
+	sizeof(SubgridLevelPushConstants));
+
+	this->_renderer.CreateComputePipeline(this->_computeGenerateIndirectCommands, SHADER_DIRECTORY"/fluid_generate_indirect_commands.comp.spv", {
+		BufferDescriptor(0, 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, this->_grid.buffWorldFlowGridGpu.bufferHandle, sizeof(WorldFlowGridGpu)),
+	},
+	sizeof(SubgridLevelPushConstants));
 
 	this->_renderer.CreateComputePipeline(this->_computeAddSources, SHADER_DIRECTORY"/fluid_add_sources.comp.spv", {
 		BufferDescriptor(0, 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, this->_grid.buffWorldFlowGridGpu.bufferHandle, sizeof(WorldFlowGridGpu)),
