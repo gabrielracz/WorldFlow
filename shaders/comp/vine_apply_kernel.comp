@@ -3,7 +3,6 @@
 layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
 
 
-
 const uint MaxKernelSize = 64*64;
 struct Kernel
 {
@@ -50,14 +49,15 @@ float activation(float x) {
 vec4 applyKernel(ivec2 index, Kernel k)
 {
     vec4 result = vec4(0.0, 0.0, 0.0, 1.0);
-    ivec2 h = ivec2(k.size.xy / 2);
-    for(int y = 0; y < k.size.y; y++) {
-        for(int x = 0; x < k.size.x; x++) {
+    ivec2 size = ivec2(k.size.xy);
+    ivec2 h = ivec2(size.xy / 2);
+    for(int y = 0; y < size.y; y++) {
+        for(int x = 0; x < size.x; x++) {
             vec4 src = imageLoad(srcImg, index + ivec2(x, y) - h);
             result += vec4(
-                src.r * k.weights[y * k.size.x + x],
-                src.g * k.weights[y * k.size.x + x],
-                src.b * k.weights[y * k.size.x + x],
+                src.r * k.weights[y * size.x + x],
+                src.g * k.weights[y * size.x + x],
+                src.b * k.weights[y * size.x + x],
                 0.0
             ) * pc.kernelScale;
         }

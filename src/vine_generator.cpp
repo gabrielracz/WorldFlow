@@ -56,29 +56,34 @@ struct alignas(16) ApplyKernelPushConstants
 
 void centerKernel(Kernel& kernel);
 
-void generateGaussianKernel(Kernel& k, float sigma = 0.0) {
-    if(sigma == 0.0) {sigma = k.size.x / 6.0;}
-    float sum = 0.0f; 
-    glm::uvec2 h = glm::uvec2(k.size) / 2U;
-    for (int y = 0; y < k.size.y; y++) {
-        for (int x = 0; x < k.size.x; x++) {
-            int dx = x - h.x;
-            int dy = y - h.y;
-            float w = std::exp(-(dx * dx + dy * dy) / (2 * sigma * sigma));
-            k.weights[y * k.size.x + x] = w;
-            sum += w;
-        }
-    }
-    for (int y = 0; y < k.size.y; y++) {
-        for (int x = 0; x < k.size.x; x++) {
-            k.weights[y * k.size.x + x] /= sum; // normalize
-        }
-    }
-}
+// void generateGaussianKernel(Kernel& k, float sigma = 0.0) {
+//     if(sigma == 0.0) {sigma = k.size.x / 6.0;}
+//     float sum = 0.0f; 
+//     glm::uvec2 h = glm::uvec2(k.size) / 2U;
+//     for (int y = 0; y < k.size.y; y++) {
+//         for (int x = 0; x < k.size.x; x++) {
+//             int dx = x - h.x;
+//             int dy = y - h.y;
+//             float w = std::exp(-(dx * dx + dy * dy) / (2 * sigma * sigma));
+//             k.weights[y * k.size.x + x] = w;
+//             sum += w;
+//         }
+//     }
+//     for (int y = 0; y < k.size.y; y++) {
+//         for (int x = 0; x < k.size.x; x++) {
+//             k.weights[y * k.size.x + x] /= sum; // normalize
+//         }
+//     }
+// }
 
 VineGenerator::VineGenerator(Renderer& renderer)
     : _renderer(renderer), _rng(), _srcType(InitializerSrcTypes::Random),
-      _activationFunction(ActivationFunctions::Abs), _activationParam(2.0) {}
+      _activationFunction(ActivationFunctions::Abs), _activationParam(2.0) {
+    
+    this->_kernels.resize(Constants::MaxNumKernels, Kernel{});
+    this->_kernelScales.resize(Constants::MaxNumKernels, 1.0);
+    this->_activationFunctions.resize(Constants::MaxNumKernels, ActivationFunctions::Abs);
+}
 
 bool
 VineGenerator::Init()
@@ -98,11 +103,11 @@ VineGenerator::update(VkCommandBuffer cmd, float dt)
 
 
     if(this->_shouldRandomizeKernel) {
-        randomizeKernel(this->_kernel);
+        randomizeKernel(this->_kernels[this->_selectedKernelIndex]);
     }
     
     // if(this->_shouldPushKernel) {
-        pushKernel(cmd, this->_kernel);
+        // pushKernel(cmd, this->_kernels[this->_selectedKernelIndex]);
     // }
 
     if(this->_shouldInitializeImage) {
@@ -110,41 +115,63 @@ VineGenerator::update(VkCommandBuffer cmd, float dt)
     }
 
     if(this->_shouldStep)  {
-        applyKernel(cmd);
+        applyKernels(cmd);
     }
 
 
-    this->_imgVine[1].Transition(cmd, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
-    if(!this->_shouldSkipFrames || this->_renderer.GetFrameNumber() % 2 == 0) {
-        Image::Copy(cmd, this->_imgVine[1], this->_renderer.GetDrawImage(), false);
-        this->_imgVine[0].Transition(cmd, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+    int srcImgIndex = this->_numActivatedKernels % 2 == 0 && !this->_sequence ? 1 : 0;
+    int dstImgIndex = (srcImgIndex + 1) % 2;
+    
+    this->_imgVine[dstImgIndex].Transition(cmd, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+    if(!this->_shouldSkipFrames || this->_renderer.GetFrameNumber() % (this->_numActivatedKernels + 1) == 0) {
+        Image::Copy(cmd, this->_imgVine[dstImgIndex], this->_renderer.GetDrawImage(), false);
+        this->_imgVine[srcImgIndex].Transition(cmd, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
     } else {
-        this->_imgVine[0].Transition(cmd, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
-        Image::Copy(cmd, this->_imgVine[0], this->_renderer.GetDrawImage(), false);
-        VkImageMemoryBarrier barrier = this->_imgVine[0].CreateBarrier(VK_ACCESS_TRANSFER_READ_BIT, VK_ACCESS_TRANSFER_WRITE_BIT);
+        this->_imgVine[srcImgIndex].Transition(cmd, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+        Image::Copy(cmd, this->_imgVine[srcImgIndex], this->_renderer.GetDrawImage(), false);
+        VkImageMemoryBarrier barrier = this->_imgVine[srcImgIndex].CreateBarrier(VK_ACCESS_TRANSFER_READ_BIT, VK_ACCESS_TRANSFER_WRITE_BIT);
         vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, 0, 0, 0, 1, &barrier);
-        this->_imgVine[0].Transition(cmd, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+        this->_imgVine[srcImgIndex].Transition(cmd, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
     }
-    Image::Copy(cmd, this->_imgVine[1], this->_imgVine[0]);
+    Image::Copy(cmd, this->_imgVine[dstImgIndex], this->_imgVine[srcImgIndex]);
 }
 
 void
-VineGenerator::applyKernel(VkCommandBuffer cmd)
+VineGenerator::applyKernels(VkCommandBuffer cmd)
 {
-    this->_computeApplyKernel.Bind(cmd);
-    ApplyKernelPushConstants pc = {
-        .colorMask = this->_srcColor,
-        .kernelScale = this->_kernelScale,
-        // .activationFn = std::clamp(this->_activationFunction, 0, ActivationFunctions::NumActivationFunctions - 1),
-        .activationFn = this->_activationFunction,
-        .activationParam = this->_activationParam
-    };
-    vkCmdPushConstants(cmd, this->_computeApplyKernel.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(pc), &pc);
-    dispatchImage(cmd);
-    VkImageMemoryBarrier barriers[] = {
-        this->_imgVine[1].CreateBarrier(VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT)
-    };
-    vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, 0, 0, 0, 0, 0, ARRLEN(barriers), barriers);
+    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, this->_computeApplyKernel.pipeline);
+    if(this->_sequence) {
+        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, this->_computeApplyKernel.layout, 0, 1, &this->_computeApplyKernel.descriptorSets[0], 0, nullptr);
+        dispatchKernel(cmd, this->_kernelSequence);
+        if((this->_renderer.GetFrameNumber() % this->_sequenceDelay) == 0 || this->_kernelSequence > 0) {
+            this->_kernelSequence = (this->_kernelSequence + 1) % this->_numActivatedKernels;
+        }
+    }
+    else {
+        for(int i = 0; i < this->_numActivatedKernels; i++) {
+            uint32_t pingPong = (i % 2);
+            vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, this->_computeApplyKernel.layout, 0, 1, &this->_computeApplyKernel.descriptorSets[pingPong], 0, nullptr);
+            dispatchKernel(cmd, i);
+        }
+    }
+}
+
+void
+VineGenerator::dispatchKernel(VkCommandBuffer cmd, int kernelIndex)
+{
+        pushKernel(cmd, this->_kernels[kernelIndex]);
+        ApplyKernelPushConstants pc = {
+            .colorMask = this->_srcColor,
+            .kernelScale = this->_kernelScales[kernelIndex],
+            .activationFn = this->_activationFunctions[kernelIndex],
+            .activationParam = this->_activationParam
+        };
+        vkCmdPushConstants(cmd, this->_computeApplyKernel.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(pc), &pc);
+        dispatchImage(cmd);
+        VkImageMemoryBarrier barriers[] = {
+            this->_imgVine[1].CreateBarrier(VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT)
+        };
+        vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, 0, 0, 0, 0, 0, ARRLEN(barriers), barriers);
 }
 
 void
@@ -163,31 +190,62 @@ VineGenerator::addSource(VkCommandBuffer cmd)
 }
 
 void
-VineGenerator::randomizeKernel(Kernel& k)
-{
-    uint32_t yLim = (this->_symmetricKernel) ? (k.size.y + 1) / 2 : k.size.y;
-    uint32_t xLim = (this->_symmetricKernel) ? (k.size.x + 1) / 2 : k.size.x;
+VineGenerator::randomizeKernel(Kernel& k) {
+    const uint32_t height = k.size.y;
+    const uint32_t width = k.size.x;
+    const size_t total_weights = static_cast<size_t>(width) * height;
 
-    for(int y = 0; y < yLim; y++) {
-        for(int x = y; x < xLim; x++) {
-            float weight = this->_rng.rand<float>(-1.0, 1.0);
-            k.weights[y * k.size.x + x] = weight;
-            if(this->_symmetricKernel) {
-                // Reflect across the vertical axis
-                int ky = k.size.y;
-                int kx = k.size.x;
-                k.weights[y * kx + (kx-1-x)] = weight;
-                k.weights[(kx-1-x) * kx + y] = weight;
-                k.weights[(ky-1-y) * kx + x] = weight;
-                k.weights[x * kx + (ky-1-y)] = weight;
-                k.weights[x * kx + y] = weight;
-                k.weights[x * kx + (kx-1-y)] = weight;
-                k.weights[(ky-1-x) * kx + y] = weight;
-                k.weights[(ky-1-x) * kx + (kx-1-y)] = weight;
+    if (!this->_symmetricKernel) {
+        for (size_t i = 0; i < total_weights; ++i) {
+            k.weights[i] = this->_rng.rand<float>(-1.0f, 1.0f);
+        }
+    } else {
+        // --- Octant Symmetric case ---
+        // Iterate through the top-left octant defined by:
+        // row `y` from 0 up to center row
+        // column `x` from `y` up to center column (ensures y <= x)
+        const uint32_t yLim = (height + 1) / 2; // Iterate up to center row (inclusive if odd)
+        const uint32_t xLim = (width + 1) / 2;  // Iterate up to center column (inclusive if odd)
+        const size_t W_s = static_cast<size_t>(width); // Use size_t width for index calculations
 
+        for (uint32_t y = 0; y < yLim; ++y) {
+            // Start x from y to ensure we are in the octant where y <= x
+            for (uint32_t x = y; x < xLim; ++x) {
+                // Generate one random weight for the group of up to 8 symmetric points
+                const float weight = this->_rng.rand<float>(-1.0f, 1.0f);
 
-                k.weights[(kx-1-x) * ky + y] = weight;
-                k.weights[x * ky + (ky-1-y)] = weight;
+                // Calculate reflected coordinates needed for indexing
+                // (unsigned subtraction is safe here as width/height > 0 and x/y < Lim)
+                const uint32_t reflected_y = height - 1 - y;
+                const uint32_t reflected_x = width - 1 - x;
+
+                // --- Assign weight to the 8 symmetric locations ---
+                // Index is calculated as: row_index * width + column_index
+
+                // Group 1: Based on (x, y)
+                // P1: (x, y) -> Row y, Col x
+                k.weights[static_cast<size_t>(y) * W_s + x] = weight;
+                // P2: (W-1-x, y) -> Row y, Col W-1-x
+                k.weights[static_cast<size_t>(y) * W_s + reflected_x] = weight;
+                // P3: (x, H-1-y) -> Row H-1-y, Col x
+                k.weights[static_cast<size_t>(reflected_y) * W_s + x] = weight;
+                // P4: (W-1-x, H-1-y) -> Row H-1-y, Col W-1-x
+                k.weights[static_cast<size_t>(reflected_y) * W_s + reflected_x] = weight;
+
+                // Group 2: Based on diagonal reflection (y, x)
+                // Avoid redundant writes if x == y (on the main diagonal)
+                // These points might be identical to Group 1 points if x == y.
+                // Assigning again is harmless but checking avoids redundant memory writes.
+                if (x != y) {
+                    // P5: (y, x) -> Row x, Col y
+                    k.weights[static_cast<size_t>(x) * W_s + y] = weight;
+                    // P6: (W-1-y, x) -> Row x, Col W-1-y
+                    k.weights[static_cast<size_t>(x) * W_s + (width - 1 - y)] = weight;
+                     // P7: (y, H-1-x) -> Row H-1-x, Col y
+                    k.weights[static_cast<size_t>(height - 1 - x) * W_s + y] = weight;
+                    // P8: (W-1-y, H-1-x) -> Row H-1-x, Col W-1-y
+                    k.weights[static_cast<size_t>(height - 1 - x) * W_s + (width - 1 - y)] = weight;
+                }
             }
         }
     }
@@ -196,7 +254,7 @@ VineGenerator::randomizeKernel(Kernel& k)
 void
 VineGenerator::pushKernel(VkCommandBuffer cmd, Kernel& k)
 {
-    vkCmdUpdateBuffer(cmd, this->_buffKernel.bufferHandle, 0, sizeof(Kernel), &this->_kernel);
+    vkCmdUpdateBuffer(cmd, this->_buffKernel.bufferHandle, 0, sizeof(Kernel), &k);
     // VkBufferMemoryBarrier barrier = this->_buffKernel.CreateBarrier(VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT);
     VkAccessFlags allAccess = VK_ACCESS_MEMORY_READ_BIT | VK_ACCESS_MEMORY_WRITE_BIT;
     VkBufferMemoryBarrier barrier = this->_buffKernel.CreateBarrier(allAccess, allAccess);
@@ -232,38 +290,56 @@ VineGenerator::drawUI()
         
         // Draw Kernel
         ImGui::Separator();
+        
+        char kernIndexStr[256] = {'\0'};
+        int ix = 0;
+        for(int i = 0; i < this->_kernels.size(); i++) {
+            kernIndexStr[ix++] = i + '0';
+            kernIndexStr[ix++] = '\0';
+        }
+        ImGui::Combo("KernelIndex", &this->_selectedKernelIndex, kernIndexStr);
+        ImGui::InputInt("Activated Kernels", &this->_numActivatedKernels);
+        ImGui::PushID("Sequence Delay");
+        ImGui::InputInt("", &this->_sequenceDelay, 1);
+        this->_sequenceDelay = std::max(this->_sequenceDelay, 1);
+        ImGui::PopID();
+        ImGui::SameLine();
+        ImGui::Checkbox("Sequence", &this->_sequence);
+        this->_numActivatedKernels = std::clamp(this->_numActivatedKernels, 0, (int)this->_kernels.size());
+
+        Kernel& selectedKernel = this->_kernels[this->_selectedKernelIndex];
         ImGui::Text("Kernel:");
         ImGui::SameLine();
         ImGui::PushID("kernel width");
         ImGui::SetNextItemWidth(50.0f);
-        ImGui::InputScalar("", ImGuiDataType_U32, &this->_kernel.size.x);
+        ImGui::InputScalar("", ImGuiDataType_U32, &selectedKernel.size.x);
         ImGui::PopID();
         ImGui::SameLine();
         ImGui::PushID("kernel height");
         ImGui::SetNextItemWidth(50.0f);
-        ImGui::InputScalar("", ImGuiDataType_U32, &this->_kernel.size.y);
+        ImGui::InputScalar("", ImGuiDataType_U32, &selectedKernel.size.y);
         ImGui::PopID();
 
-        for (uint32_t y = 0; y < this->_kernel.size.y; ++y) {
-            for (uint32_t x = 0; x < this->_kernel.size.x; ++x) {
-                uint32_t index = y * this->_kernel.size.x + x;
+
+        for (uint32_t y = 0; y < selectedKernel.size.y; ++y) {
+            for (uint32_t x = 0; x < selectedKernel.size.x; ++x) {
+                uint32_t index = y * selectedKernel.size.x + x;
                 ImGui::PushID(index);
                 ImGui::SetNextItemWidth(50.0f);
-                // ImGui::InputFloat("", &this->_kernel.weights[index]);
-                if(ImGui::DragFloat("", &this->_kernel.weights[index], 0.025)) {
+                if(ImGui::DragFloat("", &selectedKernel.weights[index], 0.025)) {
                     this->_shouldPushKernel = true;
                 };
                 ImGui::PopID();
 
-                if (x < this->_kernel.size.x - 1)
+                if (x < selectedKernel.size.x - 1)
                     ImGui::SameLine();
             }
         }
         char flatKernelBuffer[65536] = {0};
         std::string flattenedKernelStr;
-        for(int i = 0; i < this->_kernel.size.x * this->_kernel.size.y; i++) {
+        for(int i = 0; i < selectedKernel.size.x * selectedKernel.size.y; i++) {
             if (i > 0) flattenedKernelStr += ", ";  // Add comma separator
-            flattenedKernelStr += std::to_string(this->_kernel.weights[i]);
+            flattenedKernelStr += std::to_string(selectedKernel.weights[i]);
         }
         std::strncpy(flatKernelBuffer, flattenedKernelStr.data(), flattenedKernelStr.size());
         ImGui::SetNextItemWidth(-FLT_MIN);
@@ -272,13 +348,13 @@ VineGenerator::drawUI()
             std::string token;
             uint32_t index = 0;
 
-            while (std::getline(ss, token, ',') && index < this->_kernel.size.x * this->_kernel.size.y) {
-                this->_kernel.weights[index++] = std::stof(token);
+            while (std::getline(ss, token, ',') && index < selectedKernel.size.x * selectedKernel.size.y) {
+                selectedKernel.weights[index++] = std::stof(token);
             }
         }
 
         if(ImGui::Button("Center")) {
-            centerKernel(this->_kernel);
+            centerKernel(selectedKernel);
         }
         
         // this->_shouldPushKernel = ImGui::Button("Push");
@@ -290,9 +366,9 @@ VineGenerator::drawUI()
         }
         ImGui::SameLine();
         ImGui::Checkbox("Symmetric", &this->_symmetricKernel);
-        ImGui::DragFloat("Scale", &this->_kernelScale, 0.025);
+        ImGui::DragFloat("Scale", &this->_kernelScales[this->_selectedKernelIndex], 0.0025);
 
-        ImGui::InputInt("Activation", &this->_activationFunction, 1);
+        ImGui::InputInt("Activation", &this->_activationFunctions[this->_selectedKernelIndex], 1);
         ImGui::DragFloat("ActParam", &this->_activationParam, 0.025);
 
         ImGui::Separator();
@@ -328,6 +404,7 @@ VineGenerator::checkControls(KeyMap& keymap, MouseMap& mousemap, Mouse& mouse)
         this->_shouldInitializeImage = true;
         this->_srcType = InitializerSrcTypes::Clear;
         this->_srcRadius = 0;
+        this->_kernelSequence = 0;
         keymap[SDLK_q] = false;
     }
 
@@ -385,10 +462,10 @@ VineGenerator::initResources()
 bool
 VineGenerator::initPreProcess()
 {
-    this->_kernel.size = glm::uvec4(3, 3, 0, 0);
-    randomizeKernel(this->_kernel);
+    this->_kernels[0].size = glm::uvec4(3, 3, 0, 0);
+    randomizeKernel(this->_kernels[0]);
     this->_renderer.ImmediateSubmit([this](VkCommandBuffer cmd) {
-        pushKernel(cmd, this->_kernel);
+        pushKernel(cmd, this->_kernels[0]);
     });
 
     this->_renderer.ImmediateSubmit([this](VkCommandBuffer cmd) {
@@ -404,7 +481,10 @@ VineGenerator::initPipelines()
         this->_computeApplyKernel, SHADER_DIRECTORY"/vine_apply_kernel.comp.spv", {
             ImageDescriptor(0, 0, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, this->_imgVine[0].imageView, VK_NULL_HANDLE, this->_imgVine[0].layout),
             ImageDescriptor(0, 1, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, this->_imgVine[1].imageView, VK_NULL_HANDLE, this->_imgVine[1].layout),
-            BufferDescriptor(0, 2, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, this->_buffKernel.bufferHandle, sizeof(Kernel))
+            BufferDescriptor(0, 2, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, this->_buffKernel.bufferHandle, sizeof(Kernel)),
+            ImageDescriptor(1, 0, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, this->_imgVine[1].imageView, VK_NULL_HANDLE, this->_imgVine[1].layout),
+            ImageDescriptor(1, 1, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, this->_imgVine[0].imageView, VK_NULL_HANDLE, this->_imgVine[0].layout),
+            BufferDescriptor(1, 2, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, this->_buffKernel.bufferHandle, sizeof(Kernel)),
         }, sizeof(ApplyKernelPushConstants)
     );
 
