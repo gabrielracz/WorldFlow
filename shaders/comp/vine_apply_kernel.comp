@@ -19,6 +19,7 @@ layout(std430, binding = 2, set = 0) uniform readonly KernelUniform {
 layout(push_constant) uniform PushConstants {
     vec4 colorMask;
     float kernelScale;
+    float kernelContribution;
     int activationFn;
     float activationParam;
 } pc;
@@ -77,5 +78,7 @@ void main()
     }
     vec4 result = applyKernel(index, kernel);
     result = clamp(result, vec4(0.0, 0.0, 0.0, 1.0), vec4(1.0));
-    imageStore(dstImg, index, result);
+
+    vec4 color = mix(imageLoad(srcImg, index), result, pc.kernelContribution);
+    imageStore(dstImg, index, color);
 }

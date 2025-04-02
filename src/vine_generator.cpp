@@ -49,6 +49,7 @@ struct alignas(16) ApplyKernelPushConstants
 {
     glm::vec4 colorMask;
     float kernelScale;
+    float kernelContribution;
     int activationFn; 
     float activationParam;
 };
@@ -82,6 +83,7 @@ VineGenerator::VineGenerator(Renderer& renderer)
     
     this->_kernels.resize(Constants::MaxNumKernels, Kernel{});
     this->_kernelScales.resize(Constants::MaxNumKernels, 1.0);
+    this->_kernelContributions.resize(Constants::MaxNumKernels, 1.0);
     this->_activationFunctions.resize(Constants::MaxNumKernels, ActivationFunctions::Abs);
 }
 
@@ -123,7 +125,7 @@ VineGenerator::update(VkCommandBuffer cmd, float dt)
     int dstImgIndex = (srcImgIndex + 1) % 2;
     
     this->_imgVine[dstImgIndex].Transition(cmd, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
-    if(!this->_shouldSkipFrames || this->_renderer.GetFrameNumber() % (this->_numActivatedKernels + 1) == 0) {
+    if(!this->_shouldSkipFrames || this->_renderer.GetFrameNumber() % (2) == 0) {
         Image::Copy(cmd, this->_imgVine[dstImgIndex], this->_renderer.GetDrawImage(), false);
         this->_imgVine[srcImgIndex].Transition(cmd, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
     } else {
@@ -159,19 +161,20 @@ VineGenerator::applyKernels(VkCommandBuffer cmd)
 void
 VineGenerator::dispatchKernel(VkCommandBuffer cmd, int kernelIndex)
 {
-        pushKernel(cmd, this->_kernels[kernelIndex]);
-        ApplyKernelPushConstants pc = {
-            .colorMask = this->_srcColor,
-            .kernelScale = this->_kernelScales[kernelIndex],
-            .activationFn = this->_activationFunctions[kernelIndex],
-            .activationParam = this->_activationParam
-        };
-        vkCmdPushConstants(cmd, this->_computeApplyKernel.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(pc), &pc);
-        dispatchImage(cmd);
-        VkImageMemoryBarrier barriers[] = {
-            this->_imgVine[1].CreateBarrier(VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT)
-        };
-        vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, 0, 0, 0, 0, 0, ARRLEN(barriers), barriers);
+    pushKernel(cmd, this->_kernels[kernelIndex]);
+    ApplyKernelPushConstants pc = {
+        .colorMask = this->_srcColor,
+        .kernelScale = this->_kernelScales[kernelIndex],
+        .kernelContribution = this->_kernelContributions[kernelIndex],
+        .activationFn = this->_activationFunctions[kernelIndex],
+        .activationParam = this->_activationParam
+    };
+    vkCmdPushConstants(cmd, this->_computeApplyKernel.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(pc), &pc);
+    dispatchImage(cmd);
+    VkImageMemoryBarrier barriers[] = {
+        this->_imgVine[1].CreateBarrier(VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT)
+    };
+    vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, 0, 0, 0, 0, 0, ARRLEN(barriers), barriers);
 }
 
 void
@@ -366,7 +369,8 @@ VineGenerator::drawUI()
         }
         ImGui::SameLine();
         ImGui::Checkbox("Symmetric", &this->_symmetricKernel);
-        ImGui::DragFloat("Scale", &this->_kernelScales[this->_selectedKernelIndex], 0.0025);
+        ImGui::DragFloat("Scale", &this->_kernelScales[this->_selectedKernelIndex], 0.005);
+        ImGui::DragFloat("Contrib", &this->_kernelContributions[this->_selectedKernelIndex], 0.005);
 
         ImGui::InputInt("Activation", &this->_activationFunctions[this->_selectedKernelIndex], 1);
         ImGui::DragFloat("ActParam", &this->_activationParam, 0.025);
