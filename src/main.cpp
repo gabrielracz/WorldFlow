@@ -22,7 +22,7 @@ int main(int argc, char* argv[])
         }
     }
 
-    Renderer renderer(settings, 956, 956);
+    Renderer renderer(settings, 960, 960);
     if(!renderer.Init()) {
         std::cout << "[ERROR] Failed to initialize renderer" << std::endl;
         return EXIT_FAILURE;

@@ -24,25 +24,19 @@ layout(push_constant) uniform PushConstants {
     float activationParam;
 } pc;
 
-float activation(float x) {
+vec3 activation(vec3 x) {
     switch(pc.activationFn) {
-        case 0:
-            return x;
-        case 1:
-            return abs(x);
-        case 2:
-            return pow(x, 2);
-        case 3:
-            return max(0.0, x); // ReLU
-        case 4:
-            return x * (1.0 / (1.0 + exp(-x))); // Swish
-        case 5:
-            return tanh(x);
+        case 0: return x;
+        case 1: return abs(x);
+        case 2: return pow(x, vec3(2));
+        case 3: return max(vec3(0.0), x); // ReLU
+        case 4: return x * (1.0 / (1.0 + exp(-x))); // Swish
+        case 5: return tanh(x);
         case 6:
             // return sqrt(x*x + pc.activationParam) - sqrt(pc.activationParam); // SoftPlus
-            return 1.0 - max(0.0, 1.0 - abs(x)); // Tent
-        // case 7:
-        //     return max(0.0, 1.0 - abs(x)); // Tent
+            return vec3(1.0) - max(vec3(0.0), vec3(1.0) - abs(x)); // Tent
+        case 7:
+            return max(vec3(0.0), vec3(1.0) - abs(x)); // Tent
     }
     return x;
 }
@@ -63,7 +57,8 @@ vec4 applyKernel(ivec2 index, Kernel k)
             ) * pc.kernelScale;
         }
     }
-    result = vec4(activation(result.r), activation(result.g), activation(result.b), 1.0);
+    // result = vec4(activation(result.r), activation(result.g), activation(result.b), 1.0);
+    result = vec4(activation(result.rgb), 1.0);
     return result;
 }
 
