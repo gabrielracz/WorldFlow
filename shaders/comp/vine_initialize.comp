@@ -15,24 +15,31 @@ layout(push_constant) uniform PushConstants {
 
 const int SrcTypeClear = 1;
 const int SrcTypeRandom = 2;
+const int SrcTypeUniform = 3;
 
 void main()
 {
     uvec2 index = gl_GlobalInvocationID.xy;
+    if(any(greaterThanEqual(index, imageSize(srcImg)))) {
+        return;
+    }
     vec4 col = vec4(0.0, 0.0, 0.0, 1.0);
     float d = distance(ivec2(index), pc.src.xy);
     if(pc.src.w > 0 && d > pc.src.w) {
         return;
     }
+
     if(pc.src.z == SrcTypeRandom) {
         col.x = random(index, pc.seed);
         col.y = random(index, pc.seed + 513421);
         col.z = random(index, pc.seed + 847326);
         col *= pc.srcColor;
     } else if(pc.src.z == SrcTypeClear) {
-        col.x = 0.0;
-        col.y = 0.0;
-        col.z = 0.0;
+        col.r = 0.0;
+        col.g = 0.0;
+        col.b = 0.0;
+    } else if(pc.src.z == SrcTypeUniform) {
+        col.rgb = pc.srcColor.rgb;
     }
     imageStore(srcImg, ivec2(index), col);
 }

@@ -19,6 +19,17 @@ struct alignas(16) Kernel
     alignas(16) float weights[Constants::MaxKernelSize] = {0.0};
 };
 
+struct alignas(16) ReactionDiffusionPushConstants
+{
+    float dt = 0.1;
+    float Da = 0.25;
+    float Db = 0.0625;
+    float s = 0.03;
+    float Beta = 0.1;
+    float reactionParam = 16.0;
+};
+
+
 class Renderer;
 
 class VineGenerator
@@ -73,7 +84,7 @@ private:
     std::vector<float> _kernelScales;
     std::vector<float> _kernelContributions;
     std::vector<int> _activationFunctions;
-    
+    ReactionDiffusionPushConstants _reactionDiffusion {};
 
     ComputePipeline _computeApplyKernel;
     ComputePipeline _computeInitializeImage;

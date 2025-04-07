@@ -24,7 +24,8 @@ namespace Constants {
 enum InitializerSrcTypes {
     None = 0,
     Clear = 1,
-    Random = 2
+    Random = 2,
+    Uniform = 3
 };
 
 struct alignas(16) VineInitializerPushConstants
@@ -56,26 +57,6 @@ struct alignas(16) ApplyKernelPushConstants
 
 
 void centerKernel(Kernel& kernel);
-
-// void generateGaussianKernel(Kernel& k, float sigma = 0.0) {
-//     if(sigma == 0.0) {sigma = k.size.x / 6.0;}
-//     float sum = 0.0f; 
-//     glm::uvec2 h = glm::uvec2(k.size) / 2U;
-//     for (int y = 0; y < k.size.y; y++) {
-//         for (int x = 0; x < k.size.x; x++) {
-//             int dx = x - h.x;
-//             int dy = y - h.y;
-//             float w = std::exp(-(dx * dx + dy * dy) / (2 * sigma * sigma));
-//             k.weights[y * k.size.x + x] = w;
-//             sum += w;
-//         }
-//     }
-//     for (int y = 0; y < k.size.y; y++) {
-//         for (int x = 0; x < k.size.x; x++) {
-//             k.weights[y * k.size.x + x] /= sum; // normalize
-//         }
-//     }
-// }
 
 VineGenerator::VineGenerator(Renderer& renderer)
     : _renderer(renderer), _rng(), _srcType(InitializerSrcTypes::Random),
@@ -117,7 +98,7 @@ VineGenerator::update(VkCommandBuffer cmd, float dt)
     }
 
     if(this->_shouldStep)  {
-        applyKernels(cmd);
+        dispatchKernel(cmd, 0);
     }
 
 
@@ -125,7 +106,7 @@ VineGenerator::update(VkCommandBuffer cmd, float dt)
     int dstImgIndex = (srcImgIndex + 1) % 2;
     
     this->_imgVine[dstImgIndex].Transition(cmd, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
-    if(!this->_shouldSkipFrames || this->_renderer.GetFrameNumber() % (2) == 0) {
+    if(!this->_shouldSkipFrames || this->_renderer.GetFrameNumber() % (2) == 0 || !this->_shouldStep) {
         Image::Copy(cmd, this->_imgVine[dstImgIndex], this->_renderer.GetDrawImage(), false);
         this->_imgVine[srcImgIndex].Transition(cmd, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
     } else {
@@ -138,37 +119,32 @@ VineGenerator::update(VkCommandBuffer cmd, float dt)
     Image::Copy(cmd, this->_imgVine[dstImgIndex], this->_imgVine[srcImgIndex]);
 }
 
-void
-VineGenerator::applyKernels(VkCommandBuffer cmd)
-{
-    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, this->_computeApplyKernel.pipeline);
-    if(this->_sequence) {
-        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, this->_computeApplyKernel.layout, 0, 1, &this->_computeApplyKernel.descriptorSets[0], 0, nullptr);
-        dispatchKernel(cmd, this->_kernelSequence);
-        if((this->_renderer.GetFrameNumber() % this->_sequenceDelay) == 0 || this->_kernelSequence > 0) {
-            this->_kernelSequence = (this->_kernelSequence + 1) % this->_numActivatedKernels;
-        }
-    }
-    else {
-        for(int i = 0; i < this->_numActivatedKernels; i++) {
-            uint32_t pingPong = (i % 2);
-            vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, this->_computeApplyKernel.layout, 0, 1, &this->_computeApplyKernel.descriptorSets[pingPong], 0, nullptr);
-            dispatchKernel(cmd, i);
-        }
-    }
-}
+// void
+// VineGenerator::applyKernels(VkCommandBuffer cmd)
+// {
+//     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, this->_computeApplyKernel.pipeline);
+//     if(this->_sequence) {
+//         vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, this->_computeApplyKernel.layout, 0, 1, &this->_computeApplyKernel.descriptorSets[0], 0, nullptr);
+//         dispatchKernel(cmd, this->_kernelSequence);
+//         if((this->_renderer.GetFrameNumber() % this->_sequenceDelay) == 0 || this->_kernelSequence > 0) {
+//             this->_kernelSequence = (this->_kernelSequence + 1) % this->_numActivatedKernels;
+//         }
+//     }
+//     else {
+//         for(int i = 0; i < this->_numActivatedKernels; i++) {
+//             uint32_t pingPong = (i % 2);
+//             vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, this->_computeApplyKernel.layout, 0, 1, &this->_computeApplyKernel.descriptorSets[pingPong], 0, nullptr);
+//             dispatchKernel(cmd, i);
+//         }
+//     }
+// }
 
 void
 VineGenerator::dispatchKernel(VkCommandBuffer cmd, int kernelIndex)
 {
+    this->_computeApplyKernel.Bind(cmd);
     pushKernel(cmd, this->_kernels[kernelIndex]);
-    ApplyKernelPushConstants pc = {
-        .colorMask = this->_srcColor,
-        .kernelScale = this->_kernelScales[kernelIndex],
-        .kernelContribution = this->_kernelContributions[kernelIndex],
-        .activationFn = this->_activationFunctions[kernelIndex],
-        .activationParam = this->_activationParam
-    };
+    const ReactionDiffusionPushConstants& pc = this->_reactionDiffusion;
     vkCmdPushConstants(cmd, this->_computeApplyKernel.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(pc), &pc);
     dispatchImage(cmd);
     VkImageMemoryBarrier barriers[] = {
@@ -268,7 +244,7 @@ void
 VineGenerator::dispatchImage(VkCommandBuffer cmd)
 {
     const VkExtent2D imgSize = this->_renderer.GetWindowExtent2D();
-    vkCmdDispatch(cmd, ceil(imgSize.width / Constants::LocalGroupSize), ceil(imgSize.height / Constants::LocalGroupSize), 1);
+    vkCmdDispatch(cmd, ceil(imgSize.width / Constants::LocalGroupSize) + 1, ceil(imgSize.height / Constants::LocalGroupSize) + 1, 1);
 }
 
 void
@@ -287,96 +263,16 @@ VineGenerator::drawUI()
         } else {
             this->_shouldInitializeImage = false;
         }
-        ImGui::SameLine();
-        ImGui::Checkbox("Skip Frames", &this->_shouldSkipFrames);
-
         
-        // Draw Kernel
-        ImGui::Separator();
-        
-        char kernIndexStr[256] = {'\0'};
-        int ix = 0;
-        for(int i = 0; i < this->_kernels.size(); i++) {
-            kernIndexStr[ix++] = i + '0';
-            kernIndexStr[ix++] = '\0';
-        }
-        ImGui::Combo("KernelIndex", &this->_selectedKernelIndex, kernIndexStr);
-        ImGui::InputInt("Activated Kernels", &this->_numActivatedKernels);
-        ImGui::PushID("Sequence Delay");
-        ImGui::InputInt("", &this->_sequenceDelay, 1);
-        this->_sequenceDelay = std::max(this->_sequenceDelay, 1);
-        ImGui::PopID();
-        ImGui::SameLine();
-        ImGui::Checkbox("Sequence", &this->_sequence);
-        this->_numActivatedKernels = std::clamp(this->_numActivatedKernels, 0, (int)this->_kernels.size());
-
-        Kernel& selectedKernel = this->_kernels[this->_selectedKernelIndex];
-        ImGui::Text("Kernel:");
-        ImGui::SameLine();
-        ImGui::PushID("kernel width");
-        ImGui::SetNextItemWidth(50.0f);
-        ImGui::InputScalar("", ImGuiDataType_U32, &selectedKernel.size.x);
-        ImGui::PopID();
-        ImGui::SameLine();
-        ImGui::PushID("kernel height");
-        ImGui::SetNextItemWidth(50.0f);
-        ImGui::InputScalar("", ImGuiDataType_U32, &selectedKernel.size.y);
-        ImGui::PopID();
-
-
-        for (uint32_t y = 0; y < selectedKernel.size.y; ++y) {
-            for (uint32_t x = 0; x < selectedKernel.size.x; ++x) {
-                uint32_t index = y * selectedKernel.size.x + x;
-                ImGui::PushID(index);
-                ImGui::SetNextItemWidth(50.0f);
-                if(ImGui::DragFloat("", &selectedKernel.weights[index], 0.025)) {
-                    this->_shouldPushKernel = true;
-                };
-                ImGui::PopID();
-
-                if (x < selectedKernel.size.x - 1)
-                    ImGui::SameLine();
-            }
-        }
-        char flatKernelBuffer[65536] = {0};
-        std::string flattenedKernelStr;
-        for(int i = 0; i < selectedKernel.size.x * selectedKernel.size.y; i++) {
-            if (i > 0) flattenedKernelStr += ", ";  // Add comma separator
-            flattenedKernelStr += std::to_string(selectedKernel.weights[i]);
-        }
-        std::strncpy(flatKernelBuffer, flattenedKernelStr.data(), flattenedKernelStr.size());
-        ImGui::SetNextItemWidth(-FLT_MIN);
-        if(ImGui::InputText("K", flatKernelBuffer, ARRLEN(flatKernelBuffer))) {
-            std::istringstream ss(flatKernelBuffer);
-            std::string token;
-            uint32_t index = 0;
-
-            while (std::getline(ss, token, ',') && index < selectedKernel.size.x * selectedKernel.size.y) {
-                selectedKernel.weights[index++] = std::stof(token);
-            }
-        }
-
-        if(ImGui::Button("Center")) {
-            centerKernel(selectedKernel);
-        }
-        
-        // this->_shouldPushKernel = ImGui::Button("Push");
-        if(ImGui::Button("Randomize")) {
-            this->_shouldRandomizeKernel = true;
-            this->_shouldPushKernel = true;
-        } else {
-            this->_shouldRandomizeKernel = false;
-        }
-        ImGui::SameLine();
-        ImGui::Checkbox("Symmetric", &this->_symmetricKernel);
-        ImGui::DragFloat("Scale", &this->_kernelScales[this->_selectedKernelIndex], 0.005);
-        ImGui::DragFloat("Contrib", &this->_kernelContributions[this->_selectedKernelIndex], 0.005);
-
-        ImGui::InputInt("Activation", &this->_activationFunctions[this->_selectedKernelIndex], 1);
-        ImGui::DragFloat("ActParam", &this->_activationParam, 0.025);
+        float dragSpeed = 0.001;
+        ImGui::DragFloat("Time", &this->_reactionDiffusion.dt, dragSpeed);
+        ImGui::DragFloat("Da", &this->_reactionDiffusion.Da, dragSpeed);
+        ImGui::DragFloat("Db", &this->_reactionDiffusion.Db, dragSpeed);
+        ImGui::DragFloat("s", &this->_reactionDiffusion.s, dragSpeed);
+        ImGui::DragFloat("Beta", &this->_reactionDiffusion.Beta, dragSpeed);
+        ImGui::DragFloat("Reaction Param", &this->_reactionDiffusion.reactionParam, dragSpeed);
 
         ImGui::Separator();
-
         ImGui::ColorPicker4("Color", glm::value_ptr(this->_srcColor));
     }
     ImGui::End();
@@ -397,7 +293,7 @@ VineGenerator::checkControls(KeyMap& keymap, MouseMap& mousemap, Mouse& mouse)
 
     if(mousemap[SDL_BUTTON_LEFT] || mousemap[SDL_BUTTON_RIGHT]) {
         this->_srcPos = glm::ivec2(mouse.prev);
-        this->_srcType = mousemap[SDL_BUTTON_RIGHT] ? InitializerSrcTypes::Random : InitializerSrcTypes::None;
+        this->_srcType = mousemap[SDL_BUTTON_RIGHT] ? InitializerSrcTypes::Uniform : InitializerSrcTypes::Clear;
         this->_shouldInitializeImage = true;
         this->_srcRadius = std::max(10 + (int)std::round(mouse.scroll * 0.5), 1);
     } else if(this->_shouldHideUI){
@@ -448,6 +344,11 @@ VineGenerator::initResources()
         );
     }
 
+    this->_renderer.ImmediateSubmit([this](VkCommandBuffer cmd) {
+        this->_imgVine[0].Clear(cmd);
+        this->_imgVine[0].Transition(cmd, VK_IMAGE_LAYOUT_GENERAL);
+    });
+
     this->_renderer.CreateBuffer(
         this->_buffStaging, Constants::StagingBufferSize,
         VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
@@ -482,14 +383,10 @@ bool
 VineGenerator::initPipelines()
 {
     this->_renderer.CreateComputePipeline(
-        this->_computeApplyKernel, SHADER_DIRECTORY"/vine_apply_kernel.comp.spv", {
+        this->_computeApplyKernel, SHADER_DIRECTORY"/vine_apply_kernel_reaction_diffusion.comp.spv", {
             ImageDescriptor(0, 0, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, this->_imgVine[0].imageView, VK_NULL_HANDLE, this->_imgVine[0].layout),
             ImageDescriptor(0, 1, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, this->_imgVine[1].imageView, VK_NULL_HANDLE, this->_imgVine[1].layout),
-            BufferDescriptor(0, 2, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, this->_buffKernel.bufferHandle, sizeof(Kernel)),
-            ImageDescriptor(1, 0, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, this->_imgVine[1].imageView, VK_NULL_HANDLE, this->_imgVine[1].layout),
-            ImageDescriptor(1, 1, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, this->_imgVine[0].imageView, VK_NULL_HANDLE, this->_imgVine[0].layout),
-            BufferDescriptor(1, 2, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, this->_buffKernel.bufferHandle, sizeof(Kernel)),
-        }, sizeof(ApplyKernelPushConstants)
+        }, sizeof(ReactionDiffusionPushConstants)
     );
 
     this->_renderer.CreateComputePipeline(

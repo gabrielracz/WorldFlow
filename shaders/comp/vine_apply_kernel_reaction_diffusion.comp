@@ -1,0 +1,237 @@
+#version 460
+#extension GL_EXT_scalar_block_layout : enable
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+
+
+const uint MaxKernelSize = 64*64;
+struct Kernel
+{
+    uvec4 size;
+    float weights[MaxKernelSize];
+};
+
+layout(binding = 0, set = 0, rgba32f) uniform readonly image2D srcImg;
+layout(binding = 1, set = 0, rgba32f) uniform writeonly image2D dstImg;
+
+layout(push_constant) uniform PushConstants {
+    float dt;
+    float Da;
+    float Db;
+    float s;
+    float Beta;
+    float reactionParam;
+} pc;
+
+vec4 grayScottReactionDiffusion(ivec2 index)
+{
+    const vec4 l = imageLoad(srcImg, index + ivec2(-1, 0));
+    const vec4 r = imageLoad(srcImg, index + ivec2( 1, 0));
+    const vec4 d = imageLoad(srcImg, index + ivec2(0, -1));
+    const vec4 u = imageLoad(srcImg, index + ivec2(0,  1));
+    const vec4 c = imageLoad(srcImg, index);
+
+    const float laplacianA = l.r + r.r + d.r + u.r - 4.0*c.r;
+    const float laplacianB = l.g + r.g + d.g + u.g - 4.0*c.g;
+    
+    // Gray-Scott parameters
+    const float f = 0.055;  // Feed rate
+    const float k = 0.062;  // Kill rate
+    
+    float a = c.r;
+    float b = c.g;
+    
+    float da = pc.Da * laplacianA - a*b*b + f*(1.0-a);
+    float db = pc.Db * laplacianB + a*b*b - (f+k)*b;
+    
+    return vec4(
+        c.r + da * pc.dt,
+        c.g + db * pc.dt,
+        0.0,
+        1.0
+    );
+}
+
+vec4 fitzhughNagumoReactionDiffusion(ivec2 index)
+{
+    const vec4 l = imageLoad(srcImg, index + ivec2(-1, 0));
+    const vec4 r = imageLoad(srcImg, index + ivec2( 1, 0));
+    const vec4 d = imageLoad(srcImg, index + ivec2(0, -1));
+    const vec4 up = imageLoad(srcImg, index + ivec2(0,  1));
+    const vec4 c = imageLoad(srcImg, index);
+
+    const float laplacianU = l.r + r.r + d.r + up.r - 4.0*c.r;
+    const float laplacianV = l.g + r.g + d.g + up.g - 4.0*c.g;
+    
+    // FitzHugh-Nagumo parameters
+    const float a = pc.Da;
+    const float b = pc.Db;
+    const float epsilon = pc.Beta;
+    
+    float u = c.r;
+    float v = c.g;
+    
+    float du = pc.Da * laplacianU + u - u*u*u - v + pc.reactionParam;
+    float dv = pc.Db * laplacianV + epsilon * (u - a*v - b);
+    
+    return vec4(
+        u + du * pc.dt,
+        v + dv * pc.dt,
+        0.0,
+        1.0
+    );
+}
+
+vec4 bzReactionDiffusion(ivec2 index)
+{
+    const vec4 l = imageLoad(srcImg, index + ivec2(-1, 0));
+    const vec4 r = imageLoad(srcImg, index + ivec2( 1, 0));
+    const vec4 d = imageLoad(srcImg, index + ivec2(0, -1));
+    const vec4 up = imageLoad(srcImg, index + ivec2(0,  1));
+    const vec4 c = imageLoad(srcImg, index);
+
+    const float laplacianU = l.r + r.r + d.r + up.r - 4.0*c.r;
+    const float laplacianV = l.g + r.g + d.g + up.g - 4.0*c.g;
+    const float laplacianW = l.b + r.b + d.b + up.b - 4.0*c.b;
+    
+    // Oregonator parameters
+    const float epsilon = pc.Beta;
+    const float q = pc.Da;
+    const float f = pc.Db;
+    
+    float u = c.r;
+    float v = c.g;
+    float w = c.b;
+    
+    // float du = pc.Da * laplacianU + u * (1.0 - u) - (f*v*u*u)/(u + q);
+    // float dv = pc.Db * laplacianV + u - v;
+    // float dw = pc.Db * laplacianW + epsilon * (w - u*v);
+
+    float du = pc.Da * laplacianU + epsilon * (q*v - u*v + u*(1.0 - u));
+    float dv = pc.Db * laplacianV + epsilon * (-q*v - u*v + f*w);
+    float dw = pc.Db * laplacianW + (u - w);
+    
+    return vec4(
+        u + du * pc.dt,
+        v + dv * pc.dt,
+        w + dw * pc.dt,
+        1.0
+    );
+}
+
+vec4 meinhardtReactionDiffusion(ivec2 index)
+{
+    const vec4 l = imageLoad(srcImg, index + ivec2(-1, 0));
+    const vec4 r = imageLoad(srcImg, index + ivec2( 1, 0));
+    const vec4 d = imageLoad(srcImg, index + ivec2(0, -1));
+    const vec4 u = imageLoad(srcImg, index + ivec2(0,  1));
+    const vec4 c = imageLoad(srcImg, index);
+
+    const float laplacianA = l.r + r.r + d.r + u.r - 4.0*c.r;
+    const float laplacianH = l.g + r.g + d.g + u.g - 4.0*c.g;
+    
+    // Meinhardt parameters
+    const float rho = 0.01;
+    const float kappa = 0.05;
+    const float sigma = 0.0;
+    const float rho_A = 0.01;
+    const float rho_H = 0.00;
+    
+    float a = c.r;
+    float h = c.g;
+    
+    float s = pc.reactionParam; // Use your parameter for patterns
+    
+    float da = pc.Da * laplacianA + rho * (a*a/h) + rho_A - a;
+    float dh = pc.Db * laplacianH + rho * a*a + rho_H - kappa * h + sigma;
+    
+    return abs(vec4(
+        a + da * pc.dt,
+        h + dh * pc.dt,
+        0.0,
+        1.0
+    ));
+}
+
+vec4 swiftHohenbergReactionDiffusion(ivec2 index)
+{
+    // For this equation, we need more neighbor samples to compute higher derivatives
+    const vec4 c = imageLoad(srcImg, index);
+    const vec4 l1 = imageLoad(srcImg, index + ivec2(-1, 0));
+    const vec4 r1 = imageLoad(srcImg, index + ivec2(1, 0));
+    const vec4 u1 = imageLoad(srcImg, index + ivec2(0, 1));
+    const vec4 d1 = imageLoad(srcImg, index + ivec2(0, -1));
+    
+    // Second neighbors for biharmonic operator
+    const vec4 l2 = imageLoad(srcImg, index + ivec2(-2, 0));
+    const vec4 r2 = imageLoad(srcImg, index + ivec2(2, 0));
+    const vec4 u2 = imageLoad(srcImg, index + ivec2(0, 2));
+    const vec4 d2 = imageLoad(srcImg, index + ivec2(0, -2));
+    const vec4 ul = imageLoad(srcImg, index + ivec2(-1, 1));
+    const vec4 ur = imageLoad(srcImg, index + ivec2(1, 1));
+    const vec4 dl = imageLoad(srcImg, index + ivec2(-1, -1));
+    const vec4 dr = imageLoad(srcImg, index + ivec2(1, -1));
+    
+    // Parameters
+    const float epsilon = pc.Da;
+    const float q0 = pc.Db;
+    
+    // Compute Laplacian
+    float laplacian = l1.r + r1.r + u1.r + d1.r - 4.0*c.r;
+    
+    // Approximate biharmonic operator (∇⁴)
+    float biharmonic = l2.r + r2.r + u2.r + d2.r + 
+                      2.0*(ul.r + ur.r + dl.r + dr.r) + 
+                      4.0*(l1.r + r1.r + u1.r + d1.r) - 
+                      20.0*c.r;
+    
+    float u = c.r;
+    float du = epsilon*u - (q0*q0 + laplacian)*(q0*q0 + laplacian)*u - u*u*u;
+    
+    return vec4(
+        u + du * pc.dt,
+        0.0,
+        0.0,
+        1.0
+    );
+}
+
+vec4 reactionDiffusion(ivec2 index)
+{
+    const vec4 l = imageLoad(srcImg, index + ivec2(-1, 0));
+    const vec4 r = imageLoad(srcImg, index + ivec2( 1, 0));
+    const vec4 d = imageLoad(srcImg, index + ivec2(0, -1));
+    const vec4 u = imageLoad(srcImg, index + ivec2(0,  1));
+    const vec4 c = imageLoad(srcImg, index);
+
+    const float da = pc.Da*(l.g + r.g + d.g + u.g - 4.0*c.g);
+    const float db = pc.Db*(l.r + r.r + d.r + u.r - 4.0*c.r);
+
+    const float Beta = 0.1;
+    return abs(vec4(
+        c.r + (pc.s*(c.g*c.r - c.r - pc.Beta) + db) * pc.dt,
+        c.g + (pc.s*(pc.reactionParam - c.g*c.r) + da) * pc.dt,
+        0.0,
+        1.0
+    ));
+}
+
+void main()
+{
+    ivec2 index = ivec2(gl_GlobalInvocationID.xy);
+    ivec2 border = ivec2(10, 10);
+    if(any(lessThanEqual(index, border)) ||
+       any(greaterThanEqual(index, imageSize(srcImg) - border + 1))) {
+        imageStore(dstImg, index, vec4(0.0, 0.0, 0.0, 1.0));
+        return;
+    }
+    // vec4 result = reactionDiffusion(index);
+    // vec4 result = grayScottReactionDiffusion(index);
+    vec4 result = bzReactionDiffusion(index);
+    // vec4 result = meinhardtReactionDiffusion(index);
+    // vec4 result = swiftHohenbergReactionDiffusion(index);
+
+    result = clamp(result, vec4(-100.0), vec4(100.0));
+
+    // vec4 color = mix(imageLoad(srcImg, index), result, pc.kernelContribution);
+    imageStore(dstImg, index, result);
+}
