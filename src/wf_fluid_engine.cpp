@@ -668,10 +668,10 @@ WorldFlow::initResources()
 	for(uint32_t i = 0; i < this->_grid.numSubgrids; i++) {
 		wf::SubGrid& sg = this->_grid.subgrids[i];
 		
-		uint32_t subdivision = (i+1 + i*1);
+		uint32_t subdivision = (i+1 + i*2);
 		sg.resolution = glm::uvec4(glm::uvec3(Constants::VoxelGridDimensions) * subdivision, subdivision);
 		sg.center = glm::vec4(0.0);
-		sg.cellSize = Constants::VoxelCellSize / (float)(i+1);
+		sg.cellSize = Constants::VoxelCellSize / (float)subdivision;
 		uint32_t numCells = sg.resolution.x * sg.resolution.y * sg.resolution.z;
 
 		this->_renderer.CreateBuffer(sg.buffFluidVelocity, numCells * sizeof(FluidVelocity), fluidBufferUsage, fluidMemoryUsage);
