@@ -1,7 +1,7 @@
 
-#define GRID_LOCAL_SIZE_X 8
-#define GRID_LOCAL_SIZE_Y 8
-#define GRID_LOCAL_SIZE_Z 8
+#define GRID_LOCAL_SIZE_X 4
+#define GRID_LOCAL_SIZE_Y 4
+#define GRID_LOCAL_SIZE_Z 4
 
 #extension GL_EXT_buffer_reference : require
 #extension GL_EXT_shader_explicit_arithmetic_types_int64 : enable
@@ -203,6 +203,12 @@ vec3 gridToWorld(uint flatIndex, uvec4 gridResolution, float cellSize)
 {
     uvec3 index = unflattenGridIndex(flatIndex, gridResolution);
     return vec3(index) * cellSize;
+}
+
+uint getWorkgroupIndex(uvec3 workgroupID, uvec3 numWorkgroups) {
+    return workgroupID.x +
+           workgroupID.y * numWorkgroups.x +
+           workgroupID.z * numWorkgroups.x * numWorkgroups.y;
 }
 
 // TODO: support non full coverage subgrids

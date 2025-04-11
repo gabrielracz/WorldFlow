@@ -39,7 +39,7 @@ constexpr float VoxelCellSize = 1.0 / VoxelGridResolution;
 constexpr uint32_t NumGridLines = VoxelGridDimensions.y*VoxelGridDimensions.z + VoxelGridDimensions.x*VoxelGridDimensions.y + VoxelGridDimensions.x*VoxelGridDimensions.z;
 const glm::uvec3 GridGroups = glm::uvec3(VoxelGridDimensions.y*VoxelGridDimensions.z, VoxelGridDimensions.x*VoxelGridDimensions.y, VoxelGridDimensions.x*VoxelGridDimensions.z);
 
-constexpr glm::uvec3 LocalGroupSize = glm::uvec3(8, 8, 8);
+constexpr glm::uvec3 LocalGroupSize = glm::uvec3(4, 4, 4);
 
 constexpr uint32_t NumAdvectionIterations = 1;
 constexpr uint32_t NumDiffusionIterations = 4;
@@ -190,6 +190,7 @@ WorldFlow::addSources(VkCommandBuffer cmd, float dt)
 	};
 	vkCmdPushConstants(cmd, this->_computeAddSources.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(pc), &pc);
 	dispatchFluid(cmd, sg);
+	if (i == 0) {
 	VkBufferMemoryBarrier barriers[] = {
 		sg.buffFluidVelocity.CreateBarrier(VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT),
 		sg.buffFluidDensity.CreateBarrier(VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT),
@@ -199,6 +200,7 @@ WorldFlow::addSources(VkCommandBuffer cmd, float dt)
 		sg.buffFluidDebug.CreateBarrier(VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT),
 	};
 	vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, nullptr, ARRLEN(barriers), barriers, 0, nullptr);
+	}
 	}
 }
 
@@ -459,6 +461,7 @@ WorldFlow::dispatchFluid(VkCommandBuffer cmd, const SubGrid& sg, const glm::uvec
 		vkCmdDispatch(cmd, groups.x, groups.y, groups.z);
 	} else {
 		vkCmdDispatchIndirect(cmd, sg.buffDispatchCommand.bufferHandle, 0);
+		// vkCmdDispatch(cmd, 461, 1, 1);
 	}
 }
 

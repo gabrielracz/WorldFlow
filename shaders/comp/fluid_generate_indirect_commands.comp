@@ -33,5 +33,9 @@ void main()
 
     uint groupCountZ = remaining; // Whatever is left (can be 0)
 
+    groupCountX = max(groupCountX, 1u);
+    groupCountY = max(groupCountY, 1u);
+    groupCountZ = max(groupCountZ, 1u);
+
     wfGrid.subgrids[pc.subgridLevel].ref.dispatch.command = DispatchIndirectCommand(groupCountX, groupCountY, groupCountZ);
 }
