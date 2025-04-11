@@ -100,7 +100,7 @@ vec4 traceVoxels(vec3 rayOrigin, vec3 rayDir) {
     // Calculate voxel indices considering non-square grid
     vec3 normalizedPos = (pos - gridMin) / worldSize;  // Normalize to [0,1]
     vec3 voxelPos = normalizedPos * vec3(rootGrid.resolution.xyz);
-    ivec3 mapPos = clamp(ivec3(floor(voxelPos)), ivec3(0), ivec3(rootGrid.resolution.xyz - 2));
+    ivec3 mapPos = clamp(ivec3(floor(voxelPos)), ivec3(0), ivec3(rootGrid.resolution.xyz - 1));
     
     // Calculate delta t for moving one voxel in each direction
     vec3 tDelta = abs(rootGrid.cellSize / rayDir);
@@ -186,78 +186,148 @@ vec4 traceVoxels(vec3 rayOrigin, vec3 rayDir) {
 
         // Find axis of next crossing
         vec3 compare = tMaxAxis - t;
+        float subdivision = grid.resolution.w;
         if (compare.x < compare.y && compare.x < compare.z) {
             t = tMaxAxis.x;
-            // tMaxAxis.x += tDelta.x / subdivision;
+            tMaxAxis.x += tDelta.x / subdivision;
             mapPos.x += int(step.x);
             crossingAxis = -vec3(1.0, 0.0, 0.0) * step;
         } else if (compare.y < compare.z) {
             t = tMaxAxis.y;
-            // tMaxAxis.y += tDelta.y / subdivision;
+            tMaxAxis.y += tDelta.y / subdivision;
             mapPos.y += int(step.y);
             crossingAxis = -vec3(0.0, 1.0, 0.0) * step;
         } else {
             t = tMaxAxis.z;
-            // tMaxAxis.z += tDelta.z / subdivision;
+            tMaxAxis.z += tDelta.z / subdivision;
             mapPos.z += int(step.z);
             crossingAxis = -vec3(0.0, 0.0, 1.0) * step;
         }
 
-
-        vec3 worldPos = rayOrigin + t*rayDir;
         WorldFlowSubGrid topGrid = wfGrid.subgrids[max(int(subgridLevel) - 1, 0)].ref;
         uint topIndex = getGridIndex(uvec3(mapPos), topGrid.resolution);
 
-        if(isWithinGridBounds(uvec3(mapPos), topGrid.resolution) && (topGrid.flagsBuffer.data[topIndex] & FLAG_ACTIVE) > 0) {
+
+        if(subgridLevel == 0 && isWithinGridBounds(uvec3(mapPos), topGrid.resolution) && (topGrid.flagsBuffer.data[topIndex] & FLAG_ACTIVE) > 0) {
             subgridLevel = 1;
             WorldFlowSubGrid sg = wfGrid.subgrids[1].ref;
+            float subd = sg.resolution.w;
+            vec3 worldPos = rayOrigin + (t + tDelta/subd/subd)*rayDir;
             mapPos = ivec3(unflattenGridIndex(worldToGridIndex(worldPos, sg.resolution, sg.cellSize), sg.resolution));
 
-            // TODO: fix tMaxAxis...
-            // float cellSize = (sg.cellSize);
-            // voxelMin = gridMin + vec3(mapPos) * cellSize;
-            // voxelMax = voxelMin + cellSize;
+            vec3 gridPos = (worldPos - gridMin)/sg.cellSize; //fractional grid space
+            // find the next highest multiple of cellSize that is above 
+            for (int i = 0; i < 3; i++) {
+                if (rayDir[i] == 0.0) {
+                    tMaxAxis[i] = FLT_MAX;
+                    continue;
+                }
+                
+                float cellCount = floor(gridPos[i]);
+                float nextBoundary;
+                
+                if (step[i] > 0.0) {
+                    // Moving in positive direction - get next higher boundary
+                    nextBoundary = (cellCount + 1.0) * sg.cellSize;
+                } else {
+                    // Moving in negative direction - get next lower boundary
+                    nextBoundary = cellCount * sg.cellSize;
+                }
+                
+                // Convert boundary position to world space
+                float worldBoundary = gridMin[i] + nextBoundary;
+                
+                // Calculate t value where ray intersects this boundary
+                float tNext = (worldBoundary - rayOrigin[i]) / rayDir[i];
+                
+                // Only update if this boundary is ahead of our current position
+                if (tNext > t) {
+                    tMaxAxis[i] = tNext;
+                } else {
+                    // We're exactly at a boundary or floating point error
+                    // Move to the next boundary
+                    if (step[i] > 0.0) {
+                        worldBoundary += sg.cellSize;
+                        return vec4(1.0);
+                    } else {
+                        worldBoundary -= sg.cellSize;
+                    }
+                    tMaxAxis[i] = (worldBoundary - rayOrigin[i]) / rayDir[i];
+                }
+            }
+        } else if (subgridLevel > 0) {
+            // Check if we should move back to the coarser grid
+            WorldFlowSubGrid currentGrid = wfGrid.subgrids[subgridLevel].ref;
+            WorldFlowSubGrid coarserGrid = wfGrid.subgrids[subgridLevel - 1].ref;
             
-            // vec3 scaledTDelta = tDelta / ((subgridLevel+1.0) + subgridLevel * 2.0);
-
-            // for (int j = 0; j < 3; j++) {
-            //     if (step[j] != 0.0) {
-            //         float nextBoundary = (step[j] > 0.0) ? voxelMax[j] : voxelMin[j];
-            //         float tNext = (nextBoundary - rayOrigin[j]) / rayDir[j];
-            //         if (tNext > t) {
-            //             tMaxAxis[j] = tNext;
-            //         } else {
-            //             // We're already past this boundary, find the next one
-            //             tMaxAxis[j] = t + scaledTDelta[j]; // Half the delta for higher res
-            //         }
-            //     }
-            // }
-        } else {
-            // topGrid.debugBuffer.data[topIndex]
-            // subgridLevel = 0;
-
+            // Convert current world position to coarser grid space to check if we're still in an active region
+            vec3 worldPos = rayOrigin + t * rayDir;
+            uint coarserIndex = worldToGridIndex(worldPos, coarserGrid.resolution, coarserGrid.cellSize);
+            
+            if (!isWithinGridBounds(uvec3(unflattenGridIndex(coarserIndex, coarserGrid.resolution)), coarserGrid.resolution) || 
+                (coarserGrid.flagsBuffer.data[coarserIndex] & FLAG_ACTIVE) == 0) {
+                
+                // Transition from finer grid to coarser grid
+                subgridLevel -= 1;
+                
+                // Calculate new position in the coarser grid
+                mapPos = ivec3(unflattenGridIndex(coarserIndex, coarserGrid.resolution));
+                
+                // Calculate grid space position (with fractional part)
+                vec3 gridPos = (worldPos - gridMin) / coarserGrid.cellSize;
+                
+                // Update tMaxAxis for the coarser grid
+                for (int i = 0; i < 3; i++) {
+                    if (abs(rayDir[i]) < 1e-5) {
+                        tMaxAxis[i] = FLT_MAX;
+                        continue;
+                    }
+                    
+                    // Calculate cell index and fractional position
+                    float cellIndex = floor(gridPos[i]);
+                    float fracPos = gridPos[i] - cellIndex;
+                    
+                    // Determine next boundary position in grid space
+                    float nextBoundaryGrid;
+                    
+                    if (step[i] > 0.0) {
+                        // If we're very close to the next boundary, use the one after
+                        if (fracPos > 1.0 - 1e-5) {
+                            nextBoundaryGrid = (cellIndex + 2.0) * coarserGrid.cellSize;
+                        } else {
+                            nextBoundaryGrid = (cellIndex + 1.0) * coarserGrid.cellSize;
+                        }
+                    } else { // step[i] < 0.0
+                        // If we're very close to the previous boundary, use the one before
+                        if (fracPos < 1e-5) {
+                            nextBoundaryGrid = (cellIndex - 1.0) * coarserGrid.cellSize;
+                        } else {
+                            nextBoundaryGrid = cellIndex * coarserGrid.cellSize;
+                        }
+                    }
+                    
+                    // Convert to world space
+                    float worldBoundary = gridMin[i] + nextBoundaryGrid;
+                    
+                    // Calculate t value for this boundary
+                    float tNext = (worldBoundary - rayOrigin[i]) / rayDir[i];
+                    
+                    // Only update if this is ahead of our current position
+                    if (tNext > t + 1e-5) {
+                        tMaxAxis[i] = tNext;
+                    } else {
+                        // We're at a boundary or have precision issues, move to next one
+                        if (step[i] > 0.0) {
+                            worldBoundary += coarserGrid.cellSize;
+                        } else {
+                            worldBoundary -= coarserGrid.cellSize;
+                        }
+                        tMaxAxis[i] = (worldBoundary - rayOrigin[i]) / rayDir[i];
+                    }
+                }
+            }
         }
 
-        float subdivision = (subgridLevel+1.0) + subgridLevel*2.0;
-        if (compare.x < compare.y && compare.x < compare.z) {
-            tMaxAxis.x += tDelta.x / subdivision;
-        } else if (compare.y < compare.z) {
-            tMaxAxis.y += tDelta.y / subdivision;
-        } else {
-            tMaxAxis.z += tDelta.z / subdivision;
-        }
-
-        // float subdivision = (subgridLevel+1.0) + subgridLevel*2.0;
-        // if (compare.x < compare.y && compare.x < compare.z) {
-        //     t = tMaxAxis.x;
-        //     tMaxAxis.x += tDelta.x / subdivision;
-        // } else if (compare.y < compare.z) {
-        //     t = tMaxAxis.y;
-        //     tMaxAxis.y += tDelta.y / subdivision;
-        // } else {
-        //     t = tMaxAxis.z;
-        //     tMaxAxis.z += tDelta.z / subdivision;
-        // }
     }
     
     return accumColor;

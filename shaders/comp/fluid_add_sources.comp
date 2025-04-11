@@ -64,9 +64,12 @@ void main()
 
     if(distance(pos, pc.objectPosition.xyz) < pc.objectRadius && pc.objectType > 0) {
         grid.flagsBuffer.data[index] |= FLAG_OCCUPIED;
-        grid.flagsBuffer.data[index] |= FLAG_ACTIVE;
+        // grid.flagsBuffer.data[index] |= FLAG_ACTIVE;
         if (pc.subgridLevel > 0) grid.debugBuffer.data[index] = vec4(1.0);
+    }
 
+    if(pc.subgridLevel == 0 && distance(pos, pc.objectPosition.xyz) < (pc.objectRadius*1.5)) {
+        grid.flagsBuffer.data[index] |= FLAG_ACTIVE;
     }
 
     grid.densityBuffer.data[index] *= exp(-pc.decayRate * pc.dt);
