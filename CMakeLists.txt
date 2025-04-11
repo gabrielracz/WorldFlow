@@ -1,5 +1,5 @@
 cmake_minimum_required (VERSION 3.8)
-set(PROJ_NAME "engine")
+set(PROJ_NAME "worldflow")
 project (PROJ_NAME)
 # set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${PROJECT_SOURCE_DIR}/bin")
 # set(CMAKE_LIBRARY_OUTPUT_DIRECTORY "${PROJECT_SOURCE_DIR}/bin")

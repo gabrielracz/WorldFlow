@@ -76,6 +76,7 @@ struct alignas(16) AddFluidPropertiesPushConstants
 	float objectRadius;
 	float decayRate;
 	int clear;
+	unsigned int subgridLevel;
 };
 const auto s = sizeof(AddFluidPropertiesPushConstants);
 

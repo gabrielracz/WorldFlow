@@ -60,7 +60,7 @@ void main()
 		atomicExchange(grid.velocityBuffer.data[index].x, interpolatedVelocity.x);
 		atomicExchange(grid.velocityBuffer.data[index].y, interpolatedVelocity.y);
 		atomicExchange(grid.velocityBuffer.data[index].z, interpolatedVelocity.z);
-		grid.debugBuffer.data[index].x = 3.0;
+		// grid.debugBuffer.data[index].x = 3.0;
 		return;
 	}
 

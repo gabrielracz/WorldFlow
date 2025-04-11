@@ -24,6 +24,7 @@ layout(push_constant) uniform PushConstants {
 	float objectRadius;
 	float decayRate;
 	int clear;
+    uint subgridLevel;
 } pc;
 
 float manhattanDistance(vec3 p1, vec3 p2) {
@@ -33,7 +34,7 @@ float manhattanDistance(vec3 p1, vec3 p2) {
 
 void main()
 {
-    WorldFlowSubGrid grid = wfGrid.subgrids[0].ref;
+    WorldFlowSubGrid grid = wfGrid.subgrids[pc.subgridLevel].ref;
     uvec3 pos = gl_GlobalInvocationID;
     if (!isWithinGridBounds(pos, grid.resolution)) {
         return;
@@ -64,6 +65,8 @@ void main()
     if(distance(pos, pc.objectPosition.xyz) < pc.objectRadius && pc.objectType > 0) {
         grid.flagsBuffer.data[index] |= FLAG_OCCUPIED;
         grid.flagsBuffer.data[index] |= FLAG_ACTIVE;
+        if (pc.subgridLevel > 0) grid.debugBuffer.data[index] = vec4(1.0);
+
     }
 
     grid.densityBuffer.data[index] *= exp(-pc.decayRate * pc.dt);

@@ -45,15 +45,16 @@ vec3 getRayDirection(vec2 pixelPos) {
     return normalize(worldSpace.xyz);
 }
 
-vec3 calculateNormal(ivec3 currentVoxel, ivec3 previousVoxel) {
+vec3 calculateNormal(vec3 currentVoxel, vec3 previousVoxel) {
     // calculate the difference to determine which axis we crossed
-    ivec3 diff = currentVoxel - previousVoxel;
+    vec3 diff = currentVoxel - previousVoxel;
+    vec3 cmp = abs(diff);
     
-    if (diff.x != 0) {
+    if(cmp.x > cmp.y && cmp.x > cmp.z) {
         return vec3(sign(diff.x), 0.0, 0.0);
-    } else if (diff.y != 0) {
+    } else if (cmp.y > cmp.z) {
         return vec3(0.0, sign(diff.y), 0.0);
-    } else if (diff.z != 0) {
+    } else {
         return vec3(0.0, 0.0, sign(diff.z));
     }
     
@@ -61,34 +62,18 @@ vec3 calculateNormal(ivec3 currentVoxel, ivec3 previousVoxel) {
     return vec3(0.0, 1.0, 0.0);
 }
 
-// float blinnphong_specular(vec3 lv, vec3 n) {
-// 	vec3 v = vec3(0,0,0);
-// 	vec3 vv = normalize(v - position_interp);
-// 	vec3 h = normalize((vv+lv)/2); 
-
-//     float spec = max(0.0, dot(n,h)); 
-//     spec = pow(spec, specular_power);
-
-//     return spec;
-// }
-
 vec4 lighting(vec4 pixel, vec3 lightvec, vec3 norm) {
 
 	float diffuse = max(0.0, dot(norm,lightvec)); 
-    // float spec = blinnphong_specular(lightvec, norm);
-    // if(diffuse == 0.0) {spec = 0.0;}
-
     vec4 light_color = vec4(1.0, 1.0, 1.0, 1.0);
-
     return 1.0*diffuse*light_color*pixel + 0.25*light_color*pixel;// + 0.1*spec*light_color;
 }
 
-
 vec4 traceVoxels(vec3 rayOrigin, vec3 rayDir) {
-    WorldFlowSubGrid grid = wfGrid.subgrids[0].ref;
+    WorldFlowSubGrid rootGrid = wfGrid.subgrids[0].ref;
     vec4 accumColor = vec4(0.0);
     // Calculate world-space dimensions of the grid
-    vec3 worldSize = pc.gridSize * grid.cellSize;
+    vec3 worldSize = rootGrid.resolution.xyz * rootGrid.cellSize;
     vec3 gridMin = -worldSize * 0.5;
     vec3 gridMax = worldSize * 0.5;
     
@@ -109,63 +94,46 @@ vec4 traceVoxels(vec3 rayOrigin, vec3 rayDir) {
     float t = max(0.0, tNear);
     
     // Calculate initial position and step direction
-    vec3 pos = rayOrigin + t * rayDir;
+    vec3 pos = rayOrigin + t*rayDir;
     vec3 step = sign(rayDir);
     
     // Calculate voxel indices considering non-square grid
     vec3 normalizedPos = (pos - gridMin) / worldSize;  // Normalize to [0,1]
-    vec3 voxelPos = normalizedPos * pc.gridSize;
-    ivec3 mapPos = clamp(ivec3(floor(voxelPos)), ivec3(0), ivec3(pc.gridSize - 1));
+    vec3 voxelPos = normalizedPos * vec3(rootGrid.resolution.xyz);
+    ivec3 mapPos = clamp(ivec3(floor(voxelPos)), ivec3(0), ivec3(rootGrid.resolution.xyz - 2));
     
     // Calculate delta t for moving one voxel in each direction
-    vec3 tDelta = abs(grid.cellSize / rayDir);
-    
-    // Calculate next crossing points
-    vec3 nextCrossing = vec3(mapPos) + max(step, 0.0);
-    vec3 tMaxAxis;
-    
-    // Calculate accurate tMax values for each axis
-    for (int i = 0; i < 3; i++) {
-        if (rayDir[i] > 0.0) {
-            float worldCrossing = gridMin[i] + (nextCrossing[i] * grid.cellSize);
-            tMaxAxis[i] = tNear + (worldCrossing - rayOrigin[i]) / rayDir[i];
-        } else if (rayDir[i] < 0.0) {
-            float worldCrossing = gridMin[i] + ((nextCrossing[i] - 1.0) * grid.cellSize);
-            tMaxAxis[i] = tNear + (worldCrossing - rayOrigin[i]) / rayDir[i];
-        } else {
-            tMaxAxis[i] = FLT_MAX;
-        }
-    }
-
-    vec3 cmp = tMaxAxis - t;
-    if (cmp.x < cmp.y && cmp.x < cmp.z) {
-        t = tMaxAxis.x;
-    } else if (cmp.y < cmp.z) {
-        t = tMaxAxis.y;
-    } else {
-        t = tMaxAxis.z;
-    }
+    vec3 tDelta = abs(rootGrid.cellSize / rayDir);
+    vec3 voxelSize = vec3(rootGrid.cellSize);
+    vec3 voxelMin = gridMin + vec3(mapPos) * voxelSize;
+    vec3 tVoxelMin = (voxelMin - rayOrigin) / rayDir;
+    vec3 tVoxelMax = (voxelMin + voxelSize - rayOrigin) / rayDir;
+    vec3 tMaxAxis = vec3((step.x > 0.0) ? tVoxelMax.x : tVoxelMin.x);
+    tMaxAxis.y = (step.y > 0.0) ? tVoxelMax.y : tVoxelMin.y;
+    tMaxAxis.z = (step.z > 0.0) ? tVoxelMax.z : tVoxelMin.z;
     
     float tPrev = t;
     int missteps = 0;
     // Main ray traversal loop
-    ivec3 prevMapPos = mapPos;
+    // ivec3 prevMapPos = mapPos;
+    vec3 prevPos = pos;
+    uint subgridLevel = 0;
+    vec3 crossingAxis = tMaxAxis;
     for (int i = 0; i < pc.maxDistance; i++) {
-		if(missteps > 1) {
-			break;
-		}
+        WorldFlowSubGrid grid = wfGrid.subgrids[subgridLevel].ref;
         uint index = getGridIndex(uvec3(mapPos), grid.resolution);
-        // Bounds check
-        if(all(greaterThanEqual(mapPos, ivec3(0))) && all(lessThan(mapPos, ivec3(pc.gridSize)))) {
+        // Bounds check;
+        if(isWithinGridBounds(mapPos, grid.resolution)) {
             float density = 0.0;
             vec4 color = pc.baseColor;
             if((grid.flagsBuffer.data[index] & FLAG_OCCUPIED) > 0 && pc.renderType < 5) {
-                // vec3 worldPos = rayOrigin + t * rayDir;
-                vec3 worldPos = gridToWorld(index, grid.resolution, grid.cellSize);
-                vec3 normal = calculateNormal(mapPos, prevMapPos);
+                vec3 worldPos = rayOrigin + t * rayDir;
+                // vec3 worldPos = gridToWorld(index, grid.resolution, grid.cellSize);
+                vec3 normal = -crossingAxis;
                 vec3 viewDir = rayDir;
 				vec3 lightVec = normalize(worldPos - pc.lightSource.xyz);
                 vec4 litColor = lighting(color, lightVec, normal);
+                // vec4 litColor = vec4(crossingAxis, 1.0);
 
                 vec4 attenuation = vec4(1.0, 1.0, 1.0, exp(-t * 0.1));
                 accumColor = vec4(
@@ -199,7 +167,6 @@ vec4 traceVoxels(vec3 rayOrigin, vec3 rayDir) {
 
 			vec4 heatColor = viridisColor(abs(density));
             if(density < 0.0) {
-            	// heatColor = flameHeatmapColor(abs(density));
             	heatColor = infernoColor(abs(density));
             }
 
@@ -214,25 +181,39 @@ vec4 traceVoxels(vec3 rayOrigin, vec3 rayDir) {
             break;
         }
         
-        prevMapPos = mapPos;
         tPrev = t;
 
         // Find axis of next crossing
         vec3 compare = tMaxAxis - t;
         
         if (compare.x < compare.y && compare.x < compare.z) {
-            mapPos.x += int(step.x);
             t = tMaxAxis.x;
-            tMaxAxis.x += tDelta.x;
+            tMaxAxis.x += tDelta.x / (subgridLevel+1);
+            mapPos.x += int(step.x);
+            crossingAxis = -vec3(1.0, 0.0, 0.0) * step;
         } else if (compare.y < compare.z) {
-            mapPos.y += int(step.y);
             t = tMaxAxis.y;
-            tMaxAxis.y += tDelta.y;
+            tMaxAxis.y += tDelta.y / (subgridLevel+1);
+            mapPos.y += int(step.y);
+            crossingAxis = -vec3(0.0, 1.0, 0.0) * step;
         } else {
-            mapPos.z += int(step.z);
             t = tMaxAxis.z;
-            tMaxAxis.z += tDelta.z;
+            tMaxAxis.z += tDelta.z / (subgridLevel+1);
+            mapPos.z += int(step.z);
+            crossingAxis = -vec3(0.0, 0.0, 1.0) * step;
         }
+
+
+        vec3 worldPos = rayOrigin + t*rayDir;
+        WorldFlowSubGrid topGrid = wfGrid.subgrids[max(int(subgridLevel) - 1, 0)].ref;
+        uint topIndex = worldToGridIndex(worldPos, topGrid.resolution, topGrid.cellSize);
+        if(subgridLevel == 0 && (topGrid.flagsBuffer.data[topIndex] & FLAG_ACTIVE) > 0) {
+            subgridLevel = 1;
+        } else {
+            subgridLevel = 0;
+        }
+
+
     }
     
     return accumColor;
