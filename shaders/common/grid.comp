@@ -218,6 +218,15 @@ uvec3 getSubgridWorkgroupOffset(uint workgroupOffsetIndex, WorldFlowSubGrid coar
     return gridPos;
 }
 
+uvec3 getGridPos(WorldFlowGrid wfGrid, uint level) {
+    if(level == 0) {
+        return gl_GlobalInvocationID;
+    }
+
+    uint wgIndex = getWorkgroupIndex(gl_WorkGroupID, gl_NumWorkGroups);
+    uvec3 offset = getSubgridWorkgroupOffset(wgIndex, wfGrid.subgrids[level-1].ref, wfGrid.subgrids[level].ref);
+    return offset + gl_LocalInvocationID;
+}
 
 uvec3 getRedBlackPosition(uvec3 threadID, uvec4 gridResolution, uint redBlack)
 {

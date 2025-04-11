@@ -36,14 +36,7 @@ void main()
 {
     WorldFlowSubGrid grid = wfGrid.subgrids[pc.subgridLevel].ref;
     // TODO: translate these pos and input parameters to worldspace
-    uvec3 pos;
-    if(pc.subgridLevel == 0) {
-        pos = gl_GlobalInvocationID;
-    } else {
-        uint wgIndex = getWorkgroupIndex(gl_WorkGroupID, gl_NumWorkGroups);
-        uvec3 offset = getSubgridWorkgroupOffset(wgIndex, wfGrid.subgrids[pc.subgridLevel-1].ref, grid);
-        pos = offset + gl_LocalInvocationID;
-    }
+    uvec3 pos = getGridPos(wfGrid, pc.subgridLevel);
 
     if (!isWithinGridBounds(pos, grid.resolution)) {
         return;
