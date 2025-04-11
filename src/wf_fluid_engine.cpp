@@ -24,8 +24,8 @@
 namespace wf {
 namespace Constants
 {
-// constexpr glm::uvec4 VoxelGridDimensions = glm::uvec4(64, 16, 64, 1);
-constexpr glm::uvec4 VoxelGridDimensions = glm::uvec4(128, 64, 128, 1);
+constexpr glm::uvec4 VoxelGridDimensions = glm::uvec4(64, 32, 64, 1);
+// constexpr glm::uvec4 VoxelGridDimensions = glm::uvec4(128, 64, 128, 1);
 // constexpr glm::uvec4 VoxelGridDimensions = glm::uvec4(256, 128, 256, 1);
 // constexpr glm::uvec4 VoxelGridDimensions = glm::uvec4(512, 128, 128, 1);
 constexpr size_t VoxelGridResolution = VoxelGridDimensions.x/4;
@@ -59,9 +59,9 @@ rollingAverage(float& currentValue, float newValue) {
 }
 
 /* CLASS */
-WorldFlow::WorldFlow(Renderer& renderer)
-	: _renderer(renderer), _diffusionIterations(Constants::NumDiffusionIterations), _pressureIterations(Constants::NumPressureIterations),
-	  _advectionIterations(Constants::NumAdvectionIterations), _grid{.numSubgrids = 2} {
+WorldFlow::WorldFlow(Renderer& renderer, Settings settings)
+	: _renderer(renderer), _settings(settings), _diffusionIterations(Constants::NumDiffusionIterations), _pressureIterations(Constants::NumPressureIterations),
+	  _advectionIterations(Constants::NumAdvectionIterations), _grid{.numSubgrids = settings.numGridLevels} {
 }
 
 WorldFlow::~WorldFlow() {}
@@ -88,30 +88,32 @@ WorldFlow::update(VkCommandBuffer cmd, float dt)
 	dt = (this->_useTickRate) ? this->_tickRate : dt * this->_tickRate;
 	this->_timestamps.reset(this->_renderer.GetDevice());
 	this->_timestamps.write(cmd, Timestamps::StartFrame, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT);
+		
+	if(!this->_shouldPause) {
+		generateSubgridOffsets(cmd);
+		generateIndirectCommands(cmd);
+		this->_timestamps.write(cmd, Timestamps::GenerateCommands, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
 
-	generateSubgridOffsets(cmd);
-	// generateIndirectCommands(cmd);
-	this->_timestamps.write(cmd, Timestamps::GenerateCommands, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
+		addSources(cmd, dt);
+		this->_timestamps.write(cmd, Timestamps::AddFluidProperties, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
 
-	addSources(cmd, dt);
-	this->_timestamps.write(cmd, Timestamps::AddFluidProperties, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
+		diffuseVelocity(cmd, dt);
+		this->_timestamps.write(cmd, Timestamps::VelocityDiffusion, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
+		advectVelocity(cmd, dt);
+		this->_timestamps.write(cmd, Timestamps::VelocityAdvect, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
 
-	diffuseVelocity(cmd, dt);
-	this->_timestamps.write(cmd, Timestamps::VelocityDiffusion, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
-	advectVelocity(cmd, dt);
-	this->_timestamps.write(cmd, Timestamps::VelocityAdvect, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
+		computeDivergence(cmd);
+		solvePressure(cmd);
+		if(this->_shouldProjectIncompressible)
+			projectIncompressible(cmd);
+		this->_timestamps.write(cmd, Timestamps::PressureSolve, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
 
-	computeDivergence(cmd);
-	solvePressure(cmd);
-	if(this->_shouldProjectIncompressible)
-		projectIncompressible(cmd);
-	this->_timestamps.write(cmd, Timestamps::PressureSolve, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
+		diffuseDensity(cmd, dt);
+		this->_timestamps.write(cmd, Timestamps::DensityDiffusion, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
 
-	diffuseDensity(cmd, dt);
-	this->_timestamps.write(cmd, Timestamps::DensityDiffusion, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
-
-	advectDensity(cmd, dt);
-	this->_timestamps.write(cmd, Timestamps::DensityAdvect, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
+		advectDensity(cmd, dt);
+		this->_timestamps.write(cmd, Timestamps::DensityAdvect, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
+	}
 
 	if(this->_shouldRenderFluid)
 		renderVoxelVolume(cmd);
@@ -147,7 +149,21 @@ WorldFlow::generateSubgridOffsets(VkCommandBuffer cmd)
 void
 WorldFlow::generateIndirectCommands(VkCommandBuffer cmd)
 {
+	this->_computeGenerateIndirectCommands.Bind(cmd);
+	for(uint32_t i = 1; i < this->_grid.numSubgrids; i++) {
+		GenerateIndirectCommandPushConstants pc = {
+			.subgridLevel = i,
+			.groupDimensionLimit = 65535
+		};
+		vkCmdPushConstants(cmd, this->_computeGenerateIndirectCommands.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(pc), &pc);
+		vkCmdDispatch(cmd, 1, 1, 1);
+	}
 	
+	VkBufferMemoryBarrier barriers[Constants::MAX_SUBGRID_LEVELS];
+	for(uint32_t i = 1; i < this->_grid.numSubgrids; i++) {
+		barriers[i-1] = this->_grid.subgrids[i].buffDispatchCommand.CreateBarrier(VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_INDIRECT_COMMAND_READ_BIT);
+	}
+	vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_DRAW_INDIRECT_BIT, 0, 0, 0, this->_grid.numSubgrids-1, barriers, 0, 0);
 }
 
 void
@@ -438,9 +454,12 @@ WorldFlow::drawGrid(VkCommandBuffer cmd)
 void
 WorldFlow::dispatchFluid(VkCommandBuffer cmd, const SubGrid& sg, const glm::uvec3& factor)
 {
-	// const glm::uvec4 groups = (Constants::VoxelGridDimensions / Constants::LocalGroupSize) / glm::uvec4(factor, 1.0);
-	const glm::uvec3 groups = (glm::uvec3(sg.resolution) / Constants::LocalGroupSize) / factor;
-	vkCmdDispatch(cmd, groups.x, groups.y, groups.z);
+	if(sg.level == 0) {
+		const glm::uvec3 groups = (glm::uvec3(sg.resolution) / Constants::LocalGroupSize) / factor;
+		vkCmdDispatch(cmd, groups.x, groups.y, groups.z);
+	} else {
+		vkCmdDispatchIndirect(cmd, sg.buffDispatchCommand.bufferHandle, 0);
+	}
 }
 
 void
@@ -592,6 +611,11 @@ WorldFlow::checkControls(KeyMap& keyMap, MouseMap& mouseMap, Mouse& mouse, float
 		keyMap[SDLK_TAB] = false;
 	}
 
+	if(keyMap[SDLK_SPACE]) {
+		this->_shouldPause = !this->_shouldPause;
+		keyMap[SDLK_SPACE] = false;
+	}
+
 
 	for(int i = 1; i <= 9; i++) {
 		if(keyMap[SDLK_0 + i] && keyMap[SDLK_LSHIFT]) {
@@ -667,13 +691,16 @@ WorldFlow::initResources()
 	// FLUID PROPERTY BUFFERS
 	for(uint32_t i = 0; i < this->_grid.numSubgrids; i++) {
 		wf::SubGrid& sg = this->_grid.subgrids[i];
-		
-		uint32_t subdivision = (i+1 + i*2);
+		uint32_t subdivision = (i > 0) ? this->_settings.gridSubdivision*i : 1;
+
+		sg.level = i;
 		sg.resolution = glm::uvec4(glm::uvec3(Constants::VoxelGridDimensions) * subdivision, subdivision);
 		sg.center = glm::vec4(0.0);
 		sg.cellSize = Constants::VoxelCellSize / (float)subdivision;
 		uint32_t numCells = sg.resolution.x * sg.resolution.y * sg.resolution.z;
 
+		this->_renderer.CreateBuffer(sg.buffGpuReferences, sizeof(SubGridGpuReferences), fluidBufferUsage, fluidMemoryUsage);
+		this->_renderer.CreateBuffer(sg.buffDispatchCommand, sizeof(DispatchIndirectCommand), fluidBufferUsage | VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT, fluidMemoryUsage);
 		this->_renderer.CreateBuffer(sg.buffFluidVelocity, numCells * sizeof(FluidVelocity), fluidBufferUsage, fluidMemoryUsage);
 		this->_renderer.CreateBuffer(sg.buffFluidDensity, numCells * sizeof(FluidDensity), fluidBufferUsage, fluidMemoryUsage);
 		this->_renderer.CreateBuffer(sg.buffFluidPressure, numCells * sizeof(FluidPressure), fluidBufferUsage, fluidMemoryUsage);
@@ -681,8 +708,6 @@ WorldFlow::initResources()
 		this->_renderer.CreateBuffer(sg.buffFluidFlags, numCells * sizeof(FluidFlags), fluidBufferUsage, fluidMemoryUsage);
 		this->_renderer.CreateBuffer(sg.buffFluidDebug, numCells * sizeof(FluidDebug), fluidBufferUsage, fluidMemoryUsage);
 		this->_renderer.CreateBuffer(sg.buffFluidIndexOffsets, numCells * sizeof(FluidIndexOffsets), fluidBufferUsage, fluidMemoryUsage);
-		this->_renderer.CreateBuffer(sg.buffGpuReferences, sizeof(SubGridGpuReferences), fluidBufferUsage, fluidMemoryUsage);
-		this->_renderer.CreateBuffer(sg.buffDispatchCommand, sizeof(DispatchIndirectCommand), fluidBufferUsage, fluidMemoryUsage);
 		
 		this->_grid.gpuRefs.subgridReferences[i] = sg.buffGpuReferences.deviceAddress;
 		std::cout << "Subgrid: " << glm::to_string(sg.resolution) << std::endl;
@@ -751,7 +776,7 @@ WorldFlow::initPipelines()
 	this->_renderer.CreateComputePipeline(this->_computeGenerateIndirectCommands, SHADER_DIRECTORY"/fluid_generate_indirect_commands.comp.spv", {
 		BufferDescriptor(0, 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, this->_grid.buffWorldFlowGridGpu.bufferHandle, sizeof(WorldFlowGridGpu)),
 	},
-	sizeof(SubgridLevelPushConstants));
+	sizeof(GenerateIndirectCommandPushConstants));
 
 	this->_renderer.CreateComputePipeline(this->_computeAddSources, SHADER_DIRECTORY"/fluid_add_sources.comp.spv", {
 		BufferDescriptor(0, 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, this->_grid.buffWorldFlowGridGpu.bufferHandle, sizeof(WorldFlowGridGpu)),

@@ -4,7 +4,7 @@
 #include "../common/grid.comp"
 #include "../common/utils.comp"
 
-layout(local_size_x = GRID_LOCAL_SIZE_X, local_size_y = GRID_LOCAL_SIZE_Y, local_size_z = GRID_LOCAL_SIZE_Z) in;
+layout(local_size_x = 1, local_size_y = 1, local_size_z = 1) in;
 
 layout(std430, binding = 0) buffer WorldFlowGridBuffer {
 	WorldFlowGrid wfGrid;
@@ -12,6 +12,7 @@ layout(std430, binding = 0) buffer WorldFlowGridBuffer {
 
 layout(push_constant) uniform PushConstants {
     uint subgridLevel;
+    uint groupDimensionLimit;
 } pc;
 
 
@@ -19,4 +20,18 @@ layout(push_constant) uniform PushConstants {
 void main()
 {
     WorldFlowSubGrid grid = wfGrid.subgrids[pc.subgridLevel].ref;
+    const uint totalNumWorkgroups = grid.indexCount;
+
+    // Fill the indirect dispatch structure to dispatch one workgroup per index, ensuring no dimension is greater than specified limit
+    uint remaining = totalNumWorkgroups;
+
+    uint groupCountX = min(remaining, pc.groupDimensionLimit);
+    remaining -= groupCountX;
+
+    uint groupCountY = min(remaining, pc.groupDimensionLimit);
+    remaining -= groupCountY;
+
+    uint groupCountZ = remaining; // Whatever is left (can be 0)
+
+    wfGrid.subgrids[pc.subgridLevel].ref.dispatch.command = DispatchIndirectCommand(groupCountX, groupCountY, groupCountZ);
 }

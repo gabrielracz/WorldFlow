@@ -133,8 +133,8 @@ vec4 traceVoxels(vec3 rayOrigin, vec3 rayDir) {
                 vec3 normal = -crossingAxis;
                 vec3 viewDir = rayDir;
 				vec3 lightVec = normalize(worldPos - pc.lightSource.xyz);
-                // vec4 litColor = lighting(color, lightVec, normal);
-                vec4 litColor = vec4(abs(worldPos), 1.0);
+                vec4 litColor = lighting(color, lightVec, normal);
+                // vec4 litColor = vec4(abs(worldPos), 1.0);
 
                 vec4 attenuation = vec4(1.0, 1.0, 1.0, exp(-t * 0.1));
                 accumColor = vec4(
@@ -204,9 +204,9 @@ vec4 traceVoxels(vec3 rayOrigin, vec3 rayDir) {
             crossingAxis = -vec3(0.0, 0.0, 1.0) * step;
         }
 
+        int parentSublevel = max(int(subgridLevel) - 1, 0);
         WorldFlowSubGrid topGrid = wfGrid.subgrids[max(int(subgridLevel) - 1, 0)].ref;
         uint topIndex = getGridIndex(uvec3(mapPos), topGrid.resolution);
-
 
         if(subgridLevel == 0 && isWithinGridBounds(uvec3(mapPos), topGrid.resolution) && (topGrid.flagsBuffer.data[topIndex] & FLAG_ACTIVE) > 0) {
             subgridLevel = 1;

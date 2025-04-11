@@ -35,6 +35,7 @@ float manhattanDistance(vec3 p1, vec3 p2) {
 void main()
 {
     WorldFlowSubGrid grid = wfGrid.subgrids[pc.subgridLevel].ref;
+    // TODO: translate these pos and input parameters to worldspace
     uvec3 pos = gl_GlobalInvocationID;
     if (!isWithinGridBounds(pos, grid.resolution)) {
         return;

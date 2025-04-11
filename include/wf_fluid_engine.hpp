@@ -17,10 +17,12 @@ struct Settings
 {
 	glm::uvec4 resolution;
 	unsigned int numGridLevels {2};
+	uint32_t gridSubdivision {4};
 };
 
 struct SubGrid
 {
+	uint32_t level;
 	glm::uvec4 resolution;
 	glm::vec4 center;
 	float cellSize;
@@ -49,7 +51,7 @@ struct Grid
 class WorldFlow
 {
 public:
-	WorldFlow(Renderer& renderer);
+	WorldFlow(Renderer& renderer, Settings settings = {});
 	~WorldFlow();
 
 	bool Init();
@@ -86,6 +88,7 @@ private:
 
 private:
 	Renderer& _renderer;
+	Settings _settings;
 
 	float _tickRate {0.1f};
 	bool _useTickRate {true};
@@ -97,6 +100,7 @@ private:
 	bool _toggle {false};
 	bool _shouldAddObstacle {false};
 	bool _shouldHideUI {false};
+	bool _shouldPause {false};
 	glm::vec3 _objectPosition{};
 	float _objectRadius;
 	float _objectOffset = 1.0;

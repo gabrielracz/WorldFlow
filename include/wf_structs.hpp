@@ -53,6 +53,12 @@ struct alignas(16) SubgridLevelPushConstants
 	uint32_t subgridLevel;
 };
 
+struct alignas(16) GenerateIndirectCommandPushConstants
+{
+	uint32_t subgridLevel;
+	uint32_t groupDimensionLimit;
+};
+
 struct alignas(16) FluidPushConstants
 {
 	float time;
