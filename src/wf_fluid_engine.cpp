@@ -175,7 +175,7 @@ WorldFlow::addSources(VkCommandBuffer cmd, float dt)
 		const AddFluidPropertiesPushConstants pc = {
 			.sourcePosition = glm::vec4(this->_sourcePosition, 1.0) * (float)sg.resolution.w,
 			.velocity = glm::vec4(this->_velocitySourceAmount, 1.0),
-			.objectPosition = glm::vec4(this->_objectPosition + glm::vec3(this->_objectOffset, 0.0, 0.0), 1.0) * (float)sg.resolution.w,
+			.objectPosition = glm::vec4(this->_objectPosition, 1.0),
 			.elapsed = this->_renderer.GetElapsedTime(),
 			.dt = dt,
 			.sourceRadius = this->_sourceRadius / sg.cellSize,
@@ -183,7 +183,7 @@ WorldFlow::addSources(VkCommandBuffer cmd, float dt)
 			.addDensity = this->_shouldAddSources,
 			.density = this->_densityAmount,
 			.objectType = (uint32_t)this->_shouldAddObstacle > 0,
-			.objectRadius = this->_objectRadius / sg.cellSize,
+			.objectRadius = this->_objectRadius,
 			.decayRate = this->_decayRate,
 			.clear = this->_shouldClear,
 			.subgridLevel = i,
@@ -556,7 +556,7 @@ WorldFlow::drawUI()
 		ImGui::InputScalar("presiter", ImGuiDataType_U32, &this->_pressureIterations, &step);
 		ImGui::InputScalar("advectiter", ImGuiDataType_U32, &this->_advectionIterations, &step);
 		ImGui::InputFloat3("sourcePos", glm::value_ptr(this->_sourcePosition));
-		ImGui::DragFloat("objOff", &this->_objectOffset, 0.25f);
+		ImGui::DragFloat("objOff", &this->_objectOffset, 0.0025f);
 		this->_shouldClear = ImGui::Button("clear");
 	}
 	ImGui::End();
@@ -590,7 +590,7 @@ WorldFlow::checkControls(KeyMap& keyMap, MouseMap& mouseMap, Mouse& mouse, float
 
 	float v = this->_velocitySpeed;
 	constexpr glm::vec3 c = Constants::VoxelGridCenter;
-	this->_objectPosition = Constants::VoxelGridCenter;
+	this->_objectPosition = glm::vec3(this->_objectOffset, 0.0, 0.0);
 	this->_shouldAddSources = false;
 	int offset = (int)((this->_sourceRadius * Constants::VoxelGridResolution / 2.0f));
 	if(keyMap[SDLK_q]) {
@@ -725,7 +725,7 @@ WorldFlow::initResources()
 	for(uint32_t i = 0; i < this->_grid.numSubgrids; i++) {
 		wf::SubGrid& sg = this->_grid.subgrids[i];
 		// uint32_t subdivision = (i > 0) ? this->_settings.gridSubdivision*i : 1;
-		uint32_t subdivision = std::pow(this->_settings.gridSubdivision, i);
+		uint32_t subdivision = (uint32_t)std::pow(this->_settings.gridSubdivision, i);
 
 		sg.level = i;
 		sg.resolution = glm::uvec4(glm::uvec3(Constants::VoxelGridDimensions) * subdivision, subdivision);

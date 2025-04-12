@@ -40,6 +40,7 @@ void main()
     WorldFlowSubGrid grid = wfGrid.subgrids[pc.subgridLevel].ref;
     // TODO: translate these pos and input parameters to worldspace
     uvec3 gridPos = getGridPos(wfGrid, pc.subgridLevel, gl_GlobalInvocationID, gl_LocalInvocationID, gl_WorkGroupID, gl_NumWorkGroups);
+    vec3 worldPos = gridToWorld(gridPos, grid);
     if (!isWithinGridBounds(gridPos, grid.resolution)) {
         return;
     }
@@ -70,8 +71,8 @@ void main()
 
 
     bool setActive = false;
-    float objDist = distance(gridPos, pc.objectPosition.xyz);
-    if( objDist < pc.objectRadius && pc.objectType > 0) {
+    float objDist = distance(worldPos, pc.objectPosition.xyz);
+    if( objDist < (pc.objectRadius+grid.cellSize) && pc.objectType > 0) {
         grid.flagsBuffer.data[index] |= FLAG_OCCUPIED;
         setActive = true;
     }
@@ -103,7 +104,7 @@ void main()
     }
 
     if(pc.subgridLevel > 1) {
-        grid.debugBuffer.data[index] = vec4(0.25);
+        grid.debugBuffer.data[index] = vec4(0.75);
     }
 
     grid.densityBuffer.data[index] *= exp(-pc.decayRate * pc.dt);

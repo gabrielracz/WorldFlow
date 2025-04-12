@@ -130,7 +130,6 @@ vec4 traceVoxels(vec3 rayOrigin, vec3 rayDir) {
             vec4 color = pc.baseColor;
             if((grid.flagsBuffer.data[index] & FLAG_OCCUPIED) > 0 && pc.renderType < 5) {
                 vec3 worldPos = rayOrigin + t * rayDir;
-                // vec3 worldPos = gridToWorld(index, grid.resolution, grid.cellSize);
                 vec3 normal = -crossingAxis;
                 vec3 viewDir = rayDir;
 				vec3 lightVec = normalize(worldPos - pc.lightSource.xyz);

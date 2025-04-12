@@ -199,10 +199,9 @@ uint worldToGridIndex(vec3 worldPos, uvec4 gridResolution, float cellSize)
 	return getGridIndex(mappos, gridResolution);
 }
 
-vec3 gridToWorld(uint flatIndex, uvec4 gridResolution, float cellSize)
+vec3 gridToWorld(uvec3 gridPos, WorldFlowSubGrid sg)
 {
-    uvec3 index = unflattenGridIndex(flatIndex, gridResolution);
-    return vec3(index) * cellSize;
+    return (sg.center.xyz - vec3(sg.resolution.xyz/2.0) + vec3(gridPos)) * sg.cellSize + sg.cellSize/2.0;
 }
 
 uint getWorkgroupIndex(uvec3 workgroupID, uvec3 numWorkgroups) {
