@@ -120,7 +120,6 @@ WorldFlow::update(VkCommandBuffer cmd, float dt)
 	// drawGrid(cmd);
 	// renderParticles(cmd, dt);
 	this->_timestamps.write(cmd, Timestamps::FluidRender, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
-	
 }
 
 void
@@ -229,26 +228,28 @@ WorldFlow::diffuseVelocity(VkCommandBuffer cmd, float dt)
 void
 WorldFlow::diffuseDensity(VkCommandBuffer cmd, float dt)
 {
-	for(uint32_t s = 0; s < 1; s++) {
+	for(uint32_t s = 0; s < this->_grid.numSubgrids; s++) {
 		SubGrid& sg = this->_grid.subgrids[s];
 		this->_computeDiffuseDensity.Bind(cmd);
 		for(uint32_t i = 0; i < this->_diffusionIterations; i++) {
 			FluidPushConstants pc = {
 				.time = this->_renderer.GetElapsedTime(),
 				.dt = dt,
-				.redBlack = ((i+1) % 2)
+				.redBlack = ((i+1) % 2),
+				.subgridLevel = s
 			};
 			vkCmdPushConstants(cmd, this->_computeDiffuseDensity.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(pc), &pc);
 
 			dispatchFluid(cmd, sg);
 
 			VkBufferMemoryBarrier barriers[] = {
-				this->_grid.subgrids[0].buffFluidDensity.CreateBarrier(VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT)
+				this->_grid.subgrids[s].buffFluidDensity.CreateBarrier(VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT)
 			};
 			vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, nullptr, ARRLEN(barriers), barriers, 0, nullptr);
 		}
-		// if(s != this->_grid.numSubgrids-1) {
+		if(s < this->_grid.numSubgrids-1) {
 			prolongDensity(cmd, s); // prolong diffusion results onto finer grid level
+		}
 	}
 }
 
@@ -479,7 +480,6 @@ WorldFlow::dispatchFluid(VkCommandBuffer cmd, const SubGrid& sg, const glm::uvec
 		vkCmdDispatch(cmd, groups.x, groups.y, groups.z);
 	} else {
 		vkCmdDispatchIndirect(cmd, sg.buffDispatchCommand.bufferHandle, 0);
-		// vkCmdDispatch(cmd, 461, 1, 1);
 	}
 }
 
@@ -571,6 +571,10 @@ WorldFlow::drawUI()
 void
 WorldFlow::checkControls(KeyMap& keyMap, MouseMap& mouseMap, Mouse& mouse, float dt)
 {
+	if(keyMap[SDLK_ESCAPE]) {
+		this->_renderer.Close();
+	}
+
 	if(mouseMap[SDL_BUTTON_RIGHT]) {
 		const float mouse_sens = -1.2f;
 		glm::vec2 look = mouse.move * mouse_sens * dt;

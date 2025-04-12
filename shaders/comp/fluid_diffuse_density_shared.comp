@@ -21,17 +21,29 @@ layout(push_constant) uniform PushConstants {
 #define CACHE_SIZE BLOCK_SIZE+2
 shared float sharedDensity[CACHE_SIZE][CACHE_SIZE][CACHE_SIZE];
 
-float densityBoundary(ivec3 localPos, ivec3 samplePos, ivec3 coarseGridSamplePos, WorldFlowSubGrid sg) {
-    bool isValid = all(greaterThanEqual(samplePos, ivec3(0))) &&
-                   all(lessThan(samplePos, sg.resolution.xyz));
-    if(!isValid) return sharedDensity[localPos.z+1][localPos.y+1][localPos.x+1]; //return the value on the edge
+float densityBoundary(ivec3 localPos, ivec3 samplePos, ivec3 coarseGridSamplePos) {
+    WorldFlowSubGrid fineGrid = wfGrid.subgrids[pc.subgridLevel].ref;
+    float edgeFallback = sharedDensity[localPos.z+1][localPos.y+1][localPos.x+1];
 
-    return sg.densityBuffer.data[getGridIndex(samplePos, sg.resolution)];
+    if(!isWithinGridBounds(samplePos, fineGrid.resolution)) return edgeFallback; //return the value on the edge
+
+    if(pc.subgridLevel > 0) {
+        WorldFlowSubGrid coarseGrid = wfGrid.subgrids[pc.subgridLevel-1].ref;
+        if(!isWithinGridBounds(coarseGridSamplePos, coarseGrid.resolution)) {
+            return edgeFallback;
+        }
+        uint coarseIndex = getGridIndex(coarseGridSamplePos, coarseGrid.resolution);
+        if((coarseGrid.flagsBuffer.data[coarseIndex] & FLAG_ACTIVE) == 0) {
+            return coarseGrid.densityBuffer.data[coarseIndex];
+        }
+    }
+
+    return fineGrid.densityBuffer.data[getGridIndex(samplePos, fineGrid.resolution)];
 }
 
-void loadSharedCache(uint gridIndex, ivec3 gridPos, ivec3 localPos, ivec3 coarseGridPos, WorldFlowSubGrid sg) {
+void loadSharedCache(uint gridIndex, ivec3 gridPos, ivec3 localPos, ivec3 coarseGridPos) {
     // load current cell's density into cache
-    sharedDensity[localPos.z+1][localPos.y+1][localPos.x+1] = sg.densityBuffer.data[gridIndex];
+    sharedDensity[localPos.z+1][localPos.y+1][localPos.x+1] = wfGrid.subgrids[pc.subgridLevel].ref.densityBuffer.data[gridIndex];
 
     // load halo boundary cells
     for(int d = 0; d < 3; d++) {
@@ -43,7 +55,7 @@ void loadSharedCache(uint gridIndex, ivec3 gridPos, ivec3 localPos, ivec3 coarse
             ivec3 samplePos = gridPos + offset;
             ivec3 cachePos = localPos + (ivec3(1) + offset);
             ivec3 coarseGridSamplePos = coarseGridPos + offset;
-            sharedDensity[cachePos.z][cachePos.y][cachePos.x] = densityBoundary(localPos, samplePos, coarseGridSamplePos, sg);
+            sharedDensity[cachePos.z][cachePos.y][cachePos.x] = densityBoundary(localPos, samplePos, coarseGridSamplePos);
         }
     }
     barrier();
@@ -52,15 +64,19 @@ void loadSharedCache(uint gridIndex, ivec3 gridPos, ivec3 localPos, ivec3 coarse
 
 void main()
 {
+    if(!isWorkgroupActive(wfGrid, pc.subgridLevel, gl_WorkGroupID, gl_NumWorkGroups)) {
+        return;
+    }
+
     WorldFlowSubGrid grid = wfGrid.subgrids[pc.subgridLevel].ref;
     uvec3 localPos = gl_LocalInvocationID;
     uvec3 gridPos = getGridPos(wfGrid, pc.subgridLevel, gl_GlobalInvocationID, gl_LocalInvocationID, gl_WorkGroupID, gl_NumWorkGroups);
     uint gridIndex = getGridIndex(gridPos, grid.resolution);
     uvec3 coarseGridPos = getCoarseGridPos(gridPos, wfGrid, pc.subgridLevel);
+    
+    loadSharedCache(gridIndex, ivec3(gridPos), ivec3(localPos), ivec3(coarseGridPos));
 
-    loadSharedCache(gridIndex, ivec3(gridPos), ivec3(localPos), ivec3(coarseGridPos), grid);
-
-	if(!isRedBlackActive(gridPos, pc.redBlack)){
+	if(!isWithinGridBounds(gridPos, grid.resolution) || !isRedBlackActive(gridPos, pc.redBlack)){
         return;
     }
 

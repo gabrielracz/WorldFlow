@@ -18,6 +18,10 @@ layout(push_constant) uniform PushConstants {
 shared float coarseDensity;
 void main()
 {
+	if(!isWorkgroupActive(wfGrid, pc.subgridLevel, gl_WorkGroupID, gl_NumWorkGroups)) {
+        return;
+    }
+
     WorldFlowSubGrid grid = wfGrid.subgrids[pc.subgridLevel].ref;
     uvec3 gridPos = getGridPos(wfGrid, pc.subgridLevel, gl_GlobalInvocationID, gl_LocalInvocationID, gl_WorkGroupID, gl_NumWorkGroups);
 	uint index = getGridIndex(gridPos, grid.resolution);

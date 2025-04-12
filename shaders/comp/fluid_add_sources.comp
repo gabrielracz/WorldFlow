@@ -34,13 +34,17 @@ float manhattanDistance(vec3 p1, vec3 p2) {
 
 void main()
 {
+    if(!isWorkgroupActive(wfGrid, pc.subgridLevel, gl_WorkGroupID, gl_NumWorkGroups)) {
+        return;
+    }
+
     WorldFlowSubGrid grid = wfGrid.subgrids[pc.subgridLevel].ref;
     // TODO: translate these pos and input parameters to worldspace
     uvec3 gridPos = getGridPos(wfGrid, pc.subgridLevel, gl_GlobalInvocationID, gl_LocalInvocationID, gl_WorkGroupID, gl_NumWorkGroups);
-
     if (!isWithinGridBounds(gridPos, grid.resolution)) {
         return;
     }
+
     uint index = getGridIndex(gridPos, grid.resolution);
 
     grid.flagsBuffer.data[index] = 0;

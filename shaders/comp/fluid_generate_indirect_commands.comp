@@ -1,6 +1,6 @@
 #version 460
 #extension GL_GOOGLE_include_directive : enable
-// #extension GL_EXT_debug_printf: enable
+#extension GL_EXT_debug_printf: enable
 #include "../common/grid.comp"
 #include "../common/utils.comp"
 
@@ -15,27 +15,46 @@ layout(push_constant) uniform PushConstants {
     uint groupDimensionLimit;
 } pc;
 
+uvec3 approximate_xyz_at_least(uint N, uint LIM) {
+    uint r = uint(ceil(pow(float(N), 1.0 / 3.0)));
 
+    uvec3 best = uvec3(1, 1, LIM); // fallback
+    uint bestProduct = 0xFFFFFFFFu; // max uint
+
+    for (int dx = -10; dx <= 10; dx++) {
+        uint x = r + dx;
+        if (x < 1u || x > LIM) continue;
+
+        for (int dy = -10; dy <= 10; dy++) {
+            uint y = r + dy;
+            if (y < 1u || y > LIM) continue;
+
+            uint xy = x * y;
+            if (xy == 0u) continue;
+
+            uint z = (N + xy - 1u) / xy; // ceil(N / (x * y))
+            if (z < 1u || z > LIM) continue;
+
+            uint product = x * y * z;
+            if (product >= N && product < bestProduct) {
+                best = uvec3(x, y, z);
+                bestProduct = product;
+            }
+        }
+    }
+
+    return best;
+}
 
 void main()
 {
     WorldFlowSubGrid grid = wfGrid.subgrids[pc.subgridLevel].ref;
     const uint totalNumWorkgroups = grid.indexCount;
 
-    // Fill the indirect dispatch structure to dispatch one workgroup per index, ensuring no dimension is greater than specified limit
-    uint remaining = totalNumWorkgroups;
+    uvec3 groups = approximate_xyz_at_least(totalNumWorkgroups, pc.groupDimensionLimit);
 
-    uint groupCountX = min(remaining, pc.groupDimensionLimit);
-    remaining -= groupCountX;
+    wfGrid.subgrids[pc.subgridLevel].ref.dispatch.command = DispatchIndirectCommand(groups.x, groups.y, groups.z);
 
-    uint groupCountY = min(remaining, pc.groupDimensionLimit);
-    remaining -= groupCountY;
-
-    uint groupCountZ = remaining; // Whatever is left (can be 0)
-
-    groupCountX = max(groupCountX, 1u);
-    groupCountY = max(groupCountY, 1u);
-    groupCountZ = max(groupCountZ, 1u);
-
-    wfGrid.subgrids[pc.subgridLevel].ref.dispatch.command = DispatchIndirectCommand(groupCountX, groupCountY, groupCountZ);
+    // wfGrid.subgrids[pc.subgridLevel].ref.dispatch.command = DispatchIndirectCommand(groupCountX, groupCountY, groupCountZ);
+    // debugPrintfEXT("Groups: %d %d %d", groupCountX, groupCountY, groupCountZ);
 }

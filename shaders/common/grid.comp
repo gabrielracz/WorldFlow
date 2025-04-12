@@ -211,6 +211,14 @@ uint getWorkgroupIndex(uvec3 workgroupID, uvec3 numWorkgroups) {
            workgroupID.z * numWorkgroups.x * numWorkgroups.y;
 }
 
+bool isWorkgroupActive(WorldFlowGrid wfGrid, uint level, uvec3 workGroupID, uvec3 numWorkGroups) {
+    if(level == 0) {
+        return true;
+    }
+
+    return getWorkgroupIndex(workGroupID, numWorkGroups) < wfGrid.subgrids[level].ref.indexCount;
+}
+
 // TODO: support non full coverage subgrids
 uvec3 getSubgridWorkgroupOffset(uint workgroupOffsetIndex, WorldFlowSubGrid coarseGrid, WorldFlowSubGrid fineGrid)
 {
@@ -233,7 +241,7 @@ uvec3 getCoarseGridPos(uvec3 finePos, WorldFlowGrid wfGrid, uint fineLevel)
     if(fineLevel == 0) {
         return finePos;
     }
-    return finePos / wfGrid.subgrids[fineLevel].ref.resolution.w;
+    return (finePos / wfGrid.subgrids[fineLevel].ref.resolution.w);
 }
 
 
