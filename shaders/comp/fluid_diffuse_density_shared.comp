@@ -1,0 +1,83 @@
+#version 460
+#extension GL_GOOGLE_include_directive : enable
+#extension GL_EXT_shader_atomic_float : enable
+#include "../common/grid.comp"
+#include "../common/utils.comp"
+
+layout(local_size_x = GRID_LOCAL_SIZE_X, local_size_y = GRID_LOCAL_SIZE_Y, local_size_z = GRID_LOCAL_SIZE_Z) in;
+
+layout(std430, binding = 0) buffer WorldFlowGridBuffer {
+	WorldFlowGrid wfGrid;
+};
+
+layout(push_constant) uniform PushConstants {
+	float elapsed;
+	float dt;
+	uint redBlack;
+    uint subgridLevel;
+} pc;
+
+#define BLOCK_SIZE GRID_LOCAL_SIZE_X
+#define CACHE_SIZE BLOCK_SIZE+2
+shared float sharedDensity[CACHE_SIZE][CACHE_SIZE][CACHE_SIZE];
+
+float densityBoundary(ivec3 localPos, ivec3 samplePos, WorldFlowSubGrid sg) {
+    bool isValid = all(greaterThanEqual(samplePos, ivec3(0))) &&
+                   all(lessThan(samplePos, sg.resolution.xyz));
+    
+    if(!isValid) return sharedDensity[localPos.z+1][localPos.y+1][localPos.x+1]; //return the value on the edge
+
+    return sg.densityBuffer.data[getGridIndex(samplePos, sg.resolution)];
+}
+
+void loadSharedCache(uint gridIndex, ivec3 gridPos, ivec3 localPos, WorldFlowSubGrid sg) {
+    // load current cell's density into cache
+    sharedDensity[localPos.z+1][localPos.y+1][localPos.x+1] = sg.densityBuffer.data[gridIndex];
+
+    // special case to load halo boundary cells
+    for(int d = 0; d < 3; d++) {
+        bool loEdge = localPos[d] == 0;
+        bool hiEdge = localPos[d] == BLOCK_SIZE-1;
+        ivec3 offset = ivec3(0);
+        offset[d] = loEdge ? -1 : 1;
+        if(loEdge || hiEdge) {
+            ivec3 samplePos = gridPos + offset;
+            ivec3 cachePos = localPos + (ivec3(1) + offset);
+            sharedDensity[cachePos.z][cachePos.y][cachePos.x] = densityBoundary(localPos, samplePos, sg);
+        }
+    }
+    barrier();
+    memoryBarrierShared();
+}
+
+void main()
+{
+    WorldFlowSubGrid grid = wfGrid.subgrids[pc.subgridLevel].ref;
+    uvec3 localPos = gl_LocalInvocationID;
+    uvec3 gridPos = getGridPos(wfGrid, pc.subgridLevel, gl_GlobalInvocationID, gl_LocalInvocationID, gl_WorkGroupID, gl_NumWorkGroups);
+    uint gridIndex = getGridIndex(gridPos, grid.resolution);
+
+    loadSharedCache(gridIndex, ivec3(gridPos), ivec3(localPos), grid);
+
+	if(!isRedBlackActive(gridPos, pc.redBlack)){
+        return;
+    }
+
+    uvec3 cachePos = localPos + ivec3(1); // offset because of apron
+    float l = sharedDensity[cachePos.z][cachePos.y][cachePos.x - 1];
+    float r = sharedDensity[cachePos.z][cachePos.y][cachePos.x + 1];
+    float u = sharedDensity[cachePos.z][cachePos.y - 1][cachePos.x];
+    float d = sharedDensity[cachePos.z][cachePos.y + 1][cachePos.x];
+    float f = sharedDensity[cachePos.z - 1][cachePos.y][cachePos.x];
+    float b = sharedDensity[cachePos.z + 1][cachePos.y][cachePos.x];
+    float c = sharedDensity[cachePos.z][cachePos.y][cachePos.x];
+    
+    const float diffRate = 0.000015;
+    const float N = 1.0/(grid.cellSize*grid.cellSize);
+    const float a = diffRate*pc.dt*N; 
+    
+    const float newDns = (c + a*(l + r + u + d + f + b)) / (1+6*a);
+    const float result = SOR(c, newDns, avg3(grid.resolution.xyz));
+    
+    grid.densityBuffer.data[gridIndex] = result;
+}

@@ -34,7 +34,7 @@ float sampleDensity(WorldFlowSubGrid grid, uvec3 center, ivec3 offset)
 void main()
 {
     WorldFlowSubGrid grid = wfGrid.subgrids[pc.subgridLevel].ref;
-	uvec3 center = gl_GlobalInvocationID;
+    uvec3 center = getGridPos(wfGrid, pc.subgridLevel, gl_GlobalInvocationID, gl_LocalInvocationID, gl_WorkGroupID, gl_NumWorkGroups);
 	uint index = getGridIndex(center, grid.resolution);
 
 	// Alternate updates in alternating checkerboard pattern to avoid atomics
