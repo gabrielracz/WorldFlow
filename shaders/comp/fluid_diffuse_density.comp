@@ -39,7 +39,7 @@ void main()
 
 	// Alternate updates in alternating checkerboard pattern to avoid atomics
 	if(!isRedBlackActive(center, pc.redBlack)){
-		// return;
+		return;
 	}
 
 	float l = sampleDensity(grid, center, ivec3(-1, 0, 0));

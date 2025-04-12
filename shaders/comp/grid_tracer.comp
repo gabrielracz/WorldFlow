@@ -120,6 +120,7 @@ vec4 traceVoxels(vec3 rayOrigin, vec3 rayDir) {
     vec3 prevPos = pos;
     uint subgridLevel = 0;
     vec3 crossingAxis = tMaxAxis;
+    float distThroughCell = 0.0;
     for (int i = 0; i < pc.maxDistance; i++) {
         WorldFlowSubGrid grid = wfGrid.subgrids[subgridLevel].ref;
         uint index = getGridIndex(uvec3(mapPos), grid.resolution);
@@ -161,8 +162,7 @@ vec4 traceVoxels(vec3 rayOrigin, vec3 rayDir) {
             else if(pc.renderType == 6) {
                 density = ((grid.flagsBuffer.data[index] & FLAG_ACTIVE) > 0) ? 1.0 : 0.0;
             }
-			density *= (grid.cellSize * 64.0);
-            float contribution = abs(density) * (t - tPrev) * 5;
+            float contribution = abs(density) * distThroughCell * 10;
 
             // float attenuation = exp(-t * 0.07);
             float attenuation = 1.0;
@@ -205,6 +205,8 @@ vec4 traceVoxels(vec3 rayOrigin, vec3 rayDir) {
             crossingAxis = -vec3(0.0, 0.0, 1.0) * step;
         }
 
+
+        // SUBGRID TRANSITIONS
         int parentSublevel = max(int(subgridLevel) - 1, 0);
         WorldFlowSubGrid topGrid = wfGrid.subgrids[max(int(subgridLevel) - 1, 0)].ref;
         uint topIndex = getGridIndex(uvec3(mapPos), topGrid.resolution);
@@ -329,6 +331,7 @@ vec4 traceVoxels(vec3 rayOrigin, vec3 rayDir) {
             }
         }
 
+        distThroughCell = min3(tMaxAxis) - t; //get ray distance through cell we are about to pass through
     }
     
     return accumColor;

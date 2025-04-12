@@ -6,7 +6,11 @@ vec3 clampVector(vec3 a, vec3 minVec, vec3 maxVec) {
 }
 
 float max3 (vec3 v) {
-  return max (max (v.x, v.y), v.z);
+  return max(max(v.x, v.y), v.z);
+}
+
+float min3(vec3 v) {
+  return min(min(v.x, v.y), v.z);
 }
 
 float avg3(vec3 v) {
