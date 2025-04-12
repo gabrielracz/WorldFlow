@@ -211,8 +211,8 @@ vec4 traceVoxels(vec3 rayOrigin, vec3 rayDir) {
         WorldFlowSubGrid topGrid = wfGrid.subgrids[max(int(subgridLevel) - 1, 0)].ref;
         uint topIndex = getGridIndex(uvec3(mapPos), topGrid.resolution);
 
-        if(subgridLevel == 0 && isWithinGridBounds(uvec3(mapPos), topGrid.resolution) && (topGrid.flagsBuffer.data[topIndex] & FLAG_ACTIVE) > 0) {
-            subgridLevel = 1;
+        if(isWithinGridBounds(uvec3(mapPos), topGrid.resolution) && (topGrid.flagsBuffer.data[topIndex] & FLAG_ACTIVE) > 0) {
+            subgridLevel += 1;
             WorldFlowSubGrid sg = wfGrid.subgrids[1].ref;
             float subd = sg.resolution.w;
             vec3 worldPos = rayOrigin + (t + tDelta/subd/subd)*rayDir;

@@ -168,38 +168,36 @@ WorldFlow::generateIndirectCommands(VkCommandBuffer cmd)
 void
 WorldFlow::addSources(VkCommandBuffer cmd, float dt)
 {
-	for(uint32_t i = 0; i < this->_grid.numSubgrids; i++) {
-	SubGrid& sg = this->_grid.subgrids[i];
 	this->_computeAddSources.Bind(cmd);
-	const AddFluidPropertiesPushConstants pc = {
-		.sourcePosition = glm::vec4(this->_sourcePosition, 1.0) * (float)sg.resolution.w,
-		.velocity = glm::vec4(this->_velocitySourceAmount, 1.0),
-		.objectPosition = glm::vec4(this->_objectPosition, 1.0) * (float)sg.resolution.w,
-		.elapsed = this->_renderer.GetElapsedTime(),
-		.dt = dt,
-		.sourceRadius = this->_sourceRadius / sg.cellSize,
-		.addVelocity = this->_shouldAddSources,
-		.addDensity = this->_shouldAddSources,
-		.density = this->_densityAmount,
-		.objectType = (uint32_t)this->_shouldAddObstacle > 0,
-		.objectRadius = this->_objectRadius / sg.cellSize,
-		.decayRate = this->_decayRate,
-		.clear = this->_shouldClear,
-		.subgridLevel = i
-	};
-	vkCmdPushConstants(cmd, this->_computeAddSources.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(pc), &pc);
-	dispatchFluid(cmd, sg);
-	if (i == 0) {
-	VkBufferMemoryBarrier barriers[] = {
-		sg.buffFluidVelocity.CreateBarrier(VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT),
-		sg.buffFluidDensity.CreateBarrier(VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT),
-		sg.buffFluidPressure.CreateBarrier(VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT),
-		sg.buffFluidDivergence.CreateBarrier(VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT),
-		sg.buffFluidFlags.CreateBarrier(VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT),
-		sg.buffFluidDebug.CreateBarrier(VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT),
-	};
-	vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, nullptr, ARRLEN(barriers), barriers, 0, nullptr);
-	}
+	for(uint32_t i = 0; i < this->_grid.numSubgrids; i++) {
+		SubGrid& sg = this->_grid.subgrids[i];
+		const AddFluidPropertiesPushConstants pc = {
+			.sourcePosition = glm::vec4(this->_sourcePosition, 1.0) * (float)sg.resolution.w,
+			.velocity = glm::vec4(this->_velocitySourceAmount, 1.0),
+			.objectPosition = glm::vec4(this->_objectPosition, 1.0) * (float)sg.resolution.w,
+			.elapsed = this->_renderer.GetElapsedTime(),
+			.dt = dt,
+			.sourceRadius = this->_sourceRadius / sg.cellSize,
+			.addVelocity = this->_shouldAddSources,
+			.addDensity = this->_shouldAddSources,
+			.density = this->_densityAmount,
+			.objectType = (uint32_t)this->_shouldAddObstacle > 0,
+			.objectRadius = this->_objectRadius / sg.cellSize,
+			.decayRate = this->_decayRate,
+			.clear = this->_shouldClear,
+			.subgridLevel = i
+		};
+		vkCmdPushConstants(cmd, this->_computeAddSources.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(pc), &pc);
+		dispatchFluid(cmd, sg);
+		VkBufferMemoryBarrier barriers[] = {
+			sg.buffFluidVelocity.CreateBarrier(VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT),
+			sg.buffFluidDensity.CreateBarrier(VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT),
+			sg.buffFluidPressure.CreateBarrier(VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT),
+			sg.buffFluidDivergence.CreateBarrier(VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT),
+			sg.buffFluidFlags.CreateBarrier(VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT),
+			sg.buffFluidDebug.CreateBarrier(VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT),
+		};
+		vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, nullptr, ARRLEN(barriers), barriers, 0, nullptr);
 	}
 }
 
@@ -756,6 +754,8 @@ WorldFlow::initResources()
 			vkCmdFillBuffer(cmd, sg.buffFluidDivergence.bufferHandle, 0, VK_WHOLE_SIZE, 0);
 			vkCmdFillBuffer(cmd, sg.buffFluidFlags.bufferHandle, 0, VK_WHOLE_SIZE, 0);
 			vkCmdFillBuffer(cmd, sg.buffFluidDebug.bufferHandle, 0, VK_WHOLE_SIZE, 0);
+			vkCmdFillBuffer(cmd, sg.buffFluidIndexOffsets.bufferHandle, 0, VK_WHOLE_SIZE, 0);
+			vkCmdFillBuffer(cmd, sg.buffDispatchCommand.bufferHandle, 0, VK_WHOLE_SIZE, 1);
 
 			SubGridGpuReferences refs = {
 				.velocityBufferReference = sg.buffFluidVelocity.deviceAddress,

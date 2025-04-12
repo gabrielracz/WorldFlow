@@ -116,7 +116,7 @@ uint getGridIndex(uvec3 index, uvec4 gridResolution)
 {
     // Extract grid dimensions (ignore w component)
     uvec3 dims = gridResolution.xyz;
-    const uint chunkSize = 8u;
+    const uint chunkSize = GRID_LOCAL_SIZE_X;
     uvec3 chunkPos = index / chunkSize;
     uvec3 localPos = index % chunkSize;
     
@@ -143,7 +143,7 @@ uvec3 unflattenGridIndex(uint flatIndex, uvec4 gridResolution)
     uvec3 dims = gridResolution.xyz;
     
     // Define chunk size (must match the flattening function)
-    const uint chunkSize = 8u;
+    const uint chunkSize = GRID_LOCAL_SIZE_X;
     const uint chunkVolume = chunkSize * chunkSize * chunkSize;
     
     // Calculate chunks per dimension (ceiling division)
