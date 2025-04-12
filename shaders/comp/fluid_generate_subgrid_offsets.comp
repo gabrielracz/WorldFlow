@@ -19,8 +19,8 @@ layout(push_constant) uniform PushConstants {
 void main()
 {
     WorldFlowSubGrid grid = wfGrid.subgrids[pc.coarseSubgridLevel].ref;
-    uvec3 pos = gl_GlobalInvocationID;
-    uint flatGridIndex = getGridIndex(pos, grid.resolution);
+    uvec3 gridPos = getGridPos(wfGrid, pc.coarseSubgridLevel, gl_GlobalInvocationID, gl_LocalInvocationID, gl_WorkGroupID, gl_NumWorkGroups);
+    uint flatGridIndex = getGridIndex(gridPos, grid.resolution);
     if((grid.flagsBuffer.data[flatGridIndex] & FLAG_ACTIVE) == 0) {
         return;
     }

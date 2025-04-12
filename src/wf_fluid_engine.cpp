@@ -24,7 +24,8 @@
 namespace wf {
 namespace Constants
 {
-constexpr glm::uvec4 VoxelGridDimensions = glm::uvec4(64, 32, 64, 1);
+constexpr glm::uvec4 VoxelGridDimensions = glm::uvec4(32, 16, 32, 1);
+// constexpr glm::uvec4 VoxelGridDimensions = glm::uvec4(64, 32, 64, 1);
 // constexpr glm::uvec4 VoxelGridDimensions = glm::uvec4(128, 64, 128, 1);
 // constexpr glm::uvec4 VoxelGridDimensions = glm::uvec4(256, 128, 256, 1);
 // constexpr glm::uvec4 VoxelGridDimensions = glm::uvec4(512, 128, 128, 1);
@@ -174,7 +175,7 @@ WorldFlow::addSources(VkCommandBuffer cmd, float dt)
 		const AddFluidPropertiesPushConstants pc = {
 			.sourcePosition = glm::vec4(this->_sourcePosition, 1.0) * (float)sg.resolution.w,
 			.velocity = glm::vec4(this->_velocitySourceAmount, 1.0),
-			.objectPosition = glm::vec4(this->_objectPosition, 1.0) * (float)sg.resolution.w,
+			.objectPosition = glm::vec4(this->_objectPosition + glm::vec3(this->_objectOffset, 0.0, 0.0), 1.0) * (float)sg.resolution.w,
 			.elapsed = this->_renderer.GetElapsedTime(),
 			.dt = dt,
 			.sourceRadius = this->_sourceRadius / sg.cellSize,
@@ -185,7 +186,7 @@ WorldFlow::addSources(VkCommandBuffer cmd, float dt)
 			.objectRadius = this->_objectRadius / sg.cellSize,
 			.decayRate = this->_decayRate,
 			.clear = this->_shouldClear,
-			.subgridLevel = i
+			.subgridLevel = i,
 		};
 		vkCmdPushConstants(cmd, this->_computeAddSources.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(pc), &pc);
 		dispatchFluid(cmd, sg);
@@ -238,7 +239,7 @@ WorldFlow::diffuseDensity(VkCommandBuffer cmd, float dt)
 			};
 			vkCmdPushConstants(cmd, this->_computeDiffuseDensity.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(pc), &pc);
 
-			dispatchFluid(cmd, sg);
+			// dispatchFluid(cmd, sg);
 
 			VkBufferMemoryBarrier barriers[] = {
 				this->_grid.subgrids[s].buffFluidDensity.CreateBarrier(VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT)
@@ -723,12 +724,13 @@ WorldFlow::initResources()
 	// FLUID PROPERTY BUFFERS
 	for(uint32_t i = 0; i < this->_grid.numSubgrids; i++) {
 		wf::SubGrid& sg = this->_grid.subgrids[i];
-		uint32_t subdivision = (i > 0) ? this->_settings.gridSubdivision*i : 1;
+		// uint32_t subdivision = (i > 0) ? this->_settings.gridSubdivision*i : 1;
+		uint32_t subdivision = std::pow(this->_settings.gridSubdivision, i);
 
 		sg.level = i;
 		sg.resolution = glm::uvec4(glm::uvec3(Constants::VoxelGridDimensions) * subdivision, subdivision);
 		sg.center = glm::vec4(0.0);
-		sg.cellSize = Constants::VoxelCellSize / (float)subdivision;
+		sg.cellSize = Constants::VoxelCellSize / subdivision;
 		uint32_t numCells = sg.resolution.x * sg.resolution.y * sg.resolution.z;
 
 		this->_renderer.CreateBuffer(sg.buffGpuReferences, sizeof(SubGridGpuReferences), fluidBufferUsage, fluidMemoryUsage);
@@ -742,7 +744,8 @@ WorldFlow::initResources()
 		this->_renderer.CreateBuffer(sg.buffFluidIndexOffsets, numCells * sizeof(FluidIndexOffsets), fluidBufferUsage, fluidMemoryUsage);
 		
 		this->_grid.gpuRefs.subgridReferences[i] = sg.buffGpuReferences.deviceAddress;
-		std::cout << "Subgrid: " << glm::to_string(sg.resolution) << std::endl;
+		this->_grid.gpuRefs.subgridCount = this->_grid.numSubgrids;
+		std::cout << "Subgrid: " << glm::to_string(sg.resolution) << " " << sg.cellSize << std::endl;
 	}
 
 	this->_renderer.ImmediateSubmit([this](VkCommandBuffer cmd) {

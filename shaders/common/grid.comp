@@ -49,10 +49,10 @@ layout(buffer_reference, std430) buffer IndexOffsetsBuffer {
 
 const uint FLAG_OCCUPIED       = 1 << 0;
 const uint FLAG_SOURCE         = 1 << 1;
-const uint FLAG_SUBDIVIDED     = 1 << 2;
-const uint FLAG_SHOULD_REFINE  = 1 << 3;
-const uint FLAG_SHOULD_COARSEN = 1 << 4;
-const uint FLAG_ACTIVE         = 1 << 5;
+const uint FLAG_ACTIVE         = 1 << 2;
+
+const uint FLAG_TRANSIENTS = FLAG_OCCUPIED | FLAG_SOURCE;
+const uint FLAG_PERSISTENTS = FLAG_ACTIVE;
 
 struct WorldFlowSubGrid
 {
@@ -222,7 +222,7 @@ bool isWorkgroupActive(WorldFlowGrid wfGrid, uint level, uvec3 workGroupID, uvec
 // TODO: support non full coverage subgrids
 uvec3 getSubgridWorkgroupOffset(uint workgroupOffsetIndex, WorldFlowSubGrid coarseGrid, WorldFlowSubGrid fineGrid)
 {
-    uvec3 gridPos = unflattenGridIndex(fineGrid.indexOffsets.data[workgroupOffsetIndex], coarseGrid.resolution) * fineGrid.resolution.w;
+    uvec3 gridPos = unflattenGridIndex(fineGrid.indexOffsets.data[workgroupOffsetIndex], coarseGrid.resolution) * (fineGrid.resolution.w / coarseGrid.resolution.w);
     return gridPos;
 }
 
@@ -241,7 +241,7 @@ uvec3 getCoarseGridPos(uvec3 finePos, WorldFlowGrid wfGrid, uint fineLevel)
     if(fineLevel == 0) {
         return finePos;
     }
-    return (finePos / wfGrid.subgrids[fineLevel].ref.resolution.w);
+    return (finePos / (wfGrid.subgrids[fineLevel].ref.resolution.w / wfGrid.subgrids[fineLevel-1].ref.resolution.w));
 }
 
 

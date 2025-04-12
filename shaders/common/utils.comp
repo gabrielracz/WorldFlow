@@ -13,6 +13,10 @@ float min3(vec3 v) {
   return min(min(v.x, v.y), v.z);
 }
 
+uint productU3(uvec3 v) {
+    return v.x * v.y * v.z;
+}
+
 float avg3(vec3 v) {
 	return (v.x + v.y + v.z) / 3.0;
 }
@@ -220,6 +224,44 @@ float workGroupSum(float value, uint localInvocationIndex) {
     memoryBarrierShared();
     
     return _wgSumTotal;
+}
+
+shared float _wgSumValues[32]; // Adjust size based on max subgroups
+float workGroupSumReduction(float value, uint localInvocationIndex, uint subgroupID, uint numSubgroups, uint workGroupSize) {
+    // Step 1: Get subgroup sum
+    float subgroupResult = subgroupAdd(value);
+    
+    // Step 2: One thread per subgroup writes to shared memory
+    // uint subgroupID = subgroupID();
+    // uint numSubgroups = numSubgroups();
+    
+    if (subgroupElect()) {
+        _wgSumValues[subgroupID] = subgroupResult;
+    }
+    
+    // Ensure all subgroup results are written
+    barrier();
+    memoryBarrierShared();
+    
+    // Step 3: First few threads sum across subgroups
+    float totalSum = 0.0;
+    if (localInvocationIndex < numSubgroups) {
+        totalSum = _wgSumValues[localInvocationIndex];
+    }
+    
+    // Step 4: Final reduction across first N threads
+    if (localInvocationIndex == 0) {
+        for (uint i = 1; i < numSubgroups; i++) {
+            totalSum += _wgSumValues[i];
+        }
+        _wgSumValues[0] = totalSum;
+    }
+    
+    // Final sync to ensure all threads get the result
+    barrier();
+    memoryBarrierShared();
+    
+    return _wgSumValues[0];
 }
 
 

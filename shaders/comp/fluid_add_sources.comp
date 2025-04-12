@@ -31,7 +31,6 @@ float manhattanDistance(vec3 p1, vec3 p2) {
     return abs(p1.x - p2.x) + abs(p1.y - p2.y) + abs(p1.z + p2.z);
 }
 
-
 void main()
 {
     if(!isWorkgroupActive(wfGrid, pc.subgridLevel, gl_WorkGroupID, gl_NumWorkGroups)) {
@@ -47,6 +46,7 @@ void main()
 
     uint index = getGridIndex(gridPos, grid.resolution);
 
+    // grid.flagsBuffer.data[index] &= ~FLAG_TRANSIENTS;
     grid.flagsBuffer.data[index] = 0;
     grid.pressureBuffer.data[index] = 0.0;
     grid.debugBuffer.data[index] = vec4(0.0);
@@ -68,13 +68,42 @@ void main()
         }
     }
 
-    if(distance(gridPos, pc.objectPosition.xyz) < pc.objectRadius && pc.objectType > 0) {
+
+    bool setActive = false;
+    float objDist = distance(gridPos, pc.objectPosition.xyz);
+    if( objDist < pc.objectRadius && pc.objectType > 0) {
         grid.flagsBuffer.data[index] |= FLAG_OCCUPIED;
-        // grid.flagsBuffer.data[index] |= FLAG_ACTIVE;
+        setActive = true;
     }
 
-    if(pc.subgridLevel == 0 && distance(gridPos, pc.objectPosition.xyz) < (pc.objectRadius*1.5)) {
-        grid.flagsBuffer.data[index] |= FLAG_ACTIVE;
+    // if(pc.subgridLevel < wfGrid.subgridCount-1 && distance(gridPos, pc.objectPosition.xyz) < (pc.objectRadius*2.0)) {
+    //     grid.flagsBuffer.data[index] |= FLAG_ACTIVE;
+    // }
+
+    // if(pc.subgridLevel == 0) {
+    //     grid.flagsBuffer.data[index] |= FLAG_ACTIVE;
+    // }
+
+    if(pc.subgridLevel < wfGrid.subgridCount-1 && grid.densityBuffer.data[index] > 0.05) {
+        setActive = true;
+    }
+
+    if(setActive) {
+        if(pc.subgridLevel == 0) {
+            grid.flagsBuffer.data[index] |= FLAG_ACTIVE;
+        }
+        else {
+            WorldFlowSubGrid cg = wfGrid.subgrids[pc.subgridLevel-1].ref;
+            uvec3 coarseGridPos = getCoarseGridPos(gridPos, wfGrid, pc.subgridLevel);
+            uint coarseIndex = getGridIndex(coarseGridPos, cg.resolution);
+            if((cg.flagsBuffer.data[coarseIndex] & FLAG_ACTIVE) > 0) {
+                grid.flagsBuffer.data[index] |= FLAG_ACTIVE;
+            }
+        }
+    }
+
+    if(pc.subgridLevel > 1) {
+        grid.debugBuffer.data[index] = vec4(0.25);
     }
 
     grid.densityBuffer.data[index] *= exp(-pc.decayRate * pc.dt);

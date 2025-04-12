@@ -29,6 +29,7 @@ void main()
 	// get total density of this block of fine cells
 	float density = grid.densityBuffer.data[index];
 	float fineDensity = workGroupSum(density, gl_LocalInvocationIndex);
+	// float fineDensity = workGroupSumReduction(density, gl_LocalInvocationIndex, gl_SubgroupID, gl_NumSubgroups, productU3(gl_NumWorkGroups));
 
 	// perform only one read on the coarse grid cell covering this block of fine cells
 	if(gl_LocalInvocationIndex == 0) {

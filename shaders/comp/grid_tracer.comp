@@ -121,7 +121,7 @@ vec4 traceVoxels(vec3 rayOrigin, vec3 rayDir) {
     uint subgridLevel = 0;
     vec3 crossingAxis = tMaxAxis;
     float distThroughCell = 0.0;
-    for (int i = 0; i < pc.maxDistance; i++) {
+    for (int i = 0; i < pc.maxDistance*4; i++) {
         WorldFlowSubGrid grid = wfGrid.subgrids[subgridLevel].ref;
         uint index = getGridIndex(uvec3(mapPos), grid.resolution);
         // Bounds check;
@@ -207,17 +207,16 @@ vec4 traceVoxels(vec3 rayOrigin, vec3 rayDir) {
 
 
         // SUBGRID TRANSITIONS
-        int parentSublevel = max(int(subgridLevel) - 1, 0);
-        WorldFlowSubGrid topGrid = wfGrid.subgrids[max(int(subgridLevel) - 1, 0)].ref;
+        // int parentSublevel = max(int(subgridLevel) - 1, 0);
+        WorldFlowSubGrid topGrid = wfGrid.subgrids[subgridLevel].ref;
         uint topIndex = getGridIndex(uvec3(mapPos), topGrid.resolution);
 
-        if(isWithinGridBounds(uvec3(mapPos), topGrid.resolution) && (topGrid.flagsBuffer.data[topIndex] & FLAG_ACTIVE) > 0) {
+        if(subgridLevel < wfGrid.subgridCount-1 && isWithinGridBounds(uvec3(mapPos), topGrid.resolution) && (topGrid.flagsBuffer.data[topIndex] & FLAG_ACTIVE) > 0) {
             subgridLevel += 1;
-            WorldFlowSubGrid sg = wfGrid.subgrids[1].ref;
+            WorldFlowSubGrid sg = wfGrid.subgrids[subgridLevel].ref;
             float subd = sg.resolution.w;
             vec3 worldPos = rayOrigin + (t + tDelta/subd/subd)*rayDir;
             mapPos = ivec3(unflattenGridIndex(worldToGridIndex(worldPos, sg.resolution, sg.cellSize), sg.resolution));
-
             vec3 gridPos = (worldPos - gridMin)/sg.cellSize; //fractional grid space
             // find the next highest multiple of cellSize that is above 
             for (int i = 0; i < 3; i++) {
@@ -264,7 +263,8 @@ vec4 traceVoxels(vec3 rayOrigin, vec3 rayDir) {
             WorldFlowSubGrid coarserGrid = wfGrid.subgrids[subgridLevel - 1].ref;
             
             // Convert current world position to coarser grid space to check if we're still in an active region
-            vec3 worldPos = rayOrigin + t * rayDir;
+            float subd = currentGrid.resolution.w;
+            vec3 worldPos = rayOrigin + (t + tDelta/subd/subd)*rayDir;
             uint coarserIndex = worldToGridIndex(worldPos, coarserGrid.resolution, coarserGrid.cellSize);
             
             if (!isWithinGridBounds(uvec3(unflattenGridIndex(coarserIndex, coarserGrid.resolution)), coarserGrid.resolution) || 
