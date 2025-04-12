@@ -50,8 +50,9 @@ layout(buffer_reference, std430) buffer IndexOffsetsBuffer {
 const uint FLAG_OCCUPIED       = 1 << 0;
 const uint FLAG_SOURCE         = 1 << 1;
 const uint FLAG_ACTIVE         = 1 << 2;
+const uint FLAG_DEACTIVED      = 1 << 3;
 
-const uint FLAG_TRANSIENTS = FLAG_OCCUPIED | FLAG_SOURCE;
+const uint FLAG_TRANSIENTS = FLAG_OCCUPIED | FLAG_SOURCE | FLAG_DEACTIVED;
 const uint FLAG_PERSISTENTS = FLAG_ACTIVE;
 
 struct WorldFlowSubGrid
@@ -92,6 +93,7 @@ void clearGridCell(WorldFlowSubGrid grid, uint index)
     grid.pressureBuffer.data[index]   = 0.0;
     grid.divergenceBuffer.data[index] = 0.0;
     grid.flagsBuffer.data[index]      = 0;
+    grid.debugBuffer.data[index]      = vec4(0.0);
 }
 
 bool isRedBlackActive(uvec3 id, uint redBlack) {
@@ -241,6 +243,12 @@ uvec3 getCoarseGridPos(uvec3 finePos, WorldFlowGrid wfGrid, uint fineLevel)
         return finePos;
     }
     return (finePos / (wfGrid.subgrids[fineLevel].ref.resolution.w / wfGrid.subgrids[fineLevel-1].ref.resolution.w));
+}
+
+uint getCoarseGridIndex(uvec3 finePos, WorldFlowGrid wfGrid, uint fineLevel)
+{
+    if(fineLevel == 0) return getGridIndex(finePos, wfGrid.subgrids[fineLevel].ref.resolution);
+    return getGridIndex(getCoarseGridPos(finePos, wfGrid, fineLevel), wfGrid.subgrids[fineLevel-1].ref.resolution);
 }
 
 

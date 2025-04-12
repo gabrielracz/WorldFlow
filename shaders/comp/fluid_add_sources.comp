@@ -36,26 +36,28 @@ void main()
     if(!isWorkgroupActive(wfGrid, pc.subgridLevel, gl_WorkGroupID, gl_NumWorkGroups)) {
         return;
     }
-
     WorldFlowSubGrid grid = wfGrid.subgrids[pc.subgridLevel].ref;
-    // TODO: translate these pos and input parameters to worldspace
+    WorldFlowSubGrid coarseGrid = wfGrid.subgrids[max(int(pc.subgridLevel) - 1, 0)].ref;
+
     uvec3 gridPos = getGridPos(wfGrid, pc.subgridLevel, gl_GlobalInvocationID, gl_LocalInvocationID, gl_WorkGroupID, gl_NumWorkGroups);
     vec3 worldPos = gridToWorld(gridPos, grid);
     if (!isWithinGridBounds(gridPos, grid.resolution)) {
         return;
     }
-
     uint index = getGridIndex(gridPos, grid.resolution);
+    uint coarseIndex = getCoarseGridIndex(gridPos, wfGrid, pc.subgridLevel);
 
-    // grid.flagsBuffer.data[index] &= ~FLAG_TRANSIENTS;
-    grid.flagsBuffer.data[index] = 0;
-    grid.pressureBuffer.data[index] = 0.0;
-    grid.debugBuffer.data[index] = vec4(0.0);
-
-	if(pc.clear > 0) {
+    bool parentWasDeactivated = pc.subgridLevel > 0 && (coarseGrid.flagsBuffer.data[getCoarseGridIndex(gridPos, wfGrid, pc.subgridLevel)] & FLAG_DEACTIVED) > 0;
+	if(pc.clear > 0 || parentWasDeactivated) {
         clearGridCell(grid, index);
+        // grid.debugBuffer.data[index] = vec4(0.4);
+        if(parentWasDeactivated)grid.flagsBuffer.data[index] |= FLAG_DEACTIVED;
 		return;
 	}
+
+    grid.flagsBuffer.data[index] &= ~FLAG_TRANSIENTS;
+    grid.pressureBuffer.data[index] = 0.0;
+    grid.debugBuffer.data[index] = vec4(0.0);
 
     if(distance(gridPos, pc.sourcePosition.xyz) < pc.sourceRadius) {
         if(pc.addDensity > 0) {
@@ -94,16 +96,18 @@ void main()
             grid.flagsBuffer.data[index] |= FLAG_ACTIVE;
         }
         else {
-            WorldFlowSubGrid cg = wfGrid.subgrids[pc.subgridLevel-1].ref;
-            uvec3 coarseGridPos = getCoarseGridPos(gridPos, wfGrid, pc.subgridLevel);
-            uint coarseIndex = getGridIndex(coarseGridPos, cg.resolution);
-            if((cg.flagsBuffer.data[coarseIndex] & FLAG_ACTIVE) > 0) {
+            // WorldFlowSubGrid cg = wfGrid.subgrids[pc.subgridLevel-1].ref;
+            // if((cg.flagsBuffer.data[coarseIndex] & FLAG_ACTIVE) > 0) {
                 grid.flagsBuffer.data[index] |= FLAG_ACTIVE;
-            }
+            // }
         }
+    // } else if ((grid.flagsBuffer.data[index] & FLAG_ACTIVE) > 0){
+    } else {
+        grid.flagsBuffer.data[index] |= FLAG_DEACTIVED;
+        grid.flagsBuffer.data[index] &= ~FLAG_ACTIVE;
     }
 
-    if(pc.subgridLevel > 1) {
+    if(pc.subgridLevel == 2) {
         grid.debugBuffer.data[index] = vec4(0.75);
     }
 

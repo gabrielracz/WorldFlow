@@ -18,7 +18,7 @@ layout(push_constant) uniform PushConstants {
 uvec3 approximate_xyz_at_least(uint N, uint LIM) {
     uint r = uint(ceil(pow(float(N), 1.0 / 3.0)));
 
-    uvec3 best = uvec3(1, 1, 1); // fallback
+    uvec3 best = uvec3(0, 1, 1); // fallback
     uint bestProduct = 0xFFFFFFFFu; // max uint
 
     for (int dx = -10; dx <= 10; dx++) {

@@ -39,14 +39,13 @@ void main()
 	uint index = getGridIndex(center, grid.resolution);
 	// grid[index].debug.x = float(encodeMorton3D(center)) / float(grid.resolution.x * grid.resolution.y * grid.resolution.z);
 
-	const float r = sampleVelocity(grid, center, ivec3(1, 0, 0 )).x;
-	const float l = sampleVelocity(grid, center, ivec3(-1, 0, 0)).x;
-	const float u = sampleVelocity(grid, center, ivec3(0, 1, 0 )).y;
-	const float d = sampleVelocity(grid, center, ivec3(0, -1, 0)).y;
-	const float f = sampleVelocity(grid, center, ivec3(0, 0, 1 )).z;
-	const float b = sampleVelocity(grid, center, ivec3(0, 0, -1)).z;
+	const vec3 r = sampleVelocity(grid, center, ivec3(1, 0, 0 ));
+	const vec3 l = sampleVelocity(grid, center, ivec3(-1, 0, 0));
+	const vec3 u = sampleVelocity(grid, center, ivec3(0, 1, 0 ));
+	const vec3 d = sampleVelocity(grid, center, ivec3(0, -1, 0));
+	const vec3 f = sampleVelocity(grid, center, ivec3(0, 0, 1 ));
+	const vec3 b = sampleVelocity(grid, center, ivec3(0, 0, -1));
 
-    const float div = -0.5 * grid.cellSize * (r-l + u-d + f-b);
+    const float div = -0.5 * grid.cellSize * (r.x-l.x + u.y-d.y + f.z-b.z);
     grid.divergenceBuffer.data[index] = div;
-	// grid.pressureBuffer.data[index] = 0.0;
 }

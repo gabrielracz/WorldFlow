@@ -145,6 +145,7 @@ WorldFlow::generateSubgridOffsets(VkCommandBuffer cmd)
 		vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, 0, 1, &barrier, 0, 0);
 	}
 }
+	// grid.pressureBuffer.data[index] = 0.0;
 
 void
 WorldFlow::generateIndirectCommands(VkCommandBuffer cmd)
@@ -239,7 +240,7 @@ WorldFlow::diffuseDensity(VkCommandBuffer cmd, float dt)
 			};
 			vkCmdPushConstants(cmd, this->_computeDiffuseDensity.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(pc), &pc);
 
-			// dispatchFluid(cmd, sg);
+			dispatchFluid(cmd, sg);
 
 			VkBufferMemoryBarrier barriers[] = {
 				this->_grid.subgrids[s].buffFluidDensity.CreateBarrier(VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT)
