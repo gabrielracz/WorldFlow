@@ -35,12 +35,11 @@ void main()
 {
     WorldFlowSubGrid grid = wfGrid.subgrids[pc.subgridLevel].ref;
 	uvec3 center = gl_GlobalInvocationID;
-	// uvec3 center = getRedBlackPosition(gl_GlobalInvocationID, pc.redBlack);
 	uint index = getGridIndex(center, grid.resolution);
 
 	// Alternate updates in alternating checkerboard pattern to avoid atomics
 	if(!isRedBlackActive(center, pc.redBlack)){
-		return;
+		// return;
 	}
 
 	float l = sampleDensity(grid, center, ivec3(-1, 0, 0));

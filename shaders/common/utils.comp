@@ -1,3 +1,6 @@
+#extension GL_KHR_shader_subgroup_arithmetic : require
+#extension GL_EXT_shader_atomic_float : require
+
 vec3 clampVector(vec3 a, vec3 minVec, vec3 maxVec) {
     return min(max(a, minVec), maxVec);
 }
@@ -198,6 +201,23 @@ vec4 polyInterp(vec4 c000, vec4 c100, vec4 c010, vec4 c110,
 }
 
 
+shared float _wgSumTotal;
+float workGroupSum(float value, uint localInvocationIndex) {
+    float subgroupResult = subgroupAdd(value);
+    if (localInvocationIndex == 0) {
+        _wgSumTotal = 0.0;
+    }
+    barrier();
+    memoryBarrierShared();
+    if (subgroupElect()) {
+        atomicAdd(_wgSumTotal, subgroupResult);
+    }
+    barrier();
+    memoryBarrierShared();
+    
+    return _wgSumTotal;
+}
+
 
 vec4 permute(vec4 x){return mod(((x*34.0)+1.0)*x, 289.0);}
 vec4 taylorInvSqrt(vec4 r){return 1.79284291400159 - 0.85373472095314 * r;}
@@ -376,3 +396,5 @@ vec4 infernoColor(float t) {
     
     return vec4(color, 1.0);
 }
+
+

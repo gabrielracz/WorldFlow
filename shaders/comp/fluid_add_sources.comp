@@ -36,12 +36,12 @@ void main()
 {
     WorldFlowSubGrid grid = wfGrid.subgrids[pc.subgridLevel].ref;
     // TODO: translate these pos and input parameters to worldspace
-    uvec3 pos = getGridPos(wfGrid, pc.subgridLevel);
+    uvec3 gridPos = getGridPos(wfGrid, pc.subgridLevel, gl_GlobalInvocationID, gl_LocalInvocationID, gl_WorkGroupID, gl_NumWorkGroups);
 
-    if (!isWithinGridBounds(pos, grid.resolution)) {
+    if (!isWithinGridBounds(gridPos, grid.resolution)) {
         return;
     }
-    uint index = getGridIndex(pos, grid.resolution);
+    uint index = getGridIndex(gridPos, grid.resolution);
 
     grid.flagsBuffer.data[index] = 0;
     grid.pressureBuffer.data[index] = 0.0;
@@ -52,7 +52,7 @@ void main()
 		return;
 	}
 
-    if(distance(pos, pc.sourcePosition.xyz) < pc.sourceRadius) {
+    if(distance(gridPos, pc.sourcePosition.xyz) < pc.sourceRadius) {
         if(pc.addDensity > 0) {
             grid.densityBuffer.data[index] += pc.density * pc.dt;
 			grid.flagsBuffer.data[index] |= FLAG_SOURCE;
@@ -64,13 +64,12 @@ void main()
         }
     }
 
-    if(distance(pos, pc.objectPosition.xyz) < pc.objectRadius && pc.objectType > 0) {
+    if(distance(gridPos, pc.objectPosition.xyz) < pc.objectRadius && pc.objectType > 0) {
         grid.flagsBuffer.data[index] |= FLAG_OCCUPIED;
         // grid.flagsBuffer.data[index] |= FLAG_ACTIVE;
-        if (pc.subgridLevel > 0) grid.debugBuffer.data[index] = vec4(1.0);
     }
 
-    if(pc.subgridLevel == 0 && distance(pos, pc.objectPosition.xyz) < (pc.objectRadius*1.5)) {
+    if(pc.subgridLevel == 0 && distance(gridPos, pc.objectPosition.xyz) < (pc.objectRadius*1.5)) {
         grid.flagsBuffer.data[index] |= FLAG_ACTIVE;
     }
 

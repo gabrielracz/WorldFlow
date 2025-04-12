@@ -58,7 +58,6 @@ void main()
     float nodeLevel = node.pos.w;
     float s = globalGridSize / (1 << uint(nodeLevel)); // "radius" of nodes at this level
 
-    // vec3 center = getGridPosition(gl_GlobalInvocationID.x);
     vec3 center = node.pos.xyz;
 
     // generation

@@ -71,7 +71,7 @@ foreach(GLSL ${GLSL_SOURCE_FILES})
   add_custom_command(
     OUTPUT ${SPIRV}
     # COMMAND ${GLSL_VALIDATOR} ${GLSL_FLAGS} -o ${SPIRV} ${GLSL} -gVS --target-env vulkan1.3
-    COMMAND ${GLSL_VALIDATOR} ${GLSL_FLAGS} -o ${SPIRV} ${GLSL} -V
+    COMMAND ${GLSL_VALIDATOR} --target-env vulkan1.3 ${GLSL_FLAGS} -o ${SPIRV} ${GLSL} -V
     DEPENDS ${GLSL})
   list(APPEND SPIRV_BINARY_FILES ${SPIRV})
 endforeach(GLSL)

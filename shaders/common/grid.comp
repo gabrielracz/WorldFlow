@@ -218,20 +218,25 @@ uvec3 getSubgridWorkgroupOffset(uint workgroupOffsetIndex, WorldFlowSubGrid coar
     return gridPos;
 }
 
-uvec3 getGridPos(WorldFlowGrid wfGrid, uint level) {
+uvec3 getGridPos(WorldFlowGrid wfGrid, uint level, uvec3 globalInvocationID, uvec3 localInvocationID, uvec3 workGroupID, uvec3 numWorkGroups) {
     if(level == 0) {
-        return gl_GlobalInvocationID;
+        return globalInvocationID;
     }
 
-    uint wgIndex = getWorkgroupIndex(gl_WorkGroupID, gl_NumWorkGroups);
+    uint wgIndex = getWorkgroupIndex(workGroupID, numWorkGroups);
     uvec3 offset = getSubgridWorkgroupOffset(wgIndex, wfGrid.subgrids[level-1].ref, wfGrid.subgrids[level].ref);
-    return offset + gl_LocalInvocationID;
+    return offset + localInvocationID;
 }
+
+uvec3 getCoarseGridPos(uvec3 finePos, WorldFlowGrid wfGrid, uint fineLevel)
+{
+    return finePos / wfGrid.subgrids[fineLevel].ref.resolution.w;
+}
+
 
 uvec3 getRedBlackPosition(uvec3 threadID, uvec4 gridResolution, uint redBlack)
 {
     uint z = threadID.z * 2;  // Double the X position
-    
     // Offset X based on Y and Z parity
     bool shouldOffset = ((threadID.x + threadID.y) % 2) == 0;
     z = z + (shouldOffset ? redBlack : (1 - redBlack));

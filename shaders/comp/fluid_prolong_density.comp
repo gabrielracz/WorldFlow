@@ -1,0 +1,46 @@
+#version 460
+#extension GL_GOOGLE_include_directive : enable
+#extension GL_EXT_shader_atomic_float : enable
+#include "../common/grid.comp"
+#include "../common/utils.comp"
+
+layout(local_size_x = GRID_LOCAL_SIZE_X, local_size_y = GRID_LOCAL_SIZE_Y, local_size_z = GRID_LOCAL_SIZE_Z) in;
+
+layout(std430, binding = 0) buffer WorldFlowGridBuffer {
+	WorldFlowGrid wfGrid;
+};
+
+layout(push_constant) uniform PushConstants {
+    uint subgridLevel;
+} pc;
+
+shared float coarseDensity;
+void main()
+{
+    WorldFlowSubGrid grid = wfGrid.subgrids[pc.subgridLevel].ref;
+    uvec3 gridPos = getGridPos(wfGrid, pc.subgridLevel, gl_GlobalInvocationID, gl_LocalInvocationID, gl_WorkGroupID, gl_NumWorkGroups);
+	uint index = getGridIndex(gridPos, grid.resolution);
+
+	// get total density of this block of fine cells
+	float density = grid.densityBuffer.data[index];
+	float fineDensity = workGroupSum(density, gl_LocalInvocationIndex);
+
+	// perform only one read on the coarse grid cell covering this block of fine cells
+	if(gl_LocalInvocationIndex == 0) {
+		WorldFlowSubGrid coarseGrid = wfGrid.subgrids[pc.subgridLevel-1].ref;
+		uvec3 coarseGridPos = getCoarseGridPos(gridPos, wfGrid, pc.subgridLevel);
+		uint coarseIndex = getGridIndex(coarseGridPos, coarseGrid.resolution);
+		coarseDensity = coarseGrid.densityBuffer.data[coarseIndex];
+	}
+	barrier();
+	memoryBarrierShared();
+
+
+	// average the residual across this block of fine cells
+	float residual = coarseDensity - fineDensity;
+	float numFineCells = gl_WorkGroupSize.x * gl_WorkGroupSize.y * gl_WorkGroupSize.z;
+	// float newDensity = density + (residual/numFineCells); 
+	float newDensity = coarseDensity;
+
+	grid.densityBuffer.data[index] = newDensity;
+}

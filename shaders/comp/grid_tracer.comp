@@ -164,14 +164,15 @@ vec4 traceVoxels(vec3 rayOrigin, vec3 rayDir) {
 			density *= (grid.cellSize * 64.0);
             float contribution = abs(density) * (t - tPrev) * 5;
 
-            float attenuation = exp(-t * 0.07);
+            // float attenuation = exp(-t * 0.07);
+            float attenuation = 1.0;
 
 			vec4 heatColor = viridisColor(abs(density));
             if(density < 0.0) {
             	heatColor = infernoColor(abs(density));
             }
 
-            contribution = clamp(contribution, 0.0, 1.0);
+            // contribution = clamp(contribution, 0.0, 1.0);
             vec4 voxelColor = vec4(vec3(heatColor.rgb * attenuation), contribution);
             
             voxelColor.rgb *= voxelColor.a;

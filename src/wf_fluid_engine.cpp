@@ -182,7 +182,7 @@ WorldFlow::addSources(VkCommandBuffer cmd, float dt)
 		.addVelocity = this->_shouldAddSources,
 		.addDensity = this->_shouldAddSources,
 		.density = this->_densityAmount,
-		.objectType = (uint32_t) (this->_shouldAddObstacle > 0),
+		.objectType = (uint32_t)this->_shouldAddObstacle > 0,
 		.objectRadius = this->_objectRadius / sg.cellSize,
 		.decayRate = this->_decayRate,
 		.clear = this->_shouldClear,
@@ -229,23 +229,26 @@ WorldFlow::diffuseVelocity(VkCommandBuffer cmd, float dt)
 void
 WorldFlow::diffuseDensity(VkCommandBuffer cmd, float dt)
 {
-	SubGrid& sg = this->_grid.subgrids[0];
-	this->_computeDiffuseDensity.Bind(cmd);
+	for(uint32_t s = 0; s < 1; s++) {
+		SubGrid& sg = this->_grid.subgrids[s];
+		this->_computeDiffuseDensity.Bind(cmd);
+		for(uint32_t i = 0; i < this->_diffusionIterations; i++) {
+			FluidPushConstants pc = {
+				.time = this->_renderer.GetElapsedTime(),
+				.dt = dt,
+				.redBlack = ((i+1) % 2)
+			};
+			vkCmdPushConstants(cmd, this->_computeDiffuseDensity.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(pc), &pc);
 
-	for(uint32_t i = 0; i < this->_diffusionIterations; i++) {
-		FluidPushConstants pc = {
-			.time = this->_renderer.GetElapsedTime(),
-			.dt = dt,
-			.redBlack = ((i+1) % 2)
-		};
-		vkCmdPushConstants(cmd, this->_computeDiffuseDensity.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(pc), &pc);
+			dispatchFluid(cmd, sg);
 
-		dispatchFluid(cmd, sg);
-
-		VkBufferMemoryBarrier barriers[] = {
-			this->_grid.subgrids[0].buffFluidDensity.CreateBarrier(VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT)
-		};
-		vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, nullptr, ARRLEN(barriers), barriers, 0, nullptr);
+			VkBufferMemoryBarrier barriers[] = {
+				this->_grid.subgrids[0].buffFluidDensity.CreateBarrier(VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT)
+			};
+			vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, nullptr, ARRLEN(barriers), barriers, 0, nullptr);
+		}
+		// if(s != this->_grid.numSubgrids-1) {
+			prolongDensity(cmd, s); // prolong diffusion results onto finer grid level
 	}
 }
 
@@ -330,6 +333,20 @@ WorldFlow::projectIncompressible(VkCommandBuffer cmd)
 		this->_grid.subgrids[0].buffFluidVelocity.CreateBarrier(VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT)
 	};
 	vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, nullptr, ARRLEN(barriers), barriers, 0, nullptr);
+}
+
+void
+WorldFlow::prolongDensity(VkCommandBuffer cmd, uint32_t coarseGridLevel)
+{
+	const uint32_t fineGridSublevel = coarseGridLevel + 1;
+	this->_computeProlongDensity.Bind(cmd);
+	SubgridLevelPushConstants pc = {
+		.subgridLevel = fineGridSublevel
+	};
+	vkCmdPushConstants(cmd, this->_computeProlongDensity.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(pc), &pc);
+	dispatchFluid(cmd, this->_grid.subgrids[fineGridSublevel]);
+	VkBufferMemoryBarrier barrier = this->_grid.subgrids[fineGridSublevel].buffFluidDensity.CreateBarrier(VK_ACCESS_SHADER_WRITE_BIT | VK_ACCESS_SHADER_READ_BIT, VK_ACCESS_SHADER_READ_BIT);
+	vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, 0, 1, &barrier, 0, 0);
 }
 
 void
@@ -820,6 +837,12 @@ WorldFlow::initPipelines()
 		BufferDescriptor(0, 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, this->_grid.buffWorldFlowGridGpu.bufferHandle, sizeof(WorldFlowGridGpu)),
 	},
 	sizeof(FluidPushConstants));
+
+	this->_renderer.CreateComputePipeline(this->_computeProlongDensity, SHADER_DIRECTORY"/fluid_prolong_density.comp.spv", {
+		BufferDescriptor(0, 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, this->_grid.buffWorldFlowGridGpu.bufferHandle, sizeof(WorldFlowGridGpu)),
+	},
+	sizeof(SubgridLevelPushConstants));
+
 
 	this->_renderer.CreateComputePipeline(this->_computeGenerateGridLines, SHADER_DIRECTORY"/grid_generate_lines.comp.spv", {
 	}, sizeof(GenerateLinesPushConstants));

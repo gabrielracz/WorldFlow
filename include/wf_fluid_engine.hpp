@@ -70,6 +70,7 @@ private:
 	void projectIncompressible(VkCommandBuffer cmd);
 	void diffuseDensity(VkCommandBuffer cmd, float dt);
 	void advectDensity(VkCommandBuffer cmd, float dt);
+	void prolongDensity(VkCommandBuffer cmd, uint32_t coarseGridLevel);
 	void renderVoxelVolume(VkCommandBuffer cmd);
 	void renderMesh(VkCommandBuffer cmd, Mesh& mesh, const glm::mat4& transform = glm::mat4());
 	void renderParticles(VkCommandBuffer cmd, float dt);
@@ -122,6 +123,7 @@ private:
 	GraphicsPipeline _graphicsRenderMesh;
 	GraphicsPipeline _graphicsParticles;
 	GraphicsPipeline _graphicsGridLines;
+
 	ComputePipeline _computeGenerateIndirectCommands;
 	ComputePipeline _computeGenerateSubgridOffsets;
 	ComputePipeline _computeAddSources;
@@ -134,6 +136,7 @@ private:
 	ComputePipeline _computeAdvectDensity;
 	ComputePipeline _computeGenerateGridLines;
 	ComputePipeline _computeRaycastVoxelGrid;
+	ComputePipeline _computeProlongDensity;
 
 	// Buffer _buffFluidGrid;
 	// Buffer _buffFluidInfo;
