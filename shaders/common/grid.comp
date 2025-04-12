@@ -230,6 +230,9 @@ uvec3 getGridPos(WorldFlowGrid wfGrid, uint level, uvec3 globalInvocationID, uve
 
 uvec3 getCoarseGridPos(uvec3 finePos, WorldFlowGrid wfGrid, uint fineLevel)
 {
+    if(fineLevel == 0) {
+        return finePos;
+    }
     return finePos / wfGrid.subgrids[fineLevel].ref.resolution.w;
 }
 

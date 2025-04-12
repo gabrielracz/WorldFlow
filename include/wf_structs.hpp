@@ -53,6 +53,12 @@ struct alignas(16) SubgridLevelPushConstants
 	uint32_t subgridLevel;
 };
 
+struct alignas(16) SubgridTransferPushConstants
+{
+	uint32_t subgridLevel;
+	float alpha;
+};
+
 struct alignas(16) GenerateIndirectCommandPushConstants
 {
 	uint32_t subgridLevel;

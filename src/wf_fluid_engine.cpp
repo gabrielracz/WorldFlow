@@ -45,7 +45,7 @@ constexpr uint32_t NumAdvectionIterations = 1;
 constexpr uint32_t NumDiffusionIterations = 4;
 constexpr uint32_t NumPressureIterations = 6;
 
-constexpr glm::vec4 LightPosition = glm::vec4(500.0, 500.0, 200, 1.0);
+constexpr glm::vec4 LightPosition = glm::vec4(500.0, 500.0, 400, 1.0);
 
 constexpr uint32_t NumParticles = 65536;
 constexpr float MaxParticleLifetime = 240.0;
@@ -340,8 +340,9 @@ WorldFlow::prolongDensity(VkCommandBuffer cmd, uint32_t coarseGridLevel)
 {
 	const uint32_t fineGridSublevel = coarseGridLevel + 1;
 	this->_computeProlongDensity.Bind(cmd);
-	SubgridLevelPushConstants pc = {
-		.subgridLevel = fineGridSublevel
+	SubgridTransferPushConstants pc = {
+		.subgridLevel = fineGridSublevel,
+		.alpha = this->_transferAlpha
 	};
 	vkCmdPushConstants(cmd, this->_computeProlongDensity.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(pc), &pc);
 	dispatchFluid(cmd, this->_grid.subgrids[fineGridSublevel]);
@@ -512,12 +513,12 @@ WorldFlow::drawUI()
     ImGuiViewport* viewport = ImGui::GetMainViewport(); // Use GetMainViewport for multi-viewport support
 
 	float pad = 10.0;
-    ImGui::SetNextWindowPos(ImVec2(pad, pad), ImGuiCond_Always);
-    ImGui::SetNextWindowSize(ImVec2(0, 0)); // Auto-sizing
+    // ImGui::SetNextWindowPos(ImVec2(pad, pad), ImGuiCond_Always);
+    // ImGui::SetNextWindowSize(ImVec2(0, 0)); // Auto-sizing
 
 	ImVec2 windowSize;
 
-	if(ImGui::Begin("stats", nullptr, ImGuiWindowFlags_NoTitleBar)) {
+	if(ImGui::Begin("stats", nullptr)) {
 		const float frameTime = this->_timestampAverages[Timestamps::StartFrame];
 		ImGui::Text("FPS:       %3.2f", 1.0/(frameTime/1000.0));
 		ImGui::Text("Total:     %3.2f ms", frameTime);
@@ -543,9 +544,9 @@ WorldFlow::drawUI()
 	}
 	ImGui::End();
 
-    ImGui::SetNextWindowPos(ImVec2(pad, windowSize.y + pad), ImGuiCond_Always);
-    ImGui::SetNextWindowSize(ImVec2(0, 0)); // Auto-sizing
-	if(ImGui::Begin("controls", nullptr, ImGuiWindowFlags_NoTitleBar)) {
+    // ImGui::SetNextWindowPos(ImVec2(pad, windowSize.y + pad), ImGuiCond_Always);
+    // ImGui::SetNextWindowSize(ImVec2(0, 0)); // Auto-sizing
+	if(ImGui::Begin("controls", nullptr)) {
 		ImGui::DragFloat("obj", &this->_objectRadius, 0.01f);
 		ImGui::DragFloat("src", &this->_sourceRadius, 0.01f);
 		ImGui::DragFloat("dns", &this->_densityAmount, 0.1f);
@@ -559,7 +560,11 @@ WorldFlow::drawUI()
 		ImGui::DragFloat("objOff", &this->_objectOffset, 0.25f);
 		this->_shouldClear = ImGui::Button("clear");
 	}
+	ImGui::End();
 
+	if(ImGui::Begin("parameters", nullptr)) {
+		ImGui::DragFloat("alpha", &this->_transferAlpha, 0.01f);
+	}
 	ImGui::End();
 }
 
@@ -584,7 +589,7 @@ WorldFlow::checkControls(KeyMap& keyMap, MouseMap& mouseMap, Mouse& mouse, float
 	constexpr glm::vec3 c = Constants::VoxelGridCenter;
 	this->_objectPosition = Constants::VoxelGridCenter;
 	this->_shouldAddSources = false;
-	int offset = (int)((this->_objectRadius * Constants::VoxelGridResolution / 2.0f) * this->_objectOffset);
+	int offset = (int)((this->_sourceRadius * Constants::VoxelGridResolution / 2.0f));
 	if(keyMap[SDLK_q]) {
 		this->_shouldAddSources = true;
 		this->_velocitySourceAmount = glm::vec3(v, 0.f, 0.f);
@@ -624,6 +629,11 @@ WorldFlow::checkControls(KeyMap& keyMap, MouseMap& mouseMap, Mouse& mouse, float
 	if(keyMap[SDLK_f]) {
 		this->_shouldAddObstacle = !this->_shouldAddObstacle;
 		keyMap[SDLK_f] = false;
+	}
+
+	if(keyMap[SDLK_d]) {
+		this->_shouldClear = true;
+		keyMap[SDLK_d] = false;
 	}
 	
 	if(keyMap[SDLK_TAB]) {
@@ -841,7 +851,7 @@ WorldFlow::initPipelines()
 	this->_renderer.CreateComputePipeline(this->_computeProlongDensity, SHADER_DIRECTORY"/fluid_prolong_density.comp.spv", {
 		BufferDescriptor(0, 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, this->_grid.buffWorldFlowGridGpu.bufferHandle, sizeof(WorldFlowGridGpu)),
 	},
-	sizeof(SubgridLevelPushConstants));
+	sizeof(SubgridTransferPushConstants));
 
 
 	this->_renderer.CreateComputePipeline(this->_computeGenerateGridLines, SHADER_DIRECTORY"/grid_generate_lines.comp.spv", {

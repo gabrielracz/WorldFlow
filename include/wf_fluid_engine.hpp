@@ -112,6 +112,7 @@ private:
 	float _densityAmount = 2.5f;
 	float _velocitySpeed = 100.0f;
 	float _decayRate = 0.1f;
+	float _transferAlpha = 0.8f;
 
 	uint32_t _diffusionIterations;
 	uint32_t _pressureIterations;

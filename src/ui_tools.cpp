@@ -370,10 +370,10 @@ void SetTheme(ImVec4 accent, ImVec4 bg, float windowalpha)
     colors[ImGuiCol_FrameBg]                = bg;
     colors[ImGuiCol_FrameBgHovered]         = lighten(bg, 0.8f);
     colors[ImGuiCol_FrameBgActive]          = lighten(bg, 0.6f);
-    colors[ImGuiCol_TitleBg]                = darken(accent, 0.6f);
-    colors[ImGuiCol_TitleBgActive]          = accent;
-    colors[ImGuiCol_TitleBgCollapsed]       = darken(accent, 0.4f);
-    colors[ImGuiCol_MenuBarBg]              = darken(bg, 0.8f);
+    colors[ImGuiCol_TitleBg]                = darken(bg, 0.8f);
+    colors[ImGuiCol_TitleBgActive]          = darken(bg, 0.6f);
+    colors[ImGuiCol_TitleBgCollapsed]       = darken(bg, 0.6f);
+    colors[ImGuiCol_MenuBarBg]              = darken(bg, 0.6f);
     colors[ImGuiCol_ScrollbarBg]            = ImVec4(0.02f, 0.02f, 0.02f, 0.53f);
     colors[ImGuiCol_ScrollbarGrab]          = bg;
     colors[ImGuiCol_ScrollbarGrabHovered]   = lighten(bg, 0.8f);
