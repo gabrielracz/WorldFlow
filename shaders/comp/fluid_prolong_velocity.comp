@@ -15,7 +15,6 @@ layout(push_constant) uniform PushConstants {
 	float alpha;
 } pc;
 
-shared float coarseDensity;
 shared vec4 coarseVelocity;
 void main()
 {
@@ -27,26 +26,24 @@ void main()
     uvec3 gridPos = getGridPos(wfGrid, pc.subgridLevel, gl_GlobalInvocationID, gl_LocalInvocationID, gl_WorkGroupID, gl_NumWorkGroups);
 	uint index = getGridIndex(gridPos, grid.resolution);
 
-	// get total density of this block of fine cells
-	float density = grid.densityBuffer.data[index];
-	float fineDensity = workGroupSum(density, gl_LocalInvocationIndex);
+	vec4 velocity = grid.velocityBuffer.data[index];
+	// vec4 fineVelocity = workGroupSum(velocity, gl_LocalInvocationIndex);
 
 	// perform only one read on the coarse grid cell covering this block of fine cells
 	if(gl_LocalInvocationIndex == 0) {
 		WorldFlowSubGrid coarseGrid = wfGrid.subgrids[pc.subgridLevel-1].ref;
-		uvec3 coarseGridPos = getCoarseGridPos(gridPos, wfGrid, pc.subgridLevel);
-		uint coarseIndex = getGridIndex(coarseGridPos, coarseGrid.resolution);
-		coarseDensity = coarseGrid.densityBuffer.data[coarseIndex];
+		uint coarseIndex = getCoarseGridIndex(gridPos, wfGrid, pc.subgridLevel);
+		coarseVelocity = coarseGrid.velocityBuffer.data[coarseIndex];
 	}
 	barrier();
 	memoryBarrierShared();
 
-	// average the residual across this block of fine cells
-	float residual = coarseDensity - fineDensity;
-	float numFineCells = gl_WorkGroupSize.x * gl_WorkGroupSize.y * gl_WorkGroupSize.z;
-	// float newDensity = density + (residual/numFineCells); 
-	float newDensity = mix(density, coarseDensity, pc.alpha);
+	// // average the residual across this block of fine cells
+	// float residual = coarseDensity - fineDensity;
+	// float numFineCells = gl_WorkGroupSize.x * gl_WorkGroupSize.y * gl_WorkGroupSize.z;
+	// // float newDensity = density + (residual/numFineCells); 
+	vec4 newVelocity = mix(velocity, coarseVelocity, pc.alpha);
 	// float newDensity = coarseDensity;
 
-	grid.densityBuffer.data[index] = newDensity;
+	grid.velocityBuffer.data[index] = newVelocity;
 }

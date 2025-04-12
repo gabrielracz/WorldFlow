@@ -37,15 +37,34 @@ void main()
     WorldFlowSubGrid grid = wfGrid.subgrids[pc.subgridLevel].ref;
 	uvec3 center = gl_GlobalInvocationID;
 	uint index = getGridIndex(center, grid.resolution);
-	// grid[index].debug.x = float(encodeMorton3D(center)) / float(grid.resolution.x * grid.resolution.y * grid.resolution.z);
 
-	const vec3 r = sampleVelocity(grid, center, ivec3(1, 0, 0 ));
-	const vec3 l = sampleVelocity(grid, center, ivec3(-1, 0, 0));
-	const vec3 u = sampleVelocity(grid, center, ivec3(0, 1, 0 ));
-	const vec3 d = sampleVelocity(grid, center, ivec3(0, -1, 0));
-	const vec3 f = sampleVelocity(grid, center, ivec3(0, 0, 1 ));
-	const vec3 b = sampleVelocity(grid, center, ivec3(0, 0, -1));
+	const vec4 r = sampleVelocity(grid, center, ivec3(1, 0, 0 ));
+	const vec4 l = sampleVelocity(grid, center, ivec3(-1, 0, 0));
+	const vec4 u = sampleVelocity(grid, center, ivec3(0, 1, 0 ));
+	const vec4 d = sampleVelocity(grid, center, ivec3(0, -1, 0));
+	const vec4 f = sampleVelocity(grid, center, ivec3(0, 0, 1 ));
+	const vec4 b = sampleVelocity(grid, center, ivec3(0, 0, -1));
 
     const float div = -0.5 * grid.cellSize * (r.x-l.x + u.y-d.y + f.z-b.z);
     grid.divergenceBuffer.data[index] = div;
+
+	// Compute finite difference approximations of partial derivatives
+    float dwdy = 0.5 * (u.z - d.z);
+    float dvdz = 0.5 * (f.y - b.y);
+    float dudz = 0.5 * (f.x - b.x);
+    float dwdx = 0.5 * (r.z - l.z);
+    float dvdx = 0.5 * (r.y - l.y);
+    float dudy = 0.5 * (u.x - d.x);
+
+    // Compute vorticity components
+    vec4 vorticity;
+    vorticity.x = dwdy - dvdz;
+    vorticity.y = dudz - dwdx;
+    vorticity.z = dvdx - dudy;
+
+    // Scale by grid cell size for proper units
+    vorticity *= (1.0 / grid.cellSize);
+
+    // Store vorticity in your buffer (assuming you have a vorticity buffer)
+    grid.vorticityBuffer.data[index] = vorticity;
 }

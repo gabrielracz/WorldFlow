@@ -31,6 +31,7 @@ typedef float      FluidDivergence;
 typedef uint32_t   FluidFlags;
 typedef glm::vec4  FluidDebug;
 typedef uint32_t   FluidIndexOffsets;
+typedef glm::vec4   FluidVorticity;
 struct alignas(16) SubGridGpuReferences
 {
 	uint64_t velocityBufferReference;
@@ -41,6 +42,8 @@ struct alignas(16) SubGridGpuReferences
 	uint64_t debugBufferReference;
 	uint64_t indexOffsetsBufferReference;
 	uint64_t dispatchCommandReference;
+	uint64_t vorticityBufferReference;
+	uint64_t padding;
 
     glm::uvec4 resolution;
     glm::vec4 center;

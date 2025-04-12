@@ -209,21 +209,44 @@ vec4 polyInterp(vec4 c000, vec4 c100, vec4 c010, vec4 c110,
 }
 
 
-shared float _wgSumTotal;
+shared float _wgSumFloatTotal;
 float workGroupSum(float value, uint localInvocationIndex) {
     float subgroupResult = subgroupAdd(value);
     if (localInvocationIndex == 0) {
-        _wgSumTotal = 0.0;
+        _wgSumFloatTotal = 0.0;
     }
     barrier();
     memoryBarrierShared();
     if (subgroupElect()) {
-        atomicAdd(_wgSumTotal, subgroupResult);
+        atomicAdd(_wgSumFloatTotal, subgroupResult);
     }
     barrier();
     memoryBarrierShared();
     
-    return _wgSumTotal;
+    return _wgSumFloatTotal;
+}
+
+shared vec4 _wgSumVecTotal;
+vec4 workGroupSum(vec4 value, uint localInvocationIndex) {
+    vec4 subgroupResult;
+    subgroupResult.x = subgroupAdd(value.x);
+    subgroupResult.y = subgroupAdd(value.y);
+    subgroupResult.z = subgroupAdd(value.z);
+
+    if (localInvocationIndex == 0) {
+        _wgSumVecTotal = vec4(0.0, 0.0, 0.0, 1.0);
+    }
+    barrier();
+    memoryBarrierShared();
+    if (subgroupElect()) {
+        atomicAdd(_wgSumVecTotal.x, subgroupResult.x);
+        atomicAdd(_wgSumVecTotal.y, subgroupResult.y);
+        atomicAdd(_wgSumVecTotal.z, subgroupResult.z);
+    }
+    barrier();
+    memoryBarrierShared();
+    
+    return _wgSumVecTotal;
 }
 
 shared float _wgSumValues[32]; // Adjust size based on max subgroups

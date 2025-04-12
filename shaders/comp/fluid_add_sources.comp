@@ -79,17 +79,17 @@ void main()
         setActive = true;
     }
 
-    // if(pc.subgridLevel < wfGrid.subgridCount-1 && distance(gridPos, pc.objectPosition.xyz) < (pc.objectRadius*2.0)) {
-    //     grid.flagsBuffer.data[index] |= FLAG_ACTIVE;
-    // }
+    if(pc.subgridLevel < wfGrid.subgridCount-1 && objDist < (pc.objectRadius*2.0)) {
+        setActive = true;
+    }
 
     // if(pc.subgridLevel == 0) {
     //     grid.flagsBuffer.data[index] |= FLAG_ACTIVE;
     // }
 
-    if(pc.subgridLevel < wfGrid.subgridCount-1 && grid.densityBuffer.data[index] > 0.05) {
-        setActive = true;
-    }
+    // if(pc.subgridLevel < wfGrid.subgridCount-1 && grid.densityBuffer.data[index] > 0.05) {
+    //     setActive = true;
+    // }
 
     if(setActive) {
         if(pc.subgridLevel == 0) {
@@ -107,7 +107,7 @@ void main()
         grid.flagsBuffer.data[index] &= ~FLAG_ACTIVE;
     }
 
-    if(pc.subgridLevel == 2) {
+    if(pc.subgridLevel == wfGrid.subgridCount-1) {
         grid.debugBuffer.data[index] = vec4(0.75);
     }
 

@@ -1004,7 +1004,7 @@ void Renderer::updatePerformanceCounters(float dt)
         const double delta = (this->_elapsed - this->_lastFpsMeasurementTime);
         const double averageFrameTime =  delta / Constants::FPSMeasurePeriod;
         const double fps = Constants::FPSMeasurePeriod / delta;
-        std::cout << std::fixed << std::setprecision(3) << "FPS: " << fps  << std::setprecision(5) << "  (" << averageFrameTime << ") " << std::endl;
+        // std::cout << std::fixed << std::setprecision(3) << "FPS: " << fps  << std::setprecision(5) << "  (" << averageFrameTime << ") " << std::endl;
         this->_lastFpsMeasurementTime = this->_elapsed;
     }
 }

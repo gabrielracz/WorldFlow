@@ -36,6 +36,7 @@ struct SubGrid
 	Buffer buffFluidFlags;
 	Buffer buffFluidDebug;
 	Buffer buffFluidIndexOffsets;
+	Buffer buffFluidVorticity;
 };
 
 
@@ -71,6 +72,7 @@ private:
 	void diffuseDensity(VkCommandBuffer cmd, float dt);
 	void advectDensity(VkCommandBuffer cmd, float dt);
 	void prolongDensity(VkCommandBuffer cmd, uint32_t coarseGridLevel);
+	void prolongVelocity(VkCommandBuffer cmd, uint32_t coarseGridLevel);
 	void renderVoxelVolume(VkCommandBuffer cmd);
 	void renderMesh(VkCommandBuffer cmd, Mesh& mesh, const glm::mat4& transform = glm::mat4());
 	void renderParticles(VkCommandBuffer cmd, float dt);
@@ -138,6 +140,7 @@ private:
 	ComputePipeline _computeGenerateGridLines;
 	ComputePipeline _computeRaycastVoxelGrid;
 	ComputePipeline _computeProlongDensity;
+	ComputePipeline _computeProlongVelocity;
 
 	// Buffer _buffFluidGrid;
 	// Buffer _buffFluidInfo;

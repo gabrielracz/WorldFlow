@@ -47,6 +47,10 @@ layout(buffer_reference, std430) buffer IndexOffsetsBuffer {
     uint data[];
 };
 
+layout(buffer_reference, std430) buffer VorticityBuffer {
+    vec4 data[];
+};
+
 const uint FLAG_OCCUPIED       = 1 << 0;
 const uint FLAG_SOURCE         = 1 << 1;
 const uint FLAG_ACTIVE         = 1 << 2;
@@ -65,6 +69,8 @@ struct WorldFlowSubGrid
     DebugBuffer         debugBuffer;
     IndexOffsetsBuffer  indexOffsets;
     DispatchIndirectCommandReference dispatch;
+    VorticityBuffer vorticityBuffer;
+    uint64_t padding;
 
     uvec4 resolution;
     vec4 center;

@@ -161,6 +161,9 @@ vec4 traceVoxels(vec3 rayOrigin, vec3 rayDir) {
             else if(pc.renderType == 6) {
                 density = ((grid.flagsBuffer.data[index] & FLAG_ACTIVE) > 0) ? 1.0 : 0.0;
             }
+            else if(pc.renderType == 7) {
+                density = length(grid.vorticityBuffer.data[index].xyz)/10.0;
+            }
             float contribution = abs(density) * distThroughCell * 10;
 
             // float attenuation = exp(-t * 0.07);
