@@ -24,9 +24,9 @@
 namespace wf {
 namespace Constants
 {
-constexpr glm::uvec4 VoxelGridDimensions = glm::uvec4(32, 16, 32, 1);
+// constexpr glm::uvec4 VoxelGridDimensions = glm::uvec4(32, 16, 32, 1);
 // constexpr glm::uvec4 VoxelGridDimensions = glm::uvec4(64, 32, 64, 1);
-// constexpr glm::uvec4 VoxelGridDimensions = glm::uvec4(128, 64, 128, 1);
+constexpr glm::uvec4 VoxelGridDimensions = glm::uvec4(128, 64, 128, 1);
 // constexpr glm::uvec4 VoxelGridDimensions = glm::uvec4(256, 128, 256, 1);
 // constexpr glm::uvec4 VoxelGridDimensions = glm::uvec4(512, 128, 128, 1);
 constexpr size_t VoxelGridResolution = VoxelGridDimensions.x/4;
@@ -296,15 +296,20 @@ WorldFlow::advectDensity(VkCommandBuffer cmd, float dt)
 void
 WorldFlow::computeDivergence(VkCommandBuffer cmd)
 {
-	SubGrid& sg = this->_grid.subgrids[0];
 	this->_computeDivergence.Bind(cmd);
-	FluidPushConstants pc{};
-	vkCmdPushConstants(cmd, this->_computeDivergence.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(pc), &pc);
-	dispatchFluid(cmd, sg);
-	VkBufferMemoryBarrier barriers[] = {
-		this->_grid.subgrids[0].buffFluidDivergence.CreateBarrier(VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT)
-	};
-	vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, nullptr, ARRLEN(barriers), barriers, 0, nullptr);
+	for(uint32_t s = 0; s < this->_grid.numSubgrids; s++) {
+		SubGrid& sg = this->_grid.subgrids[s];
+		FluidPushConstants pc {
+			.subgridLevel = s
+		};
+		vkCmdPushConstants(cmd, this->_computeDivergence.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(pc), &pc);
+		dispatchFluid(cmd, sg);
+		VkBufferMemoryBarrier barriers[] = {
+			this->_grid.subgrids[s].buffFluidDivergence.CreateBarrier(VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT),
+			this->_grid.subgrids[s].buffFluidVorticity.CreateBarrier(VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT)
+		};
+		vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, nullptr, ARRLEN(barriers), barriers, 0, nullptr);
+	}
 }
 
 void

@@ -1,6 +1,7 @@
 #version 460
 #extension GL_GOOGLE_include_directive : enable
 #extension GL_EXT_shader_atomic_float : enable
+
 #include "../common/grid.comp"
 
 layout(local_size_x = GRID_LOCAL_SIZE_X, local_size_y = GRID_LOCAL_SIZE_Y, local_size_z = GRID_LOCAL_SIZE_Z) in;
@@ -16,37 +17,104 @@ layout(push_constant) uniform PushConstants {
     uint subgridLevel;
 } pc;
 
-vec4 sampleVelocity(WorldFlowSubGrid grid, uvec3 center, ivec3 offset)
-{
-	ivec3 cell = ivec3(center) + offset;
-	bvec3 ge = greaterThanEqual(cell, ivec3(0));
-	bvec3 le = lessThan(cell, ivec3(grid.resolution.xyz));
-	bool valid = all(ge) && all(le);
-	// if(!valid) {return grid.velocityBuffer.data[getGridIndex(center, grid.resolution)];}
-	if(!valid) {return vec4(0.0, 0.0, 0.0, 1.0);}
+// vec4 sampleVelocity(WorldFlowSubGrid grid, uvec3 center, ivec3 offset)
+// {
+// 	ivec3 cell = ivec3(center) + offset;
+// 	bvec3 ge = greaterThanEqual(cell, ivec3(0));
+// 	bvec3 le = lessThan(cell, ivec3(grid.resolution.xyz));
+// 	bool valid = all(ge) && all(le);
+// 	// if(!valid) {return grid.velocityBuffer.data[getGridIndex(center, grid.resolution)];}
+// 	if(!valid) {return vec4(0.0, 0.0, 0.0, 1.0);}
 
-	bool occ = (grid.flagsBuffer.data[getGridIndex(cell, grid.resolution)] & FLAG_OCCUPIED) > 0;
-	// if(occ) {return vec4(0.0);}
-	if(occ) {return grid.velocityBuffer.data[getGridIndex(center, grid.resolution)] * abs(vec4(1.0 - abs(vec3(offset)), 1.0));}// 
+// 	bool occ = (grid.flagsBuffer.data[getGridIndex(cell, grid.resolution)] & FLAG_OCCUPIED) > 0;
+// 	// if(occ) {return vec4(0.0);}
+// 	if(occ) {return grid.velocityBuffer.data[getGridIndex(center, grid.resolution)] * abs(vec4(1.0 - abs(vec3(offset)), 1.0));}// 
 
-	return grid.velocityBuffer.data[getGridIndex(cell, grid.resolution)];
+// 	return grid.velocityBuffer.data[getGridIndex(cell, grid.resolution)];
+// }
+
+
+#define BLOCK_SIZE GRID_LOCAL_SIZE_X
+#define CACHE_SIZE BLOCK_SIZE+2
+shared vec4 sharedVelocity[CACHE_SIZE][CACHE_SIZE][CACHE_SIZE];
+
+vec4 sampleVelocity(uint index, WorldFlowSubGrid grid, vec4 fallback) {
+    if((grid.flagsBuffer.data[index] & FLAG_OCCUPIED) > 0) {
+        return fallback;
+    }
+    return grid.velocityBuffer.data[index];
 }
+
+vec4 velocityBoundary(ivec3 localPos, ivec3 samplePos, ivec3 coarseGridSamplePos) {
+    WorldFlowSubGrid fineGrid = wfGrid.subgrids[pc.subgridLevel].ref;
+    // vec4 edgeFallback = sharedVelocity[localPos.z+1][localPos.y+1][localPos.x+1];
+    vec4 edgeFallback = vec4(0.0);
+
+    if(!isWithinGridBounds(samplePos, fineGrid.resolution)) return edgeFallback; //return the value on the edge
+
+    // sample coarse grid neighbour
+    if(pc.subgridLevel > 0) {
+        WorldFlowSubGrid coarseGrid = wfGrid.subgrids[pc.subgridLevel-1].ref;
+        if(!isWithinGridBounds(coarseGridSamplePos, coarseGrid.resolution)) { // should never happen with complete coverage subgrids
+            return edgeFallback;
+        }
+        uint coarseIndex = getGridIndex(coarseGridSamplePos, coarseGrid.resolution);
+        if((coarseGrid.flagsBuffer.data[coarseIndex] & FLAG_ACTIVE) == 0) {
+            return sampleVelocity(coarseIndex, coarseGrid, edgeFallback);
+        }
+    }
+
+    uint fineGridIndex = getGridIndex(samplePos, fineGrid.resolution);
+    return sampleVelocity(fineGridIndex, fineGrid, edgeFallback);
+}
+
+void loadSharedCache(uint gridIndex, ivec3 gridPos, ivec3 localPos, ivec3 coarseGridPos) {
+    // load current cell's density into cache
+	WorldFlowSubGrid grid =  wfGrid.subgrids[pc.subgridLevel].ref;
+    sharedVelocity[localPos.z+1][localPos.y+1][localPos.x+1] = grid.velocityBuffer.data[gridIndex];
+    
+	// load halo boundary cells
+    for(int d = 0; d < 3; d++) {
+        bool loEdge = localPos[d] == 0;
+        bool hiEdge = localPos[d] == BLOCK_SIZE-1;
+        ivec3 offset = ivec3(0);
+        offset[d] = loEdge ? -1 : 1;
+        if(loEdge || hiEdge) {
+            ivec3 samplePos = gridPos + offset;
+            ivec3 cachePos = localPos + (ivec3(1) + offset);
+            ivec3 coarseGridSamplePos = coarseGridPos + offset;
+            sharedVelocity[cachePos.z][cachePos.y][cachePos.x] = velocityBoundary(localPos, samplePos, coarseGridSamplePos);
+        }
+    }
+    barrier();
+    memoryBarrierShared();
+}
+
 
 void main()
 {
-    WorldFlowSubGrid grid = wfGrid.subgrids[pc.subgridLevel].ref;
-	uvec3 center = gl_GlobalInvocationID;
-	uint index = getGridIndex(center, grid.resolution);
+    if(!isWorkgroupActive(wfGrid, pc.subgridLevel, gl_WorkGroupID, gl_NumWorkGroups)) {
+        return;
+    }
 
-	const vec4 r = sampleVelocity(grid, center, ivec3(1, 0, 0 ));
-	const vec4 l = sampleVelocity(grid, center, ivec3(-1, 0, 0));
-	const vec4 u = sampleVelocity(grid, center, ivec3(0, 1, 0 ));
-	const vec4 d = sampleVelocity(grid, center, ivec3(0, -1, 0));
-	const vec4 f = sampleVelocity(grid, center, ivec3(0, 0, 1 ));
-	const vec4 b = sampleVelocity(grid, center, ivec3(0, 0, -1));
+    WorldFlowSubGrid grid = wfGrid.subgrids[pc.subgridLevel].ref;
+    uvec3 localPos = gl_LocalInvocationID;
+    uvec3 gridPos = getGridPos(wfGrid, pc.subgridLevel, gl_GlobalInvocationID, gl_LocalInvocationID, gl_WorkGroupID, gl_NumWorkGroups);
+    uint gridIndex = getGridIndex(gridPos, grid.resolution);
+    uvec3 coarseGridPos = getCoarseGridPos(gridPos, wfGrid, pc.subgridLevel);
+
+    loadSharedCache(gridIndex, ivec3(gridPos), ivec3(localPos), ivec3(coarseGridPos));
+
+    uvec3 cachePos = localPos + uvec3(1); // offset because of halo
+    vec4 r = sharedVelocity[cachePos.z][cachePos.y][cachePos.x + 1];
+    vec4 l = sharedVelocity[cachePos.z][cachePos.y][cachePos.x - 1];
+    vec4 u = sharedVelocity[cachePos.z][cachePos.y + 1][cachePos.x];
+    vec4 d = sharedVelocity[cachePos.z][cachePos.y - 1][cachePos.x];
+    vec4 f = sharedVelocity[cachePos.z + 1][cachePos.y][cachePos.x];
+    vec4 b = sharedVelocity[cachePos.z - 1][cachePos.y][cachePos.x];
 
     const float div = -0.5 * grid.cellSize * (r.x-l.x + u.y-d.y + f.z-b.z);
-    grid.divergenceBuffer.data[index] = div;
+    grid.divergenceBuffer.data[gridIndex] = div;
 
 	// Compute finite difference approximations of partial derivatives
     float dwdy = 0.5 * (u.z - d.z);
@@ -65,6 +133,5 @@ void main()
     // Scale by grid cell size for proper units
     vorticity *= (1.0 / grid.cellSize);
 
-    // Store vorticity in your buffer (assuming you have a vorticity buffer)
-    grid.vorticityBuffer.data[index] = vorticity;
+    grid.vorticityBuffer.data[gridIndex] = vorticity;
 }

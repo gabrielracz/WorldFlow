@@ -21,24 +21,33 @@ layout(push_constant) uniform PushConstants {
 #define CACHE_SIZE BLOCK_SIZE+2
 shared float sharedDensity[CACHE_SIZE][CACHE_SIZE][CACHE_SIZE];
 
+float sampleDensity(uint index, WorldFlowSubGrid grid, float fallback) {
+    if((grid.flagsBuffer.data[index] & FLAG_OCCUPIED) > 0) {
+        return fallback;
+    }
+    return grid.densityBuffer.data[index];
+}
+
 float densityBoundary(ivec3 localPos, ivec3 samplePos, ivec3 coarseGridSamplePos) {
     WorldFlowSubGrid fineGrid = wfGrid.subgrids[pc.subgridLevel].ref;
     float edgeFallback = sharedDensity[localPos.z+1][localPos.y+1][localPos.x+1];
 
     if(!isWithinGridBounds(samplePos, fineGrid.resolution)) return edgeFallback; //return the value on the edge
 
+    // sample coarse grid neighbour
     if(pc.subgridLevel > 0) {
         WorldFlowSubGrid coarseGrid = wfGrid.subgrids[pc.subgridLevel-1].ref;
-        if(!isWithinGridBounds(coarseGridSamplePos, coarseGrid.resolution)) {
+        if(!isWithinGridBounds(coarseGridSamplePos, coarseGrid.resolution)) { // should never happen with complete coverage subgrids
             return edgeFallback;
         }
         uint coarseIndex = getGridIndex(coarseGridSamplePos, coarseGrid.resolution);
         if((coarseGrid.flagsBuffer.data[coarseIndex] & FLAG_ACTIVE) == 0) {
-            return coarseGrid.densityBuffer.data[coarseIndex];
+            return sampleDensity(coarseIndex, coarseGrid, edgeFallback);
         }
     }
 
-    return fineGrid.densityBuffer.data[getGridIndex(samplePos, fineGrid.resolution)];
+    uint fineGridIndex = getGridIndex(samplePos, fineGrid.resolution);
+    return sampleDensity(fineGridIndex, fineGrid, edgeFallback);
 }
 
 void loadSharedCache(uint gridIndex, ivec3 gridPos, ivec3 localPos, ivec3 coarseGridPos) {
@@ -76,15 +85,15 @@ void main()
     
     loadSharedCache(gridIndex, ivec3(gridPos), ivec3(localPos), ivec3(coarseGridPos));
 
-	if(!isWithinGridBounds(gridPos, grid.resolution) || !isRedBlackActive(gridPos, pc.redBlack)){
+	if(!isRedBlackActive(gridPos, pc.redBlack)){
         return;
     }
 
-    uvec3 cachePos = localPos + ivec3(1); // offset because of apron
+    uvec3 cachePos = localPos + ivec3(1); // offset because of halo
     float l = sharedDensity[cachePos.z][cachePos.y][cachePos.x - 1];
     float r = sharedDensity[cachePos.z][cachePos.y][cachePos.x + 1];
-    float u = sharedDensity[cachePos.z][cachePos.y - 1][cachePos.x];
-    float d = sharedDensity[cachePos.z][cachePos.y + 1][cachePos.x];
+    float d = sharedDensity[cachePos.z][cachePos.y - 1][cachePos.x];
+    float u = sharedDensity[cachePos.z][cachePos.y + 1][cachePos.x];
     float f = sharedDensity[cachePos.z - 1][cachePos.y][cachePos.x];
     float b = sharedDensity[cachePos.z + 1][cachePos.y][cachePos.x];
     float c = sharedDensity[cachePos.z][cachePos.y][cachePos.x];

@@ -147,7 +147,7 @@ vec4 traceVoxels(vec3 rayOrigin, vec3 rayDir) {
                 density = grid.densityBuffer.data[index];
             }
             else if(pc.renderType == 2) {
-                density = grid.divergenceBuffer.data[index] * 8;
+                density = grid.divergenceBuffer.data[index] / grid.cellSize * 0.5;
             }
             else if(pc.renderType == 3) {
                 density = grid.pressureBuffer.data[index] * 10.0;
@@ -213,7 +213,7 @@ vec4 traceVoxels(vec3 rayOrigin, vec3 rayDir) {
         WorldFlowSubGrid topGrid = wfGrid.subgrids[subgridLevel].ref;
         uint topIndex = getGridIndex(uvec3(mapPos), topGrid.resolution);
 
-        if(subgridLevel < wfGrid.subgridCount-1 && isWithinGridBounds(uvec3(mapPos), topGrid.resolution) && (topGrid.flagsBuffer.data[topIndex] & FLAG_ACTIVE) > 0) {
+        if(subgridLevel < wfGrid.subgridCount-1 && isWithinGridBounds(mapPos, topGrid.resolution) && (topGrid.flagsBuffer.data[topIndex] & FLAG_ACTIVE) > 0) {
             subgridLevel += 1;
             WorldFlowSubGrid sg = wfGrid.subgrids[subgridLevel].ref;
             float subd = sg.resolution.w;
@@ -269,7 +269,7 @@ vec4 traceVoxels(vec3 rayOrigin, vec3 rayDir) {
             vec3 worldPos = rayOrigin + (t + tDelta/subd/subd)*rayDir;
             uint coarserIndex = worldToGridIndex(worldPos, coarserGrid.resolution, coarserGrid.cellSize);
             
-            if (!isWithinGridBounds(uvec3(unflattenGridIndex(coarserIndex, coarserGrid.resolution)), coarserGrid.resolution) || 
+            if (!isWithinGridBounds(ivec3(unflattenGridIndex(coarserIndex, coarserGrid.resolution)), coarserGrid.resolution) || 
                 (coarserGrid.flagsBuffer.data[coarserIndex] & FLAG_ACTIVE) == 0) {
                 
                 // Transition from finer grid to coarser grid

@@ -106,12 +106,12 @@ bool isRedBlackActive(uvec3 id, uint redBlack) {
     return ((id.x + id.y + id.z + redBlack) % 2) == 0;
 }
 
-bool isWithinGridBounds(uvec3 p, uvec4 gridResolution)
-{
-    return p.x < gridResolution.x &&
-           p.y < gridResolution.y && 
-           p.z < gridResolution.z;
-}
+// bool isWithinGridBounds(uvec3 p, uvec4 gridResolution)
+// {
+//     return p.x < gridResolution.x &&
+//            p.y < gridResolution.y && 
+//            p.z < gridResolution.z;
+// }
 
 bool isWithinGridBounds(ivec3 p, uvec4 gridResolution)
 {

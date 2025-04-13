@@ -16,7 +16,7 @@ namespace wf {
 struct Settings
 {
 	glm::uvec4 resolution;
-	unsigned int numGridLevels {3};
+	unsigned int numGridLevels {2};
 	uint32_t gridSubdivision {4};
 };
 

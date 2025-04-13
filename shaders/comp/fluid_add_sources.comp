@@ -41,7 +41,7 @@ void main()
 
     uvec3 gridPos = getGridPos(wfGrid, pc.subgridLevel, gl_GlobalInvocationID, gl_LocalInvocationID, gl_WorkGroupID, gl_NumWorkGroups);
     vec3 worldPos = gridToWorld(gridPos, grid);
-    if (!isWithinGridBounds(gridPos, grid.resolution)) {
+    if (!isWithinGridBounds(ivec3(gridPos), grid.resolution)) {
         return;
     }
     uint index = getGridIndex(gridPos, grid.resolution);
@@ -108,7 +108,7 @@ void main()
     }
 
     if(pc.subgridLevel == wfGrid.subgridCount-1) {
-        grid.debugBuffer.data[index] = vec4(0.75);
+        // grid.debugBuffer.data[index] = vec4(0.75);
     }
 
     grid.densityBuffer.data[index] *= exp(-pc.decayRate * pc.dt);
