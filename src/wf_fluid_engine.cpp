@@ -25,8 +25,8 @@ namespace wf {
 namespace Constants
 {
 // constexpr glm::uvec4 VoxelGridDimensions = glm::uvec4(32, 16, 32, 1);
-// constexpr glm::uvec4 VoxelGridDimensions = glm::uvec4(64, 32, 64, 1);
-constexpr glm::uvec4 VoxelGridDimensions = glm::uvec4(128, 64, 128, 1);
+constexpr glm::uvec4 VoxelGridDimensions = glm::uvec4(64, 32, 64, 1);
+// constexpr glm::uvec4 VoxelGridDimensions = glm::uvec4(128, 64, 128, 1);
 // constexpr glm::uvec4 VoxelGridDimensions = glm::uvec4(256, 128, 256, 1);
 // constexpr glm::uvec4 VoxelGridDimensions = glm::uvec4(512, 128, 512, 1);
 constexpr size_t VoxelGridResolution = VoxelGridDimensions.x/4;
@@ -601,7 +601,8 @@ WorldFlow::drawUI()
 		ImGui::InputScalar("presiter", ImGuiDataType_U32, &this->_pressureIterations, &step);
 		ImGui::InputScalar("advectiter", ImGuiDataType_U32, &this->_advectionIterations, &step);
 		ImGui::InputFloat3("sourcePos", glm::value_ptr(this->_sourcePosition));
-		ImGui::DragFloat("objOff", &this->_objectOffset, 0.0025f);
+		// ImGui::DragFloat("objOff", &this->_objectOffset, 0.0025f);
+		ImGui::DragFloat3("objOff", glm::value_ptr(this->_objectPosition), 0.0025f);
 		this->_shouldClear = ImGui::Button("clear");
 	}
 	ImGui::End();
@@ -636,7 +637,7 @@ WorldFlow::checkControls(KeyMap& keyMap, MouseMap& mouseMap, Mouse& mouse, float
 
 	float v = this->_velocitySpeed;
 	constexpr glm::vec3 c = Constants::VoxelGridCenter;
-	this->_objectPosition = glm::vec3(this->_objectOffset, 0.0, 0.0);
+	// this->_objectPosition = glm::vec3(this->_objectOffset, 0.0, 0.0);
 	this->_shouldAddSources = false;
 	int offset = (int)((this->_sourceRadius * Constants::VoxelGridResolution / 2.0f));
 	if(keyMap[SDLK_q]) {

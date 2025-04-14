@@ -316,9 +316,9 @@ float samplePressure(uint index, WorldFlowSubGrid grid, float fallback) {
     return grid.pressureBuffer.data[index];
 }
 
-float pressureBoundary(ivec3 samplePos, ivec3 coarseGridSamplePos, WorldFlowGrid wfGrid, uint subgridLevel) {
+float pressureBoundary(float neumannValue, ivec3 samplePos, ivec3 coarseGridSamplePos, WorldFlowGrid wfGrid, uint subgridLevel) {
     WorldFlowSubGrid fineGrid = wfGrid.subgrids[subgridLevel].ref;
-    float edgeFallback = 0.0; //advection used to use neumann
+    float edgeFallback = neumannValue;
 
     if(!isWithinGridBounds(samplePos, fineGrid.resolution)) return edgeFallback; //return the value on the edge
 

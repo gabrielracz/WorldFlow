@@ -16,18 +16,46 @@ layout(push_constant) uniform PushConstants {
 	uint redBlack;
     uint subgridLevel;
 } pc;
-float samplePressure(WorldFlowSubGrid grid, uvec3 center, ivec3 offset)
-{
-	ivec3 cell = ivec3(center) + offset;
-	bvec3 ge = greaterThanEqual(cell, ivec3(0));
-	bvec3 le = lessThan(cell, ivec3(grid.resolution.xyz));
-	bool valid = all(ge) && all(le);
-	if(!valid) {return grid.pressureBuffer.data[getGridIndex(center, grid.resolution)];}
 
-	bool occ = (grid.flagsBuffer.data[getGridIndex(cell, grid.resolution)] & FLAG_OCCUPIED) > 0;
-	if(occ) {return 0.0;}
-	// if(!valid) {return 0.0;}
-	return grid.pressureBuffer.data[getGridIndex(cell, grid.resolution)];
+#define BLOCK_SIZE GRID_LOCAL_SIZE_X
+#define CACHE_SIZE BLOCK_SIZE+2
+shared float sharedPressure[CACHE_SIZE][CACHE_SIZE][CACHE_SIZE];
+
+// float samplePressure(WorldFlowSubGrid grid, uvec3 center, ivec3 offset)
+// {
+// 	ivec3 cell = ivec3(center) + offset;
+// 	bvec3 ge = greaterThanEqual(cell, ivec3(0));
+// 	bvec3 le = lessThan(cell, ivec3(grid.resolution.xyz));
+// 	bool valid = all(ge) && all(le);
+// 	if(!valid) {return grid.pressureBuffer.data[getGridIndex(center, grid.resolution)];}
+
+// 	bool occ = (grid.flagsBuffer.data[getGridIndex(cell, grid.resolution)] & FLAG_OCCUPIED) > 0;
+// 	if(occ) {return 0.0;}
+// 	// if(!valid) {return 0.0;}
+// 	return grid.pressureBuffer.data[getGridIndex(cell, grid.resolution)];
+// }
+
+void loadSharedCache(uint gridIndex, ivec3 gridPos, ivec3 localPos, ivec3 coarseGridPos) {
+    // load current cell's value into cache
+	WorldFlowSubGrid grid =  wfGrid.subgrids[pc.subgridLevel].ref;
+	float storedPressure = grid.pressureBuffer.data[gridIndex];
+    sharedPressure[localPos.z+1][localPos.y+1][localPos.x+1] = storedPressure;
+    
+	// load halo boundary cells
+    for(int d = 0; d < 3; d++) {
+        bool loEdge = localPos[d] == 0;
+        bool hiEdge = localPos[d] == BLOCK_SIZE-1;
+        ivec3 offset = ivec3(0);
+        offset[d] = loEdge ? -1 : 1;
+        if(loEdge || hiEdge) {
+            ivec3 samplePos = gridPos + offset;
+            ivec3 cachePos = localPos + (ivec3(1) + offset);
+            ivec3 coarseGridSamplePos = coarseGridPos + offset;
+            sharedPressure[cachePos.z][cachePos.y][cachePos.x] = pressureBoundary(storedPressure, samplePos, coarseGridSamplePos, wfGrid, pc.subgridLevel);
+        }
+    }
+    barrier();
+    memoryBarrierShared();
 }
 
 void main()
@@ -37,24 +65,27 @@ void main()
     }
 
     WorldFlowSubGrid grid = wfGrid.subgrids[pc.subgridLevel].ref;
+    uvec3 localPos = gl_LocalInvocationID;
     uvec3 gridPos = getGridPos(wfGrid, pc.subgridLevel, gl_GlobalInvocationID, gl_LocalInvocationID, gl_WorkGroupID, gl_NumWorkGroups);
-	uint index = getGridIndex(gridPos, grid.resolution);
+    uint gridIndex = getGridIndex(gridPos, grid.resolution);
+    uvec3 coarseGridPos = getCoarseGridPos(gridPos, wfGrid, pc.subgridLevel);
 
-	const float r = samplePressure(grid, gridPos, ivec3(1, 0, 0));
-	const float l = samplePressure(grid, gridPos, ivec3(-1, 0, 0));
-	const float u = samplePressure(grid, gridPos, ivec3(0, 1, 0));
-	const float d = samplePressure(grid, gridPos, ivec3(0, -1, 0));
-	const float f = samplePressure(grid, gridPos, ivec3(0, 0, 1));
-	const float b = samplePressure(grid, gridPos, ivec3(0, 0, -1));
-	// const float c = grid.pressureBuffer.data[index];
-	const float c = 0.0;
+    loadSharedCache(gridIndex, ivec3(gridPos), ivec3(localPos), ivec3(coarseGridPos));
+
+    uvec3 cachePos = localPos + uvec3(1); // offset because of halo
+    float r = sharedPressure[cachePos.z][cachePos.y][cachePos.x + 1];
+    float l = sharedPressure[cachePos.z][cachePos.y][cachePos.x - 1];
+    float u = sharedPressure[cachePos.z][cachePos.y + 1][cachePos.x];
+    float d = sharedPressure[cachePos.z][cachePos.y - 1][cachePos.x];
+    float f = sharedPressure[cachePos.z + 1][cachePos.y][cachePos.x];
+    float b = sharedPressure[cachePos.z - 1][cachePos.y][cachePos.x];
+    // float c = sharedPressure[cachePos.z][cachePos.y][cachePos.x];
 	const float h = grid.cellSize;
-
 
 	float gradX = 0.5 * (r - l) / h;
 	float gradY = 0.5 * (u - d) / h;
 	float gradZ = 0.5 * (f - b) / h;
 
-	vec4 newVelocity = grid.velocityBuffer.data[index] - vec4(gradX, gradY, gradZ, 0.0);
-	grid.velocityBuffer.data[index] = vec4(newVelocity.xyz, 1.0);
+	vec4 newVelocity = grid.velocityBuffer.data[gridIndex] - vec4(gradX, gradY, gradZ, 0.0);
+	grid.velocityBuffer.data[gridIndex] = vec4(newVelocity.xyz, 1.0);
 }

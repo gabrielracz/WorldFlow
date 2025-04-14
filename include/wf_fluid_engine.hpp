@@ -104,7 +104,7 @@ private:
 	bool _shouldAddObstacle {false};
 	bool _shouldHideUI {false};
 	bool _shouldPause {false};
-	glm::vec3 _objectPosition{};
+	glm::vec3 _objectPosition{0.0};
 	float _objectRadius;
 	float _objectOffset = 0.0;
 	int _renderType = 1;
