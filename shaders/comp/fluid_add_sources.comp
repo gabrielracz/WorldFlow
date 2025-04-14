@@ -48,6 +48,7 @@ void main()
     uint coarseIndex = getCoarseGridIndex(gridPos, wfGrid, pc.subgridLevel);
 
     bool parentWasDeactivated = pc.subgridLevel > 0 && (coarseGrid.flagsBuffer.data[getCoarseGridIndex(gridPos, wfGrid, pc.subgridLevel)] & FLAG_DEACTIVED) > 0;
+    parentWasDeactivated = false;
 	if(pc.clear > 0 || parentWasDeactivated) {
         clearGridCell(grid, index);
         // grid.debugBuffer.data[index] = vec4(0.4);
@@ -84,7 +85,7 @@ void main()
     }
 
     // if(pc.subgridLevel == 0) {
-    //     grid.flagsBuffer.data[index] |= FLAG_ACTIVE;
+    //    setActive = true;
     // }
 
     // if(pc.subgridLevel < wfGrid.subgridCount-1 && grid.densityBuffer.data[index] > 0.05) {

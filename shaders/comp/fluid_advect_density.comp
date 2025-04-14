@@ -24,16 +24,10 @@ vec3 traceVelocityField(vec3 pos, vec3 velocity, float dt, float cellSize)
 
 float sampleDensity(WorldFlowSubGrid grid, uvec3 center, ivec3 offset)
 {
-	ivec3 cell = ivec3(center) + offset;
-	bvec3 ge = greaterThanEqual(cell, ivec3(0));
-	bvec3 le = lessThan(cell, ivec3(grid.resolution.xyz));
-	bool valid = all(ge) && all(le);
-	if(!valid) {return grid.densityBuffer.data[getGridIndex(center, grid.resolution)];}
-
-	bool occ = (grid.flagsBuffer.data[getGridIndex(cell, grid.resolution)] & FLAG_OCCUPIED) > 0;
-	if(occ) {return grid.densityBuffer.data[getGridIndex(center, grid.resolution)];}
-
-	return grid.densityBuffer.data[getGridIndex(cell, grid.resolution)];
+    ivec3 samplePos = ivec3(center) + offset;
+    float storedDensity = grid.densityBuffer.data[getGridIndex(center, grid.resolution)];
+    ivec3 coarseGridPos = ivec3(getCoarseGridPos(samplePos, wfGrid, pc.subgridLevel));
+    return densityBoundary(storedDensity, samplePos, coarseGridPos, wfGrid, pc.subgridLevel);
 }
 
 void main()
@@ -51,7 +45,6 @@ void main()
 	if(any(greaterThan(pastPos, vec3(grid.resolution.xyz) - 0.5)) || any(lessThan(pastPos, vec3(0.5)))) {
 		pastPos = clamp(pastPos, vec3(0.5), vec3(grid.resolution.xyz) - 0.5);
 	}
-	// pastPos = clamp(pastPos, vec3(0), vec3(grid.resolution));
 	ivec3 center = ivec3(pastPos);
 
 	vec3 cellPos = fract(pastPos);

@@ -24,8 +24,10 @@
 namespace wf {
 namespace Constants
 {
-// constexpr glm::uvec4 VoxelGridDimensions = glm::uvec4(32, 16, 32, 1);
-constexpr glm::uvec4 VoxelGridDimensions = glm::uvec4(64, 32, 64, 1);
+
+// constexpr glm::uvec4 VoxelGridDimensions = glm::uvec4(16, 8, 16, 1);
+constexpr glm::uvec4 VoxelGridDimensions = glm::uvec4(32, 16, 32, 1);
+// constexpr glm::uvec4 VoxelGridDimensions = glm::uvec4(64, 32, 64, 1);
 // constexpr glm::uvec4 VoxelGridDimensions = glm::uvec4(128, 64, 128, 1);
 // constexpr glm::uvec4 VoxelGridDimensions = glm::uvec4(256, 128, 256, 1);
 // constexpr glm::uvec4 VoxelGridDimensions = glm::uvec4(512, 128, 512, 1);
@@ -98,7 +100,7 @@ WorldFlow::update(VkCommandBuffer cmd, float dt)
 		addSources(cmd, dt);
 		this->_timestamps.write(cmd, Timestamps::AddFluidProperties, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
 
-		diffuseVelocity(cmd, dt);
+		// diffuseVelocity(cmd, dt);
 		this->_timestamps.write(cmd, Timestamps::VelocityDiffusion, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
 		advectVelocity(cmd, dt);
 		this->_timestamps.write(cmd, Timestamps::VelocityAdvect, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
@@ -255,7 +257,7 @@ WorldFlow::diffuseDensity(VkCommandBuffer cmd, float dt)
 			vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, nullptr, ARRLEN(barriers), barriers, 0, nullptr);
 		}
 		if(s < this->_grid.numSubgrids-1) {
-			prolongDensity(cmd, s); // prolong diffusion results onto finer grid level
+			// prolongDensity(cmd, s); // prolong diffusion results onto finer grid level
 		}
 	}
 }
@@ -263,7 +265,7 @@ WorldFlow::diffuseDensity(VkCommandBuffer cmd, float dt)
 void
 WorldFlow::advectVelocity(VkCommandBuffer cmd, float dt)
 {
-	for(uint32_t s = 0; s < 1; s++) {
+	for(uint32_t s = 0; s < this->_grid.numSubgrids; s++) {
 		SubGrid& sg = this->_grid.subgrids[s];
 		this->_computeAdvectVelocity.Bind(cmd);
 		

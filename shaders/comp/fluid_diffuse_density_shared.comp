@@ -21,38 +21,11 @@ layout(push_constant) uniform PushConstants {
 #define CACHE_SIZE BLOCK_SIZE+2
 shared float sharedDensity[CACHE_SIZE][CACHE_SIZE][CACHE_SIZE];
 
-float sampleDensity(uint index, WorldFlowSubGrid grid, float fallback) {
-    if((grid.flagsBuffer.data[index] & FLAG_OCCUPIED) > 0) {
-        return fallback;
-    }
-    return grid.densityBuffer.data[index];
-}
-
-float densityBoundary(ivec3 localPos, ivec3 samplePos, ivec3 coarseGridSamplePos) {
-    WorldFlowSubGrid fineGrid = wfGrid.subgrids[pc.subgridLevel].ref;
-    float edgeFallback = sharedDensity[localPos.z+1][localPos.y+1][localPos.x+1];
-
-    if(!isWithinGridBounds(samplePos, fineGrid.resolution)) return edgeFallback; //return the value on the edge
-
-    // sample coarse grid neighbour
-    if(pc.subgridLevel > 0) {
-        WorldFlowSubGrid coarseGrid = wfGrid.subgrids[pc.subgridLevel-1].ref;
-        if(!isWithinGridBounds(coarseGridSamplePos, coarseGrid.resolution)) { // should never happen with complete coverage subgrids
-            return edgeFallback;
-        }
-        uint coarseIndex = getGridIndex(coarseGridSamplePos, coarseGrid.resolution);
-        if((coarseGrid.flagsBuffer.data[coarseIndex] & FLAG_ACTIVE) == 0) {
-            return sampleDensity(coarseIndex, coarseGrid, edgeFallback);
-        }
-    }
-
-    uint fineGridIndex = getGridIndex(samplePos, fineGrid.resolution);
-    return sampleDensity(fineGridIndex, fineGrid, edgeFallback);
-}
-
 void loadSharedCache(uint gridIndex, ivec3 gridPos, ivec3 localPos, ivec3 coarseGridPos) {
-    // load current cell's density into cache
-    sharedDensity[localPos.z+1][localPos.y+1][localPos.x+1] = wfGrid.subgrids[pc.subgridLevel].ref.densityBuffer.data[gridIndex];
+    // load current cell's value into cache
+	WorldFlowSubGrid grid =  wfGrid.subgrids[pc.subgridLevel].ref;
+	float storedDensity = grid.densityBuffer.data[gridIndex];
+    sharedDensity[localPos.z+1][localPos.y+1][localPos.x+1] = storedDensity;
 
     // load halo boundary cells
     for(int d = 0; d < 3; d++) {
@@ -64,7 +37,7 @@ void loadSharedCache(uint gridIndex, ivec3 gridPos, ivec3 localPos, ivec3 coarse
             ivec3 samplePos = gridPos + offset;
             ivec3 cachePos = localPos + (ivec3(1) + offset);
             ivec3 coarseGridSamplePos = coarseGridPos + offset;
-            sharedDensity[cachePos.z][cachePos.y][cachePos.x] = densityBoundary(localPos, samplePos, coarseGridSamplePos);
+            sharedDensity[cachePos.z][cachePos.y][cachePos.x] = densityBoundary(storedDensity, samplePos, coarseGridSamplePos, wfGrid, pc.subgridLevel);
         }
     }
     barrier();

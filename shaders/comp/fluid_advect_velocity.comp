@@ -28,18 +28,23 @@ vec3 traceVelocityField(vec3 pos, vec3 velocity, float dt, float cellSize)
 
 vec4 sampleVelocity(WorldFlowSubGrid grid, uvec3 center, ivec3 offset)
 {
-	ivec3 cell = ivec3(center) + offset;
-	bvec3 ge = greaterThanEqual(cell, ivec3(0));
-	bvec3 le = lessThan(cell, ivec3(grid.resolution.xyz));
-	bool valid = all(ge) && all(le);
-	// if(!valid) {return grid.velocityBuffer.data[getGridIndex(center, grid.resolution)];}
-	if(!valid) {return vec4(0.0, 0.0, 0.0, 1.0);}
+    ivec3 samplePos = ivec3(center) + offset;
+    // vec4 storedVelocity = grid.velocityBuffer.data[getGridIndex(center, grid.resolution)];
+    ivec3 coarseGridPos = ivec3(getCoarseGridPos(samplePos, wfGrid, pc.subgridLevel));
+    return velocityBoundary(samplePos, coarseGridPos, wfGrid, pc.subgridLevel);
 
-	bool occ = (grid.flagsBuffer.data[getGridIndex(cell, grid.resolution)] & FLAG_OCCUPIED) > 0;
-	if(occ) {return vec4(0.0);}
-	// if(occ) {return grid[getGridIndex(center, grid.resolution)].velocity * abs(vec4(1.0 - abs(vec3(offset)), 1.0));}// 
+	// ivec3 cell = ivec3(center) + offset;
+	// bvec3 ge = greaterThanEqual(cell, ivec3(0));
+	// bvec3 le = lessThan(cell, ivec3(grid.resolution.xyz));
+	// bool valid = all(ge) && all(le);
+	// // if(!valid) {return grid.velocityBuffer.data[getGridIndex(center, grid.resolution)];}
+	// if(!valid) {return vec4(0.0, 0.0, 0.0, 1.0);}
 
-	return grid.velocityBuffer.data[getGridIndex(cell, grid.resolution)];
+	// bool occ = (grid.flagsBuffer.data[getGridIndex(cell, grid.resolution)] & FLAG_OCCUPIED) > 0;
+	// if(occ) {return vec4(0.0);}
+	// // if(occ) {return grid[getGridIndex(center, grid.resolution)].velocity * abs(vec4(1.0 - abs(vec3(offset)), 1.0));}// 
+
+	// return grid.velocityBuffer.data[getGridIndex(cell, grid.resolution)];
 }
 
 void main()

@@ -280,12 +280,14 @@ uvec3 getRedBlackPosition(uvec3 threadID, uvec4 gridResolution, uint redBlack)
 SAMPLE FUNCTIONS
 */
 
+//  VELOCITY  //
 vec4 sampleVelocity(uint index, WorldFlowSubGrid grid, vec4 fallback) {
     if((grid.flagsBuffer.data[index] & FLAG_OCCUPIED) > 0) {
         return fallback;
     }
     return grid.velocityBuffer.data[index];
 }
+
 
 vec4 velocityBoundary(ivec3 samplePos, ivec3 coarseGridSamplePos, WorldFlowGrid wfGrid, uint subgridLevel) {
     WorldFlowSubGrid fineGrid = wfGrid.subgrids[subgridLevel].ref;
@@ -297,7 +299,7 @@ vec4 velocityBoundary(ivec3 samplePos, ivec3 coarseGridSamplePos, WorldFlowGrid 
     if(subgridLevel > 0) {
         WorldFlowSubGrid coarseGrid = wfGrid.subgrids[subgridLevel-1].ref;
         if(!isWithinGridBounds(coarseGridSamplePos, coarseGrid.resolution)) { // should never happen with complete coverage subgrids
-            return edgeFallback;
+            // return edgeFallback;
         }
         uint coarseIndex = getGridIndex(coarseGridSamplePos, coarseGrid.resolution);
         if((coarseGrid.flagsBuffer.data[coarseIndex] & FLAG_ACTIVE) == 0) {
@@ -309,6 +311,8 @@ vec4 velocityBoundary(ivec3 samplePos, ivec3 coarseGridSamplePos, WorldFlowGrid 
     return sampleVelocity(fineGridIndex, fineGrid, edgeFallback);
 }
 
+
+//  PRESSURE  //
 float samplePressure(uint index, WorldFlowSubGrid grid, float fallback) {
     if((grid.flagsBuffer.data[index] & FLAG_OCCUPIED) > 0) {
         return fallback;
@@ -337,6 +341,37 @@ float pressureBoundary(float neumannValue, ivec3 samplePos, ivec3 coarseGridSamp
     uint fineGridIndex = getGridIndex(samplePos, fineGrid.resolution);
     return samplePressure(fineGridIndex, fineGrid, edgeFallback);
 }
+
+//  DENSITY  //
+float sampleDensity(uint index, WorldFlowSubGrid grid, float fallback) {
+    if((grid.flagsBuffer.data[index] & FLAG_OCCUPIED) > 0) {
+        return fallback;
+    }
+    return grid.densityBuffer.data[index];
+}
+
+float densityBoundary(float neumannValue, ivec3 samplePos, ivec3 coarseGridSamplePos, WorldFlowGrid wfGrid, uint subgridLevel) {
+    WorldFlowSubGrid fineGrid = wfGrid.subgrids[subgridLevel].ref;
+    float edgeFallback = neumannValue;
+
+    if(!isWithinGridBounds(samplePos, fineGrid.resolution)) return edgeFallback; //return the value on the edge
+
+    // sample coarse grid neighbour
+    if(subgridLevel > 0) {
+        WorldFlowSubGrid coarseGrid = wfGrid.subgrids[subgridLevel-1].ref;
+        if(!isWithinGridBounds(coarseGridSamplePos, coarseGrid.resolution)) { // should never happen with complete coverage subgrids
+            return edgeFallback;
+        }
+        uint coarseIndex = getGridIndex(coarseGridSamplePos, coarseGrid.resolution);
+        if((coarseGrid.flagsBuffer.data[coarseIndex] & FLAG_ACTIVE) == 0) {
+            return sampleDensity(coarseIndex, coarseGrid, edgeFallback);
+        }
+    }
+
+    uint fineGridIndex = getGridIndex(samplePos, fineGrid.resolution);
+    return sampleDensity(fineGridIndex, fineGrid, edgeFallback);
+}
+
 
 float SOR(float old, float new, float N)
 {
