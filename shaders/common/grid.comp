@@ -196,6 +196,14 @@ uvec3 unflattenGridIndex(uint index, uvec4 gridResolution)
 }
 #endif
 
+uvec3 getCubePos(uint index, uint res) {
+    return uvec3(
+        index % res,
+        (index / res) % res,
+        (index / (res*res))
+    );
+}
+
 uint worldToGridIndex(vec3 worldPos, uvec4 gridResolution, float cellSize)
 {
     vec3 worldSize = vec3(gridResolution.xyz) * cellSize;
@@ -267,6 +275,40 @@ uvec3 getRedBlackPosition(uvec3 threadID, uvec4 gridResolution, uint redBlack)
     
     return uvec3(threadID.x, threadID.y, z);
 }
+
+/*
+SAMPLE FUNCTIONS
+*/
+
+vec4 sampleVelocity(uint index, WorldFlowSubGrid grid, vec4 fallback) {
+    if((grid.flagsBuffer.data[index] & FLAG_OCCUPIED) > 0) {
+        return fallback;
+    }
+    return grid.velocityBuffer.data[index];
+}
+
+vec4 velocityBoundary(ivec3 samplePos, ivec3 coarseGridSamplePos, WorldFlowGrid wfGrid, uint subgridLevel) {
+    WorldFlowSubGrid fineGrid = wfGrid.subgrids[subgridLevel].ref;
+    vec4 edgeFallback = vec4(0.0);
+
+    if(!isWithinGridBounds(samplePos, fineGrid.resolution)) return edgeFallback; //return the value on the edge
+
+    // sample coarse grid if neighbouring block is not active
+    if(subgridLevel > 0) {
+        WorldFlowSubGrid coarseGrid = wfGrid.subgrids[subgridLevel-1].ref;
+        if(!isWithinGridBounds(coarseGridSamplePos, coarseGrid.resolution)) { // should never happen with complete coverage subgrids
+            return edgeFallback;
+        }
+        uint coarseIndex = getGridIndex(coarseGridSamplePos, coarseGrid.resolution);
+        if((coarseGrid.flagsBuffer.data[coarseIndex] & FLAG_ACTIVE) == 0) {
+            return sampleVelocity(coarseIndex, coarseGrid, edgeFallback);
+        }
+    }
+
+    uint fineGridIndex = getGridIndex(samplePos, fineGrid.resolution);
+    return sampleVelocity(fineGridIndex, fineGrid, edgeFallback);
+}
+
 
 float SOR(float old, float new, float N)
 {

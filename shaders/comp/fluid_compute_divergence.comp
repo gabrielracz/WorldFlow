@@ -17,56 +17,40 @@ layout(push_constant) uniform PushConstants {
     uint subgridLevel;
 } pc;
 
-// vec4 sampleVelocity(WorldFlowSubGrid grid, uvec3 center, ivec3 offset)
-// {
-// 	ivec3 cell = ivec3(center) + offset;
-// 	bvec3 ge = greaterThanEqual(cell, ivec3(0));
-// 	bvec3 le = lessThan(cell, ivec3(grid.resolution.xyz));
-// 	bool valid = all(ge) && all(le);
-// 	// if(!valid) {return grid.velocityBuffer.data[getGridIndex(center, grid.resolution)];}
-// 	if(!valid) {return vec4(0.0, 0.0, 0.0, 1.0);}
-
-// 	bool occ = (grid.flagsBuffer.data[getGridIndex(cell, grid.resolution)] & FLAG_OCCUPIED) > 0;
-// 	// if(occ) {return vec4(0.0);}
-// 	if(occ) {return grid.velocityBuffer.data[getGridIndex(center, grid.resolution)] * abs(vec4(1.0 - abs(vec3(offset)), 1.0));}// 
-
-// 	return grid.velocityBuffer.data[getGridIndex(cell, grid.resolution)];
-// }
-
 
 #define BLOCK_SIZE GRID_LOCAL_SIZE_X
 #define CACHE_SIZE BLOCK_SIZE+2
 shared vec4 sharedVelocity[CACHE_SIZE][CACHE_SIZE][CACHE_SIZE];
 
-vec4 sampleVelocity(uint index, WorldFlowSubGrid grid, vec4 fallback) {
-    if((grid.flagsBuffer.data[index] & FLAG_OCCUPIED) > 0) {
-        return fallback;
-    }
-    return grid.velocityBuffer.data[index];
-}
+// vec4 sampleVelocity(uint index, WorldFlowSubGrid grid, vec4 fallback) {
+//     if((grid.flagsBuffer.data[index] & FLAG_OCCUPIED) > 0) {
+//         return fallback;
+//     }
+//     return grid.velocityBuffer.data[index];
+// }
 
-vec4 velocityBoundary(ivec3 localPos, ivec3 samplePos, ivec3 coarseGridSamplePos) {
-    WorldFlowSubGrid fineGrid = wfGrid.subgrids[pc.subgridLevel].ref;
-    // vec4 edgeFallback = sharedVelocity[localPos.z+1][localPos.y+1][localPos.x+1];
-    vec4 edgeFallback = vec4(0.0);
+// vec4 velocityBoundary(ivec3 localPos, ivec3 samplePos, ivec3 coarseGridSamplePos, WorldFlowGrid wfGrid, uint subgridLevel) {
+//     WorldFlowSubGrid fineGrid = wfGrid.subgrids[subgridLevel].ref;
+//     // vec4 edgeFallback = sharedVelocity[localPos.z+1][localPos.y+1][localPos.x+1];
+//     vec4 edgeFallback = vec4(0.0);
 
-    if(!isWithinGridBounds(samplePos, fineGrid.resolution)) return edgeFallback; //return the value on the edge
+//     if(!isWithinGridBounds(samplePos, fineGrid.resolution)) return edgeFallback; //return the value on the edge
 
-    // sample coarse grid neighbour
-    if(pc.subgridLevel > 0) {
-        WorldFlowSubGrid coarseGrid = wfGrid.subgrids[pc.subgridLevel-1].ref;
-        if(!isWithinGridBounds(coarseGridSamplePos, coarseGrid.resolution)) { // should never happen with complete coverage subgrids
-            return edgeFallback;
-        }
-        uint coarseIndex = getGridIndex(coarseGridSamplePos, coarseGrid.resolution);
-        if((coarseGrid.flagsBuffer.data[coarseIndex] & FLAG_ACTIVE) == 0) {
-            return sampleVelocity(coarseIndex, coarseGrid, edgeFallback);
-        }
-    }
+//     // sample coarse grid if neighbouring block is not active
+//     if(subgridLevel > 0) {
+//         WorldFlowSubGrid coarseGrid = wfGrid.subgrids[subgridLevel-1].ref;
+//         if(!isWithinGridBounds(coarseGridSamplePos, coarseGrid.resolution)) { // should never happen with complete coverage subgrids
+//             return edgeFallback;
+//         }
+//         uint coarseIndex = getGridIndex(coarseGridSamplePos, coarseGrid.resolution);
+//         if((coarseGrid.flagsBuffer.data[coarseIndex] & FLAG_ACTIVE) == 0) {
+//             return sampleVelocity(coarseIndex, coarseGrid, edgeFallback);
+//         }
+//     }
 
-    uint fineGridIndex = getGridIndex(samplePos, fineGrid.resolution);
-    return sampleVelocity(fineGridIndex, fineGrid, edgeFallback);
-}
+//     uint fineGridIndex = getGridIndex(samplePos, fineGrid.resolution);
+//     return sampleVelocity(fineGridIndex, fineGrid, edgeFallback);
+// }
 
 void loadSharedCache(uint gridIndex, ivec3 gridPos, ivec3 localPos, ivec3 coarseGridPos) {
     // load current cell's density into cache
@@ -83,7 +67,7 @@ void loadSharedCache(uint gridIndex, ivec3 gridPos, ivec3 localPos, ivec3 coarse
             ivec3 samplePos = gridPos + offset;
             ivec3 cachePos = localPos + (ivec3(1) + offset);
             ivec3 coarseGridSamplePos = coarseGridPos + offset;
-            sharedVelocity[cachePos.z][cachePos.y][cachePos.x] = velocityBoundary(localPos, samplePos, coarseGridSamplePos);
+            sharedVelocity[cachePos.z][cachePos.y][cachePos.x] = velocityBoundary(samplePos, coarseGridSamplePos, wfGrid, pc.subgridLevel);
         }
     }
     barrier();

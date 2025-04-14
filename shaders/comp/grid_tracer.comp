@@ -113,14 +113,13 @@ vec4 traceVoxels(vec3 rayOrigin, vec3 rayDir) {
     tMaxAxis.y = (step.y > 0.0) ? tVoxelMax.y : tVoxelMin.y;
     tMaxAxis.z = (step.z > 0.0) ? tVoxelMax.z : tVoxelMin.z;
     
-    float tPrev = t;
     int missteps = 0;
     // Main ray traversal loop
     // ivec3 prevMapPos = mapPos;
     vec3 prevPos = pos;
     uint subgridLevel = 0;
     vec3 crossingAxis = tMaxAxis;
-    float distThroughCell = 0.0;
+    float distThroughCell = rootGrid.cellSize;
     for (int i = 0; i < pc.maxDistance*4; i++) {
         WorldFlowSubGrid grid = wfGrid.subgrids[subgridLevel].ref;
         uint index = getGridIndex(uvec3(mapPos), grid.resolution);
@@ -184,8 +183,6 @@ vec4 traceVoxels(vec3 rayOrigin, vec3 rayDir) {
             missteps += 1;
             break;
         }
-        
-        tPrev = t;
 
         // Find axis of next crossing
         vec3 compare = tMaxAxis - t;
