@@ -83,9 +83,10 @@ void main()
     vorticity.x = dwdy - dvdz;
     vorticity.y = dudz - dwdx;
     vorticity.z = dvdx - dudy;
+    vorticity.a = 1.0;
 
     // Scale by grid cell size for proper units
-    vorticity *= (1.0 / grid.cellSize);
+    vorticity.xyz *= (1.0 / grid.cellSize);
 
     grid.vorticityBuffer.data[gridIndex] = vorticity;
 }

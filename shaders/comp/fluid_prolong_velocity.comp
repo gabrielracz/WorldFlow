@@ -24,9 +24,9 @@ void loadCoarseVelocityStencil(uint localIndex, ivec3 coarseGridPos) {
 	if(gl_LocalInvocationIndex < STENCIL_SIZE) {
 		uvec3 stencilPos = getCubePos(localIndex, STENCIL_WIDTH);
 		ivec3 coarseSamplePos = coarseGridPos + ivec3(stencilPos) - ivec3(1);
-		ivec3 evenCoarsesSamplePos = ivec3(getCoarseGridPos(coarseSamplePos, wfGrid, max(int(pc.subgridLevel) - 2, 0))); // get the coarse grid pos up to 2 levels up
+		ivec3 evenCoarserSamplePos = ivec3(getCoarseGridPos(coarseSamplePos, wfGrid, max(int(pc.subgridLevel) - 2, 0))); // get the coarse grid pos up to 2 levels up
 		// sample the velocity at the level above this one, potentially falling back to level-2 if inactive
-		coarseVelocities[stencilPos.z][stencilPos.y][stencilPos.x] = velocityBoundary(coarseSamplePos, evenCoarsesSamplePos, wfGrid, pc.subgridLevel-1);
+		coarseVelocities[stencilPos.z][stencilPos.y][stencilPos.x] = velocityBoundary(coarseSamplePos, evenCoarserSamplePos, wfGrid, pc.subgridLevel-1);
 	}
 	barrier();
 	memoryBarrierShared();
@@ -46,18 +46,21 @@ void main()
 	// vec4 fineVelocity = workGroupSum(velocity, gl_LocalInvocationIndex);
 
 	// load a complete 27-point coarse stencil for interpolation
+	// WorldFlowSubGrid cg = wfGrid.subgrids[pc.subgridLevel-1].ref;
 	uvec3 coarseGridPos = getCoarseGridPos(gridPos, wfGrid, pc.subgridLevel);
+	// uint coarseIndex = getCoarseGridIndex(gridPos, wfGrid, pc.subgridLevel);
+	// cg.debugBuffer.data[coarseIndex] = vec4(1.0);
+
+	// vec4 crs = cg.velocityBuffer.data[coarseIndex];
+	// vec4 nv = mix(velocity, crs, pc.alpha);
+	// grid.velocityBuffer.data[index] = nv;
+	// return;
 	loadCoarseVelocityStencil(gl_LocalInvocationIndex, ivec3(coarseGridPos));
 
 	// Calculate relative position of fine cell within its parent coarse cell
 	vec3 coarseRelativePos = fract(vec3(gridPos) * 0.25) + 0.125;
 
-	grid.debugBuffer.data[index] = vec4(coarseRelativePos, 1.0);
-	// uint wgIndex = getWorkgroupIndex(gl_WorkGroupID, gl_NumWorkGroups);
-	// if(gl_LocalInvocationIndex == 0) {
-	// 	wfGrid.subgrids[pc.subgridLevel].ref.debugBuffer.data[wgIndex*2] = wfGrid.subgrids[pc.subgridLevel-1].ref.velocityBuffer.data[getCoarseGridIndex(gridPos, wfGrid, pc.subgridLevel)];
-	// 	wfGrid.subgrids[pc.subgridLevel].ref.debugBuffer.data[wgIndex*2 + 1] = coarseVelocities[1][1][1];
-	// }
+	// grid.debugBuffer.data[index] = vec4(coarseRelativePos, 1.0);
 
 	ivec3 center = ivec3(1);
     int i = (coarseRelativePos.x < 0.5) ? -1 : 1;

@@ -103,6 +103,23 @@ struct alignas(16) AddFluidPropertiesPushConstants
 };
 const auto s = sizeof(AddFluidPropertiesPushConstants);
 
+struct alignas(16) RayTracerPushConstants
+{
+    glm::mat4 inverseProjection;  // Inverse projection matrix
+    glm::mat4 inverseView;        // Inverse view matrix
+    glm::vec3 cameraPos;         // Camera position in world space
+    float nearPlane;        // Near plane distance
+    glm::vec2 screenSize;        // Width and height of output image
+    uint32_t maxDistance;      // Maximum ray travel distance
+    float stepSize;         // Base color accumulation per step
+    glm::vec3 gridSize;          // Size of the voxel grid in each dimension
+    float gridScale;          // Size of the voxel grid in each dimension
+    glm::vec4 lightSource;
+    glm::vec4 baseColor;
+    int renderType;
+	unsigned int subgridLimit;
+};
+
 struct alignas(16) ParticlesPushConstants
 {
     glm::mat4 cameraMatrix;
@@ -141,6 +158,14 @@ struct alignas(16) Particle
 	glm::vec4 position {};
 	float mass {};
 	float lifetime {}; 
+};
+
+// push constants for our mesh object draws
+struct alignas(16) GraphicsPushConstants
+{
+    glm::mat4 worldMatrix;
+    VkDeviceAddress vertexBuffer;
+    uint32_t padding[2];
 };
 }
 #endif

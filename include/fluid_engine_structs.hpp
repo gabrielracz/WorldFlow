@@ -54,6 +54,7 @@ struct alignas(16) RayTracerPushConstants
     glm::vec4 lightSource;
     glm::vec4 baseColor;
     int renderType;
+	unsigned int subgridLimit;
 };
 
 // push constants for our mesh object draws

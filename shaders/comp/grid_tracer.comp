@@ -28,6 +28,7 @@ layout(push_constant) uniform constants {
     vec4 lightSource;        
     vec4 baseColor;        
     int renderType;
+    uint subgridLimit;
 } pc;
 
 // Helper function to get ray direction from pixel coordinates
@@ -210,7 +211,8 @@ vec4 traceVoxels(vec3 rayOrigin, vec3 rayDir) {
         WorldFlowSubGrid topGrid = wfGrid.subgrids[subgridLevel].ref;
         uint topIndex = getGridIndex(uvec3(mapPos), topGrid.resolution);
 
-        if(subgridLevel < wfGrid.subgridCount-1 && isWithinGridBounds(mapPos, topGrid.resolution) && (topGrid.flagsBuffer.data[topIndex] & FLAG_ACTIVE) > 0) {
+        uint levelLimit = min(wfGrid.subgridCount-1, pc.subgridLimit);
+        if(subgridLevel < levelLimit && isWithinGridBounds(mapPos, topGrid.resolution) && (topGrid.flagsBuffer.data[topIndex] & FLAG_ACTIVE) > 0) {
             subgridLevel += 1;
             WorldFlowSubGrid sg = wfGrid.subgrids[subgridLevel].ref;
             float subd = sg.resolution.w;

@@ -116,6 +116,7 @@ private:
 	float _decayRate = 0.1f;
 	float _transferAlpha = 0.8f;
 	float _diffusionRate = 1.5;
+	uint32_t _rendererSubgridLimit = Constants::MAX_SUBGRID_LEVELS;
 
 	uint32_t _diffusionIterations;
 	uint32_t _pressureIterations;

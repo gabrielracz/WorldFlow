@@ -1,7 +1,6 @@
 // #include "uniform_fluid_engine.hpp"
 #include "wf_fluid_engine.hpp"
 #include "wf_structs.hpp"
-#include "fluid_engine_structs.hpp"
 #include "renderer.hpp"
 #include "path_config.hpp"
 #include "defines.hpp"
@@ -26,8 +25,8 @@ namespace Constants
 {
 
 // constexpr glm::uvec4 VoxelGridDimensions = glm::uvec4(16, 8, 16, 1);
-constexpr glm::uvec4 VoxelGridDimensions = glm::uvec4(32, 16, 32, 1);
-// constexpr glm::uvec4 VoxelGridDimensions = glm::uvec4(64, 32, 64, 1);
+// constexpr glm::uvec4 VoxelGridDimensions = glm::uvec4(32, 16, 32, 1);
+constexpr glm::uvec4 VoxelGridDimensions = glm::uvec4(64, 32, 64, 1);
 // constexpr glm::uvec4 VoxelGridDimensions = glm::uvec4(128, 64, 128, 1);
 // constexpr glm::uvec4 VoxelGridDimensions = glm::uvec4(256, 128, 256, 1);
 // constexpr glm::uvec4 VoxelGridDimensions = glm::uvec4(512, 128, 512, 1);
@@ -64,7 +63,7 @@ rollingAverage(float& currentValue, float newValue) {
 /* CLASS */
 WorldFlow::WorldFlow(Renderer& renderer, Settings settings)
 	: _renderer(renderer), _settings(settings), _diffusionIterations(Constants::NumDiffusionIterations), _pressureIterations(Constants::NumPressureIterations),
-	  _advectionIterations(Constants::NumAdvectionIterations), _grid{.numSubgrids = settings.numGridLevels} {
+	  _advectionIterations(Constants::NumAdvectionIterations), _rendererSubgridLimit(settings.numGridLevels-1), _grid{.numSubgrids = settings.numGridLevels} {
 }
 
 WorldFlow::~WorldFlow() {}
@@ -100,7 +99,7 @@ WorldFlow::update(VkCommandBuffer cmd, float dt)
 		addSources(cmd, dt);
 		this->_timestamps.write(cmd, Timestamps::AddFluidProperties, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
 
-		// diffuseVelocity(cmd, dt);
+		diffuseVelocity(cmd, dt);
 		this->_timestamps.write(cmd, Timestamps::VelocityDiffusion, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
 		advectVelocity(cmd, dt);
 		this->_timestamps.write(cmd, Timestamps::VelocityAdvect, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
@@ -147,7 +146,6 @@ WorldFlow::generateSubgridOffsets(VkCommandBuffer cmd)
 		vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, 0, 1, &barrier, 0, 0);
 	}
 }
-	// grid.pressureBuffer.data[index] = 0.0;
 
 void
 WorldFlow::generateIndirectCommands(VkCommandBuffer cmd)
@@ -229,7 +227,7 @@ WorldFlow::diffuseVelocity(VkCommandBuffer cmd, float dt)
 			vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, nullptr, ARRLEN(barriers), barriers, 0, nullptr);
 		}
 		if(s < this->_grid.numSubgrids-1) {
-			prolongVelocity(cmd, s);
+			// prolongVelocity(cmd, s);
 		}
 	}
 }
@@ -257,7 +255,7 @@ WorldFlow::diffuseDensity(VkCommandBuffer cmd, float dt)
 			vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, nullptr, ARRLEN(barriers), barriers, 0, nullptr);
 		}
 		if(s < this->_grid.numSubgrids-1) {
-			// prolongDensity(cmd, s); // prolong diffusion results onto finer grid level
+			prolongDensity(cmd, s); // prolong diffusion results onto finer grid level
 		}
 	}
 }
@@ -420,7 +418,8 @@ WorldFlow::renderVoxelVolume(VkCommandBuffer cmd)
 		.gridScale = Constants::VoxelGridScale,
 		.lightSource = Constants::LightPosition,
 		.baseColor = glm::vec4(0.8, 0.8, 0.8, 1.0),
-		.renderType = this->_renderType
+		.renderType = this->_renderType,
+		.subgridLimit = this->_rendererSubgridLimit
 	};
 	vkCmdPushConstants(cmd, this->_computeRaycastVoxelGrid.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(RayTracerPushConstants), &rtpc);
 	VkExtent3D groupCounts = this->_renderer.GetWorkgroupCounts(8);
@@ -598,10 +597,6 @@ WorldFlow::drawUI()
 		ImGui::DragFloat("dns", &this->_densityAmount, 0.1f);
 		ImGui::DragFloat("decay", &this->_decayRate, 0.01f);
 		ImGui::DragFloat("vel", &this->_velocitySpeed, 0.25f);
-		const uint32_t step = 1;
-		ImGui::InputScalar("diffiter", ImGuiDataType_U32, &this->_diffusionIterations, &step);
-		ImGui::InputScalar("presiter", ImGuiDataType_U32, &this->_pressureIterations, &step);
-		ImGui::InputScalar("advectiter", ImGuiDataType_U32, &this->_advectionIterations, &step);
 		ImGui::InputFloat3("sourcePos", glm::value_ptr(this->_sourcePosition));
 		// ImGui::DragFloat("objOff", &this->_objectOffset, 0.0025f);
 		ImGui::DragFloat3("objOff", glm::value_ptr(this->_objectPosition), 0.0025f);
@@ -610,7 +605,12 @@ WorldFlow::drawUI()
 	ImGui::End();
 
 	if(ImGui::Begin("parameters", nullptr)) {
+		const uint32_t step = 1;
+		ImGui::InputScalar("render subgrids", ImGuiDataType_U32, &this->_rendererSubgridLimit, &step);
 		ImGui::DragFloat("diffusionRate", &this->_diffusionRate, 0.01f);
+		ImGui::InputScalar("diffiter", ImGuiDataType_U32, &this->_diffusionIterations, &step);
+		ImGui::InputScalar("presiter", ImGuiDataType_U32, &this->_pressureIterations, &step);
+		ImGui::InputScalar("advectiter", ImGuiDataType_U32, &this->_advectionIterations, &step);
 		ImGui::DragFloat("transferAlpha", &this->_transferAlpha, 0.01f);
 	}
 	ImGui::End();
@@ -641,7 +641,8 @@ WorldFlow::checkControls(KeyMap& keyMap, MouseMap& mouseMap, Mouse& mouse, float
 	constexpr glm::vec3 c = Constants::VoxelGridCenter;
 	// this->_objectPosition = glm::vec3(this->_objectOffset, 0.0, 0.0);
 	this->_shouldAddSources = false;
-	int offset = (int)((this->_sourceRadius * Constants::VoxelGridResolution / 2.0f));
+	// int offset = (int)((this->_sourceRadius * Constants::VoxelGridResolution / 2.0f));
+	int offset = (int)(this->_sourceRadius);
 	if(keyMap[SDLK_q]) {
 		this->_shouldAddSources = true;
 		this->_velocitySourceAmount = glm::vec3(v, 0.f, 0.f);
