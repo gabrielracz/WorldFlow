@@ -17,9 +17,13 @@ layout(push_constant) uniform PushConstants {
     uint subgridLevel;
 } pc;
 
-vec3 traceVelocityField(vec3 pos, vec3 velocity, float dt)
+#define BLOCK_SIZE GRID_LOCAL_SIZE_X
+#define CACHE_SIZE BLOCK_SIZE+2
+shared vec4 sharedVelocity[CACHE_SIZE][CACHE_SIZE][CACHE_SIZE];
+
+vec3 traceVelocityField(vec3 pos, vec3 velocity, float dt, float cellSize)
 {
-    return pos + (velocity * -dt);
+    return pos + (velocity/cellSize * -dt);
 }
 
 vec4 sampleVelocity(WorldFlowSubGrid grid, uvec3 center, ivec3 offset)
@@ -28,8 +32,8 @@ vec4 sampleVelocity(WorldFlowSubGrid grid, uvec3 center, ivec3 offset)
 	bvec3 ge = greaterThanEqual(cell, ivec3(0));
 	bvec3 le = lessThan(cell, ivec3(grid.resolution.xyz));
 	bool valid = all(ge) && all(le);
-	if(!valid) {return grid.velocityBuffer.data[getGridIndex(center, grid.resolution)];}
-	// if(!valid) {return vec4(0.0, 0.0, 0.0, 1.0);}
+	// if(!valid) {return grid.velocityBuffer.data[getGridIndex(center, grid.resolution)];}
+	if(!valid) {return vec4(0.0, 0.0, 0.0, 1.0);}
 
 	bool occ = (grid.flagsBuffer.data[getGridIndex(cell, grid.resolution)] & FLAG_OCCUPIED) > 0;
 	if(occ) {return vec4(0.0);}
@@ -40,12 +44,18 @@ vec4 sampleVelocity(WorldFlowSubGrid grid, uvec3 center, ivec3 offset)
 
 void main()
 {
+    if(!isWorkgroupActive(wfGrid, pc.subgridLevel, gl_WorkGroupID, gl_NumWorkGroups)) {
+        return;
+    }
+
     WorldFlowSubGrid grid = wfGrid.subgrids[pc.subgridLevel].ref;
-	uint index = getGridIndex(gl_GlobalInvocationID, grid.resolution);
-	vec3 pos = vec3(gl_GlobalInvocationID) + 0.5; // center grid cell position
+    uvec3 gridPos = getGridPos(wfGrid, pc.subgridLevel, gl_GlobalInvocationID, gl_LocalInvocationID, gl_WorkGroupID, gl_NumWorkGroups);
+	uint index = getGridIndex(gridPos, grid.resolution);
+	vec3 pos = vec3(gridPos) + 0.5;
+	// TODO: use world space not grid space
 
 	// FIXME
-	vec3 pastPos = traceVelocityField(pos, grid.velocityBuffer.data[index].xyz, pc.dt);
+	vec3 pastPos = traceVelocityField(pos, grid.velocityBuffer.data[index].xyz, pc.dt, grid.cellSize);
 	if(any(greaterThan(pastPos, vec3(grid.resolution.xyz) - 0.5)) || any(lessThan(pastPos, vec3(0.5)))) {
 		vec3 clampedPos = clamp(pastPos, vec3(0.5), vec3(grid.resolution.xyz) - vec3(0.5));
 		uint clampedIndex = getGridIndex(uvec3(floor(clampedPos)), grid.resolution);
@@ -54,15 +64,6 @@ void main()
 
 	ivec3 center = ivec3(floor(pastPos));
 	vec3 cellPos = fract(pastPos);
-	
-	if(cellPos == vec3(0.5)) {
-		vec4 interpolatedVelocity = grid.velocityBuffer.data[getGridIndex(center, grid.resolution)];
-		atomicExchange(grid.velocityBuffer.data[index].x, interpolatedVelocity.x);
-		atomicExchange(grid.velocityBuffer.data[index].y, interpolatedVelocity.y);
-		atomicExchange(grid.velocityBuffer.data[index].z, interpolatedVelocity.z);
-		// grid.debugBuffer.data[index].x = 3.0;
-		return;
-	}
 
     // Determine which neighboring cells to sample based on position
     int i1 = (cellPos.x < 0.5) ? -1 : 1;
@@ -89,8 +90,6 @@ void main()
 	
     // Normalize weights to [0,1] range
     weights *= 2.0;
-
-
 
 	// vec4 interpolatedVelocity = triInterp(c000, c100, c010, c110, c001, c101, c011, c111, weights);
 	vec4 interpolatedVelocity = cubicInterp8Point(c000, c100, c010, c110, c001, c101, c011, c111, weights);

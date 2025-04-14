@@ -146,13 +146,13 @@ vec4 traceVoxels(vec3 rayOrigin, vec3 rayDir) {
                 density = grid.densityBuffer.data[index];
             }
             else if(pc.renderType == 2) {
-                density = grid.divergenceBuffer.data[index] / grid.cellSize * 0.5;
+                density = grid.divergenceBuffer.data[index] / grid.cellSize / grid.cellSize * 0.01;
             }
             else if(pc.renderType == 3) {
-                density = grid.pressureBuffer.data[index] * 10.0;
+                density = grid.pressureBuffer.data[index] / grid.cellSize / grid.cellSize * 0.01;
             }
             else if(pc.renderType == 4) {
-                density = length(grid.velocityBuffer.data[index].xyz)/10.0;
+                density = length(grid.velocityBuffer.data[index].xyz)/50.0;
             }
             else if(pc.renderType == 5) {
                 density = grid.debugBuffer.data[index].x;
@@ -161,7 +161,7 @@ vec4 traceVoxels(vec3 rayOrigin, vec3 rayDir) {
                 density = ((grid.flagsBuffer.data[index] & FLAG_ACTIVE) > 0) ? 1.0 : 0.0;
             }
             else if(pc.renderType == 7) {
-                density = length(grid.vorticityBuffer.data[index].xyz)/10.0;
+                density = length(grid.vorticityBuffer.data[index].xyz)/200.0;
             }
             float contribution = abs(density) * distThroughCell * 10;
 

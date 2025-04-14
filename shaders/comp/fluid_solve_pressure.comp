@@ -17,6 +17,10 @@ layout(push_constant) uniform PushConstants {
     uint subgridLevel;
 } pc;
 
+#define BLOCK_SIZE GRID_LOCAL_SIZE_X
+#define CACHE_SIZE BLOCK_SIZE+2
+shared float sharedPressure[CACHE_SIZE][CACHE_SIZE][CACHE_SIZE];
+
 float samplePressure(WorldFlowSubGrid grid, uvec3 center, ivec3 offset)
 {
 	ivec3 cell = ivec3(center) + offset;
@@ -31,31 +35,72 @@ float samplePressure(WorldFlowSubGrid grid, uvec3 center, ivec3 offset)
 
 	return grid.pressureBuffer.data[getGridIndex(cell, grid.resolution)];
 }
+
+void loadSharedCache(uint gridIndex, ivec3 gridPos, ivec3 localPos, ivec3 coarseGridPos) {
+    // load current cell's density into cache
+	WorldFlowSubGrid grid =  wfGrid.subgrids[pc.subgridLevel].ref;
+    sharedPressure[localPos.z+1][localPos.y+1][localPos.x+1] = grid.pressureBuffer.data[gridIndex];
+    
+	// load halo boundary cells
+    for(int d = 0; d < 3; d++) {
+        bool loEdge = localPos[d] == 0;
+        bool hiEdge = localPos[d] == BLOCK_SIZE-1;
+        ivec3 offset = ivec3(0);
+        offset[d] = loEdge ? -1 : 1;
+        if(loEdge || hiEdge) {
+            ivec3 samplePos = gridPos + offset;
+            ivec3 cachePos = localPos + (ivec3(1) + offset);
+            ivec3 coarseGridSamplePos = coarseGridPos + offset;
+            sharedPressure[cachePos.z][cachePos.y][cachePos.x] = pressureBoundary(samplePos, coarseGridSamplePos, wfGrid, pc.subgridLevel);
+        }
+    }
+    barrier();
+    memoryBarrierShared();
+}
+
+
+
+
 void main()
 {
+    if(!isWorkgroupActive(wfGrid, pc.subgridLevel, gl_WorkGroupID, gl_NumWorkGroups)) {
+        return;
+    }
+
     WorldFlowSubGrid grid = wfGrid.subgrids[pc.subgridLevel].ref;
-	uvec3 center = gl_GlobalInvocationID;
-	if(!isRedBlackActive(center, pc.redBlack)){
+    uvec3 localPos = gl_LocalInvocationID;
+    uvec3 gridPos = getGridPos(wfGrid, pc.subgridLevel, gl_GlobalInvocationID, gl_LocalInvocationID, gl_WorkGroupID, gl_NumWorkGroups);
+    uint gridIndex = getGridIndex(gridPos, grid.resolution);
+    uvec3 coarseGridPos = getCoarseGridPos(gridPos, wfGrid, pc.subgridLevel);
+    loadSharedCache(gridIndex, ivec3(gridPos), ivec3(localPos), ivec3(coarseGridPos));
+
+
+	if(!isRedBlackActive(gridPos, pc.redBlack)){
 		return;
 	}
-	uint index = getGridIndex(center, grid.resolution);
 
+	float coarsePressure = 0.0;
+	if(pc.subgridLevel > 0) {
+		WorldFlowSubGrid coarseGrid = wfGrid.subgrids[pc.subgridLevel-1].ref;
+		uint coarseIndex = getCoarseGridIndex(gridPos, wfGrid, pc.subgridLevel);
+		// coarsePressure = coarseGrid.pressureBuffer.data[coarseIndex];
+	}
 
-	const float r = samplePressure(grid, center, ivec3(1, 0, 0));
-	const float l = samplePressure(grid, center, ivec3(-1, 0, 0));
-	const float u = samplePressure(grid, center, ivec3(0, 1, 0));
-	const float d = samplePressure(grid, center, ivec3(0, -1, 0));
-	const float f = samplePressure(grid, center, ivec3(0, 0, 1));
-	const float b = samplePressure(grid, center, ivec3(0, 0, -1));
+	const float r = samplePressure(grid, gridPos, ivec3(1, 0, 0));
+	const float l = samplePressure(grid, gridPos, ivec3(-1, 0, 0));
+	const float u = samplePressure(grid, gridPos, ivec3(0, 1, 0));
+	const float d = samplePressure(grid, gridPos, ivec3(0, -1, 0));
+	const float f = samplePressure(grid, gridPos, ivec3(0, 0, 1));
+	const float b = samplePressure(grid, gridPos, ivec3(0, 0, -1));
 
-	const float oldPres = grid.pressureBuffer.data[index];
-    const float newPres = (grid.divergenceBuffer.data[index] + r + l + u + d + f + b) / 6.0;
+	const float oldPres = grid.pressureBuffer.data[gridIndex];
+    const float newPres = (grid.divergenceBuffer.data[gridIndex] + r + l + u + d + f + b) / 6.0 + coarsePressure;
 
 	// SOR
 	const float result = SOR(oldPres, newPres, avg3(grid.resolution.xyx));
 	// const float result = newPres;
 
     // guarded by red-black
-    grid.pressureBuffer.data[index] = result;
+    grid.pressureBuffer.data[gridIndex] = result;
 	// atomicExchange(grid.pressureBuffer.data[index], result);
 }

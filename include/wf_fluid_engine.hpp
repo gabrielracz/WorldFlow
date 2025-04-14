@@ -112,7 +112,7 @@ private:
 	float _sourceRadius {};
 	glm::vec3 _velocitySourceAmount {};
 	float _densityAmount = 2.5f;
-	float _velocitySpeed = 100.0f;
+	float _velocitySpeed = 3.25f;
 	float _decayRate = 0.1f;
 	float _transferAlpha = 0.8f;
 	float _diffusionRate = 1.5;

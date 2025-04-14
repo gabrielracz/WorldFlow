@@ -32,19 +32,24 @@ float samplePressure(WorldFlowSubGrid grid, uvec3 center, ivec3 offset)
 
 void main()
 {
-    WorldFlowSubGrid grid = wfGrid.subgrids[pc.subgridLevel].ref;
-	uvec3 center = gl_GlobalInvocationID;
-	uint index = getGridIndex(gl_GlobalInvocationID, grid.resolution);
+    if(!isWorkgroupActive(wfGrid, pc.subgridLevel, gl_WorkGroupID, gl_NumWorkGroups)) {
+        return;
+    }
 
-	const float r = samplePressure(grid, center, ivec3(1, 0, 0));
-	const float l = samplePressure(grid, center, ivec3(-1, 0, 0));
-	const float u = samplePressure(grid, center, ivec3(0, 1, 0));
-	const float d = samplePressure(grid, center, ivec3(0, -1, 0));
-	const float f = samplePressure(grid, center, ivec3(0, 0, 1));
-	const float b = samplePressure(grid, center, ivec3(0, 0, -1));
+    WorldFlowSubGrid grid = wfGrid.subgrids[pc.subgridLevel].ref;
+    uvec3 gridPos = getGridPos(wfGrid, pc.subgridLevel, gl_GlobalInvocationID, gl_LocalInvocationID, gl_WorkGroupID, gl_NumWorkGroups);
+	uint index = getGridIndex(gridPos, grid.resolution);
+
+	const float r = samplePressure(grid, gridPos, ivec3(1, 0, 0));
+	const float l = samplePressure(grid, gridPos, ivec3(-1, 0, 0));
+	const float u = samplePressure(grid, gridPos, ivec3(0, 1, 0));
+	const float d = samplePressure(grid, gridPos, ivec3(0, -1, 0));
+	const float f = samplePressure(grid, gridPos, ivec3(0, 0, 1));
+	const float b = samplePressure(grid, gridPos, ivec3(0, 0, -1));
 	// const float c = grid.pressureBuffer.data[index];
 	const float c = 0.0;
 	const float h = grid.cellSize;
+
 
 	float gradX = 0.5 * (r - l) / h;
 	float gradY = 0.5 * (u - d) / h;

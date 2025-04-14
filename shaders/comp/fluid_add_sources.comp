@@ -79,7 +79,7 @@ void main()
         setActive = true;
     }
 
-    if(pc.subgridLevel < wfGrid.subgridCount-1 && objDist < (pc.objectRadius*2.0)) {
+    if(pc.subgridLevel < wfGrid.subgridCount-1 && objDist < (pc.objectRadius*3.0)) {
         setActive = true;
     }
 

@@ -17,9 +17,9 @@ layout(push_constant) uniform PushConstants {
     uint subgridLevel;
 } pc;
 
-vec3 traceVelocityField(vec3 pos, vec3 velocity, float dt)
+vec3 traceVelocityField(vec3 pos, vec3 velocity, float dt, float cellSize)
 {
-    return pos + (velocity * -dt);
+    return pos + (velocity/cellSize * -dt);
 }
 
 float sampleDensity(WorldFlowSubGrid grid, uvec3 center, ivec3 offset)
@@ -38,11 +38,16 @@ float sampleDensity(WorldFlowSubGrid grid, uvec3 center, ivec3 offset)
 
 void main()
 {
-    WorldFlowSubGrid grid = wfGrid.subgrids[pc.subgridLevel].ref;
-	uint index = getGridIndex(gl_GlobalInvocationID, grid.resolution);
-	vec3 pos = vec3(gl_GlobalInvocationID) + vec3(0.5, 0.5, 0.5); // center grid cell position
+    if(!isWorkgroupActive(wfGrid, pc.subgridLevel, gl_WorkGroupID, gl_NumWorkGroups)) {
+        return;
+    }
 
-	vec3 pastPos = traceVelocityField(pos, grid.velocityBuffer.data[index].xyz, pc.dt);
+    WorldFlowSubGrid grid = wfGrid.subgrids[pc.subgridLevel].ref;
+    uvec3 gridPos = getGridPos(wfGrid, pc.subgridLevel, gl_GlobalInvocationID, gl_LocalInvocationID, gl_WorkGroupID, gl_NumWorkGroups);
+	uint index = getGridIndex(gridPos, grid.resolution);
+	vec3 pos = vec3(gridPos) + 0.5;
+
+	vec3 pastPos = traceVelocityField(pos, grid.velocityBuffer.data[index].xyz, pc.dt, grid.cellSize);
 	if(any(greaterThan(pastPos, vec3(grid.resolution.xyz) - 0.5)) || any(lessThan(pastPos, vec3(0.5)))) {
 		pastPos = clamp(pastPos, vec3(0.5), vec3(grid.resolution.xyz) - 0.5);
 	}
