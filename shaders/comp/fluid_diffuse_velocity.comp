@@ -11,10 +11,10 @@ layout(std430, binding = 0) buffer WorldFlowGridBuffer {
 };
 
 layout(push_constant) uniform PushConstants {
-	float elapsed;
 	float dt;
 	uint redBlack;
     uint subgridLevel;
+	float diffusionRate;
 } pc;
 
 vec4 sampleVelocity(WorldFlowSubGrid grid, uvec3 center, ivec3 offset)
@@ -52,9 +52,8 @@ void main()
 	const vec4 b = sampleVelocity(grid, center, ivec3(0, 0, -1));
 	const vec4 c = grid.velocityBuffer.data[index];
 
-    const float diffRate =  0.000010;
 	const float N = 1.0/(grid.cellSize*grid.cellSize);
-    const float a = diffRate*pc.dt*N; 
+    const float a = pc.diffusionRate*pc.dt*N; 
 
     const vec4 newVel = (c + a*(l + r + u + d + f + b)) / (1+6*a);
 

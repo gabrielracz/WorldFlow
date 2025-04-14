@@ -15,7 +15,10 @@ layout(push_constant) uniform PushConstants {
 	float alpha;
 } pc;
 
+#define STENCIL_WIDTH 3
+#define STENCIL_SIZE STENCIL_WIDTH*STENCIL_WIDTH*STENCIL_WIDTH
 shared vec4 coarseVelocity;
+shared vec4 coarseVelocities[STENCIL_WIDTH][STENCIL_WIDTH][STENCIL_WIDTH]; // (z,y,x)
 void main()
 {
 	if(!isWorkgroupActive(wfGrid, pc.subgridLevel, gl_WorkGroupID, gl_NumWorkGroups)) {

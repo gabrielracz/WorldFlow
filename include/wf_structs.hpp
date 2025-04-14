@@ -76,6 +76,14 @@ struct alignas(16) FluidPushConstants
 	uint32_t subgridLevel;
 };
 
+struct alignas(16) DiffusionPushConstants
+{
+	float dt;
+	uint32_t redBlack;
+	uint32_t subgridLevel;
+	float diffusionRate;
+};
+
 struct alignas(16) AddFluidPropertiesPushConstants
 {
 	glm::vec4 sourcePosition;

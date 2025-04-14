@@ -16,7 +16,7 @@ namespace wf {
 struct Settings
 {
 	glm::uvec4 resolution;
-	unsigned int numGridLevels {2};
+	unsigned int numGridLevels {3};
 	uint32_t gridSubdivision {4};
 };
 
@@ -115,6 +115,7 @@ private:
 	float _velocitySpeed = 100.0f;
 	float _decayRate = 0.1f;
 	float _transferAlpha = 0.8f;
+	float _diffusionRate = 1.5;
 
 	uint32_t _diffusionIterations;
 	uint32_t _pressureIterations;

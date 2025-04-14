@@ -24,9 +24,9 @@
 namespace wf {
 namespace Constants
 {
-// constexpr glm::uvec4 VoxelGridDimensions = glm::uvec4(32, 16, 32, 1);
+constexpr glm::uvec4 VoxelGridDimensions = glm::uvec4(32, 16, 32, 1);
 // constexpr glm::uvec4 VoxelGridDimensions = glm::uvec4(64, 32, 64, 1);
-constexpr glm::uvec4 VoxelGridDimensions = glm::uvec4(128, 64, 128, 1);
+// constexpr glm::uvec4 VoxelGridDimensions = glm::uvec4(128, 64, 128, 1);
 // constexpr glm::uvec4 VoxelGridDimensions = glm::uvec4(256, 128, 256, 1);
 // constexpr glm::uvec4 VoxelGridDimensions = glm::uvec4(512, 128, 128, 1);
 constexpr size_t VoxelGridResolution = VoxelGridDimensions.x/4;
@@ -211,10 +211,11 @@ WorldFlow::diffuseVelocity(VkCommandBuffer cmd, float dt)
 		this->_computeDiffuseVelocity.Bind(cmd);
 		for(uint32_t i = 0; i < this->_diffusionIterations; i++) {
 			if(s != 0) break;
-			FluidPushConstants pc = {
-				.time = this->_renderer.GetElapsedTime(),
+			DiffusionPushConstants pc = {
 				.dt = dt,
-				.redBlack = ((i+1) % 2)
+				.redBlack = ((i+1) % 2),
+				.subgridLevel = s,
+				.diffusionRate = this->_diffusionRate * 10e-5f
 			};
 			vkCmdPushConstants(cmd, this->_computeDiffuseVelocity.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(pc), &pc);
 			
@@ -238,11 +239,11 @@ WorldFlow::diffuseDensity(VkCommandBuffer cmd, float dt)
 		SubGrid& sg = this->_grid.subgrids[s];
 		this->_computeDiffuseDensity.Bind(cmd);
 		for(uint32_t i = 0; i < this->_diffusionIterations; i++) {
-			FluidPushConstants pc = {
-				.time = this->_renderer.GetElapsedTime(),
+			DiffusionPushConstants pc = {
 				.dt = dt,
 				.redBlack = ((i+1) % 2),
-				.subgridLevel = s
+				.subgridLevel = s,
+				.diffusionRate = this->_diffusionRate * 10e-5f
 			};
 			vkCmdPushConstants(cmd, this->_computeDiffuseDensity.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(pc), &pc);
 
@@ -589,7 +590,8 @@ WorldFlow::drawUI()
 	ImGui::End();
 
 	if(ImGui::Begin("parameters", nullptr)) {
-		ImGui::DragFloat("alpha", &this->_transferAlpha, 0.01f);
+		ImGui::DragFloat("diffusionRate", &this->_diffusionRate, 0.01f);
+		ImGui::DragFloat("transferAlpha", &this->_transferAlpha, 0.01f);
 	}
 	ImGui::End();
 }
@@ -853,12 +855,13 @@ WorldFlow::initPipelines()
 	this->_renderer.CreateComputePipeline(this->_computeDiffuseVelocity, SHADER_DIRECTORY"/fluid_diffuse_velocity.comp.spv", {
 		BufferDescriptor(0, 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, this->_grid.buffWorldFlowGridGpu.bufferHandle, sizeof(WorldFlowGridGpu)),
 	},
-	sizeof(FluidPushConstants));
+	sizeof(DiffusionPushConstants));
 
 	this->_renderer.CreateComputePipeline(this->_computeDiffuseDensity, SHADER_DIRECTORY"/fluid_diffuse_density_shared.comp.spv", {
 		BufferDescriptor(0, 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, this->_grid.buffWorldFlowGridGpu.bufferHandle, sizeof(WorldFlowGridGpu)),
 	},
-	sizeof(FluidPushConstants));
+	sizeof(DiffusionPushConstants));
+
 	this->_renderer.CreateComputePipeline(this->_computeAdvectVelocity, SHADER_DIRECTORY"/fluid_advect_velocity.comp.spv", {
 		BufferDescriptor(0, 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, this->_grid.buffWorldFlowGridGpu.bufferHandle, sizeof(WorldFlowGridGpu)),
 	},
