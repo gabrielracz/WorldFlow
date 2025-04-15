@@ -28,6 +28,7 @@ layout(push_constant) uniform constants {
     vec4 lightSource;        
     vec4 baseColor;        
     int renderType;
+    uint rootGridLevel;
     uint subgridLimit;
 } pc;
 
@@ -71,7 +72,7 @@ vec4 lighting(vec4 pixel, vec3 lightvec, vec3 norm) {
 }
 
 vec4 traceVoxels(vec3 rayOrigin, vec3 rayDir) {
-    WorldFlowSubGrid rootGrid = wfGrid.subgrids[0].ref;
+    WorldFlowSubGrid rootGrid = wfGrid.subgrids[pc.rootGridLevel].ref;
     vec4 accumColor = vec4(0.0);
     // Calculate world-space dimensions of the grid
     vec3 worldSize = rootGrid.resolution.xyz * rootGrid.cellSize;
@@ -118,7 +119,7 @@ vec4 traceVoxels(vec3 rayOrigin, vec3 rayDir) {
     // Main ray traversal loop
     // ivec3 prevMapPos = mapPos;
     vec3 prevPos = pos;
-    uint subgridLevel = 0;
+    uint subgridLevel = pc.rootGridLevel;
     vec3 crossingAxis = tMaxAxis;
     float distThroughCell = rootGrid.cellSize;
     for (int i = 0; i < pc.maxDistance*4; i++) {
@@ -180,8 +181,7 @@ vec4 traceVoxels(vec3 rayOrigin, vec3 rayDir) {
             voxelColor.rgb *= voxelColor.a;
             accumColor += voxelColor * (1.0 - accumColor.a);
             if (accumColor.a > 0.99) break;
-        } else {
-            missteps += 1;
+        } else if(missteps++ > 1) {
             break;
         }
 
@@ -258,7 +258,7 @@ vec4 traceVoxels(vec3 rayOrigin, vec3 rayDir) {
                     tMaxAxis[i] = (worldBoundary - rayOrigin[i]) / rayDir[i];
                 }
             }
-        } else if (subgridLevel > 0) {
+        } else if (subgridLevel > pc.rootGridLevel) {
             // Check if we should move back to the coarser grid
             WorldFlowSubGrid currentGrid = wfGrid.subgrids[subgridLevel].ref;
             WorldFlowSubGrid coarserGrid = wfGrid.subgrids[subgridLevel - 1].ref;

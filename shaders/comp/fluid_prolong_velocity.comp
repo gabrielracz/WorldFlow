@@ -46,21 +46,11 @@ void main()
 	// vec4 fineVelocity = workGroupSum(velocity, gl_LocalInvocationIndex);
 
 	// load a complete 27-point coarse stencil for interpolation
-	// WorldFlowSubGrid cg = wfGrid.subgrids[pc.subgridLevel-1].ref;
 	uvec3 coarseGridPos = getCoarseGridPos(gridPos, wfGrid, pc.subgridLevel);
-	// uint coarseIndex = getCoarseGridIndex(gridPos, wfGrid, pc.subgridLevel);
-	// cg.debugBuffer.data[coarseIndex] = vec4(1.0);
-
-	// vec4 crs = cg.velocityBuffer.data[coarseIndex];
-	// vec4 nv = mix(velocity, crs, pc.alpha);
-	// grid.velocityBuffer.data[index] = nv;
-	// return;
 	loadCoarseVelocityStencil(gl_LocalInvocationIndex, ivec3(coarseGridPos));
 
 	// Calculate relative position of fine cell within its parent coarse cell
 	vec3 coarseRelativePos = fract(vec3(gridPos) * 0.25) + 0.125;
-
-	// grid.debugBuffer.data[index] = vec4(coarseRelativePos, 1.0);
 
 	ivec3 center = ivec3(1);
     int i = (coarseRelativePos.x < 0.5) ? -1 : 1;
@@ -78,20 +68,18 @@ void main()
 	vec4 c011 = coarseVelocities[center.z + k][center.y + j][center.x    ];
 	vec4 c111 = coarseVelocities[center.z + k][center.y + j][center.x + i];
 
-    // vec3 weights;
-    // weights.x = (coarseRelativePos.x < 0.5) ? (0.5 - coarseRelativePos.x) : (coarseRelativePos.x - 0.5);
-    // weights.y = (coarseRelativePos.y < 0.5) ? (0.5 - coarseRelativePos.y) : (coarseRelativePos.y - 0.5);
-    // weights.z = (coarseRelativePos.z < 0.5) ? (0.5 - coarseRelativePos.z) : (coarseRelativePos.z - 0.5);
-	
-    // // Normalize weights to [0,1] range
-    // weights *= 2.0;
-
 	// Calculate interpolation weights
 	// Map from [0,0.5] or [0.5,1] to [0,1]
+
+	vec3 cp = coarseRelativePos;
 	vec3 weights;
-	weights.x = fract(coarseRelativePos.x * 2.0);
-	weights.y = fract(coarseRelativePos.y * 2.0);
-	weights.z = fract(coarseRelativePos.z * 2.0);
+	weights.x = (cp.x < 0.5) ? 1.0 - cp.x : cp.x;
+	weights.y = (cp.x < 0.5) ? 1.0 - cp.y : cp.y;
+	weights.z = (cp.x < 0.5) ? 1.0 - cp.z : cp.z;
+
+	// weights.x = fract(coarseRelativePos.x * 2.0);
+	// weights.y = fract(coarseRelativePos.y * 2.0);
+	// weights.z = fract(coarseRelativePos.z * 2.0);
 
 	// Perform trilinear interpolation
 	vec4 interpolatedVelocity = triInterp(c000, c100, c010, c110, c001, c101, c011, c111, weights);
@@ -100,8 +88,8 @@ void main()
 	// float residual = coarseDensity - fineDensity;
 	// float numFineCells = gl_WorkGroupSize.x * gl_WorkGroupSize.y * gl_WorkGroupSize.z;
 	// // float newDensity = density + (residual/numFineCells); 
-	vec4 cv = coarseVelocities[1][1][1];
-	// vec4 cv = interpolatedVelocity;
+	// vec4 cv = coarseVelocities[1][1][1];
+	vec4 cv = interpolatedVelocity;
 	// vec4 cv = coarseVelocity;
 	vec4 newVelocity = mix(velocity, cv, pc.alpha);
 

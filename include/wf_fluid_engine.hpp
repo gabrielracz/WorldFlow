@@ -73,6 +73,7 @@ private:
 	void advectDensity(VkCommandBuffer cmd, float dt);
 	void prolongDensity(VkCommandBuffer cmd, uint32_t coarseGridLevel);
 	void prolongVelocity(VkCommandBuffer cmd, uint32_t coarseGridLevel);
+	void restrictVelocities(VkCommandBuffer cmd);
 	void renderVoxelVolume(VkCommandBuffer cmd);
 	void renderMesh(VkCommandBuffer cmd, Mesh& mesh, const glm::mat4& transform = glm::mat4());
 	void renderParticles(VkCommandBuffer cmd, float dt);
@@ -114,12 +115,16 @@ private:
 	float _densityAmount = 2.5f;
 	float _velocitySpeed = 3.25f;
 	float _decayRate = 0.1f;
-	float _transferAlpha = 0.8f;
+	float _transferAlpha = 0.4f;
+	float _restrictionAlpha = 0.4f;
 	float _diffusionRate = 1.5;
+	float _activationThreshold = 1.5f;
+	uint32_t _rendererSubgridBegin = 0;
 	uint32_t _rendererSubgridLimit = Constants::MAX_SUBGRID_LEVELS;
 
 	uint32_t _diffusionIterations;
 	uint32_t _pressureIterations;
+	uint32_t _iterationSubgridFactor = 1;
 	uint32_t _advectionIterations;
 	// std::vector<uint64_t> _timestamps;
 	TimestampQueryPool _timestamps;
@@ -143,6 +148,7 @@ private:
 	ComputePipeline _computeRaycastVoxelGrid;
 	ComputePipeline _computeProlongDensity;
 	ComputePipeline _computeProlongVelocity;
+	ComputePipeline _computeRestrictVelocity;
 
 	// Buffer _buffFluidGrid;
 	// Buffer _buffFluidInfo;

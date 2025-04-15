@@ -16,7 +16,6 @@ layout(push_constant) uniform PushConstants {
 } pc;
 
 shared float coarseDensity;
-shared vec4 coarseVelocity;
 void main()
 {
 	if(!isWorkgroupActive(wfGrid, pc.subgridLevel, gl_WorkGroupID, gl_NumWorkGroups)) {
@@ -42,11 +41,22 @@ void main()
 	memoryBarrierShared();
 
 	// average the residual across this block of fine cells
-	float residual = coarseDensity - fineDensity;
+	// float residual = coarseDensity - fineDensity;
 	float numFineCells = gl_WorkGroupSize.x * gl_WorkGroupSize.y * gl_WorkGroupSize.z;
 	// float newDensity = density + (residual/numFineCells); 
-	float newDensity = mix(density, coarseDensity, pc.alpha);
+	// float newDensity = mix(density, coarseDensity, pc.alpha);
 	// float newDensity = coarseDensity;
+
+	// Calculate the residual between coarse and fine density
+	float residual = coarseDensity - (fineDensity/numFineCells);
+
+	// Create an adaptive alpha that scales with the magnitude of the residual
+	float residualThreshold = 0.5;
+	float residualMagnitude = abs(residual);
+	float adaptiveAlpha = pc.alpha * smoothstep(0.0, residualThreshold, residualMagnitude);
+
+	// Apply prolongation with adaptive strength
+	float newDensity = density + (residual * adaptiveAlpha);
 
 	grid.densityBuffer.data[index] = newDensity;
 }

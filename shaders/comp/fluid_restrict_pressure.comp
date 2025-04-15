@@ -1,0 +1,41 @@
+#version 460
+#extension GL_GOOGLE_include_directive : enable
+#extension GL_EXT_shader_atomic_float : enable
+#include "../common/grid.comp"
+#include "../common/utils.comp"
+
+layout(local_size_x = GRID_LOCAL_SIZE_X, local_size_y = GRID_LOCAL_SIZE_Y, local_size_z = GRID_LOCAL_SIZE_Z) in;
+
+layout(std430, binding = 0) buffer WorldFlowGridBuffer {
+	WorldFlowGrid wfGrid;
+};
+
+layout(push_constant) uniform PushConstants {
+    uint subgridLevel;
+	float alpha;
+} pc;
+
+void main()
+{
+	if(!isWorkgroupActive(wfGrid, pc.subgridLevel, gl_WorkGroupID, gl_NumWorkGroups)) {
+        return;
+    }
+
+    WorldFlowSubGrid grid = wfGrid.subgrids[pc.subgridLevel].ref;
+    uvec3 gridPos = getGridPos(wfGrid, pc.subgridLevel, gl_GlobalInvocationID, gl_LocalInvocationID, gl_WorkGroupID, gl_NumWorkGroups);
+	uint index = getGridIndex(gridPos, grid.resolution);
+	float pressure = grid.pressureBuffer.data[index];
+
+	float fineBlockPressure = workGroupSum(pressure, gl_LocalInvocationIndex);
+	float avgPressure = fineBlockPressure / productU3(gl_WorkGroupSize);
+
+	if(gl_LocalInvocationIndex != 0) return; // you've done your job
+
+	// WorldFlowSubGrid coarseGrid = wfGrid.subgrids[pc.subgridLevel-1].ref;
+	// uint coarseIndex = getCoarseGridIndex(gridPos, wfGrid, pc.subgridLevel);
+
+	// float  = coarseGrid.velocityBuffer.data[coarseIndex];
+	// vec4 blendedVelocity = mix(coarseVelocity, avgVelocity, pc.alpha);
+
+	// coarseGrid.velocityBuffer.data[coarseIndex] = blendedVelocity;
+}

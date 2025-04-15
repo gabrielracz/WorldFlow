@@ -25,6 +25,7 @@ layout(push_constant) uniform PushConstants {
 	float decayRate;
 	int clear;
     uint subgridLevel;
+    float activationThreshold;
 } pc;
 
 float manhattanDistance(vec3 p1, vec3 p2) {
@@ -47,14 +48,18 @@ void main()
     uint index = getGridIndex(gridPos, grid.resolution);
     uint coarseIndex = getCoarseGridIndex(gridPos, wfGrid, pc.subgridLevel);
 
-    bool parentWasDeactivated = pc.subgridLevel > 0 && (coarseGrid.flagsBuffer.data[getCoarseGridIndex(gridPos, wfGrid, pc.subgridLevel)] & FLAG_DEACTIVED) > 0;
-    parentWasDeactivated = false;
+    bool parentWasDeactivated = pc.subgridLevel > 0 && (coarseGrid.flagsBuffer.data[coarseIndex] & FLAG_DEACTIVED) > 0;
 	if(pc.clear > 0 || parentWasDeactivated) {
         clearGridCell(grid, index);
-        // grid.debugBuffer.data[index] = vec4(0.4);
+        grid.debugBuffer.data[index] = vec4(0.4);
         if(parentWasDeactivated)grid.flagsBuffer.data[index] |= FLAG_DEACTIVED;
 		return;
 	}
+
+    bool parentIsNew = pc.subgridLevel > 0 && (coarseGrid.flagsBuffer.data[coarseIndex] & FLAG_NEW) > 0;
+    if(parentIsNew) {
+        copyGridCell(coarseGrid, grid, coarseIndex, index);
+    }
 
     grid.flagsBuffer.data[index] &= ~FLAG_TRANSIENTS;
     grid.pressureBuffer.data[index] = 0.0;
@@ -90,29 +95,33 @@ void main()
     //    setActive = true;
     // }
 
-    float vorticityThreshold = 0.8;
-    if(pc.subgridLevel < wfGrid.subgridCount-1 && length(grid.vorticityBuffer.data[index].xyz) > vorticityThreshold) {
+    float activationScore = (length(grid.vorticityBuffer.data[index].xyz) + 
+                             1*abs(grid.densityBuffer.data[index]) +
+                             length(grid.velocityBuffer.data[index].xyz)) / (pc.subgridLevel+1);
+    if(pc.subgridLevel < wfGrid.subgridCount-1 && activationScore > pc.activationThreshold) {
         setActive = true;
     }
 
     if(setActive) {
         if(pc.subgridLevel == 0) {
-            grid.flagsBuffer.data[index] |= FLAG_ACTIVE;
+            grid.flagsBuffer.data[index] |= FLAG_ACTIVE | FLAG_NEW;
         }
         else {
-            // WorldFlowSubGrid cg = wfGrid.subgrids[pc.subgridLevel-1].ref;
-            // if((cg.flagsBuffer.data[coarseIndex] & FLAG_ACTIVE) > 0) {
-                grid.flagsBuffer.data[index] |= FLAG_ACTIVE;
-            // }
+            WorldFlowSubGrid cg = wfGrid.subgrids[pc.subgridLevel-1].ref;
+            if((cg.flagsBuffer.data[coarseIndex] & FLAG_ACTIVE) > 0) {
+                grid.flagsBuffer.data[index] |= FLAG_ACTIVE | FLAG_NEW;
+            } else {
+                grid.flagsBuffer.data[index] |= FLAG_DEACTIVED;
+                grid.flagsBuffer.data[index] &= ~FLAG_ACTIVE;
+            }
         }
-    // } else if ((grid.flagsBuffer.data[index] & FLAG_ACTIVE) > 0){
     } else {
-        grid.flagsBuffer.data[index] |= FLAG_DEACTIVED;
         grid.flagsBuffer.data[index] &= ~FLAG_ACTIVE;
+        grid.flagsBuffer.data[index] |= FLAG_DEACTIVED;
     }
 
     if(pc.subgridLevel > 0) {
-        grid.debugBuffer.data[index] = vec4(0.75);
+        // grid.debugBuffer.data[index] = vec4(0.25) * pc.subgridLevel;
     }
 
     grid.densityBuffer.data[index] *= exp(-pc.decayRate * pc.dt);

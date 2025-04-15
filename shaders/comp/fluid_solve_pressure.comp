@@ -63,13 +63,6 @@ void main()
 		return;
 	}
 
-	float coarsePressure = 0.0;
-	if(pc.subgridLevel > 0) {
-		WorldFlowSubGrid coarseGrid = wfGrid.subgrids[pc.subgridLevel-1].ref;
-		uint coarseIndex = getCoarseGridIndex(gridPos, wfGrid, pc.subgridLevel);
-		// coarsePressure = coarseGrid.pressureBuffer.data[coarseIndex];
-	}
-
     uvec3 cachePos = localPos + uvec3(1); // offset because of halo
     float r = sharedPressure[cachePos.z][cachePos.y][cachePos.x + 1];
     float l = sharedPressure[cachePos.z][cachePos.y][cachePos.x - 1];
@@ -79,10 +72,11 @@ void main()
     float b = sharedPressure[cachePos.z - 1][cachePos.y][cachePos.x];
 
 	const float oldPres = grid.pressureBuffer.data[gridIndex];
-    const float newPres = (grid.divergenceBuffer.data[gridIndex] + r + l + u + d + f + b) / 6.0 + coarsePressure;
+    const float newPres = (grid.divergenceBuffer.data[gridIndex] + r + l + u + d + f + b) / 6.0;
 
 	// SOR
 	const float result = SOR(oldPres, newPres, avg3(grid.resolution.xyx));
+	// const float result = SOR(oldPres, newPres, 1.7);
 	// const float result = newPres;
 
     // guarded by red-black
