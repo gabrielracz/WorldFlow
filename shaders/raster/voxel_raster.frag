@@ -35,6 +35,8 @@ void main()
 {
     WorldFlowSubGrid grid = wfGrid.subgrids[0].ref;
     // uint d = uint(gridDimensions.x) - 1;
+    // vec2 uv = gl_FragCoord.xy / maxDim;
+    // vec2 boxCoord = uv * boxSize.xy; // Depends on projection plane
 
     vec3 temp = vec3(gl_FragCoord.xy, ((gl_FragCoord.z)) * (grid.resolution.z));
     vec3 pos = vec3(0.0);

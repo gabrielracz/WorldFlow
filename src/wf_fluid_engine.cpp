@@ -55,7 +55,7 @@ constexpr glm::vec4 LightPosition = glm::vec4(500.0, 500.0, 400, 1.0);
 constexpr uint32_t NumParticles = 65536;
 constexpr float MaxParticleLifetime = 240.0;
 
-const std::string MeshFile = ASSETS_DIRECTORY"/meshes/glider.glb";
+const std::string MeshFile = ASSETS_DIRECTORY"/meshes/monkey.glb";
 }
 
 /* FUNCTIONS */
@@ -129,7 +129,7 @@ WorldFlow::update(VkCommandBuffer cmd, float dt)
 	if(this->_shouldRenderFluid)
 		renderVoxelVolume(cmd);
 
-	// renderMesh(cmd, this->_objMeshes[0]);
+	renderMesh(cmd, this->_objMeshes[0]);
 	voxelRasterizeGeometry(cmd, this->_objMeshes[0]);
 
 	this->_timestamps.write(cmd, Timestamps::FluidRender, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);

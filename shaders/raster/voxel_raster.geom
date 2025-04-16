@@ -31,7 +31,7 @@ int getDominantAxisIndex(vec3 normal)
     else return 2; // z-axis
 }
 
-vec4 orthographicProjection(vec3 position, int axisIndex)
+vec4 orthographicProjection(vec4 position, int axisIndex)
 {
     mat4 mvpx = mat4(
         0.000000, 0.000000, 1.000000, 0.000000,
@@ -56,7 +56,7 @@ vec4 orthographicProjection(vec3 position, int axisIndex)
     else if(axisIndex == 1) proj = mvpy;
     else proj = mvpz;
 
-    return proj * vec4(position, 1.0);
+    return proj * position;
 }
 
 
@@ -64,8 +64,20 @@ void main() {
     vec3 normal = normalize(inNormal[0] + inNormal[1] + inNormal[2]);
     int dominantAxisIndex = getDominantAxisIndex(normal);
 
+    vec3 res = vec3(wfGrid.subgrids[0].ref.resolution.xyz);
+    float maxDim = max(max(res.x, res.y), res.z);
+    vec3 scaleFactor = maxDim/res;
+
+    mat4 scale = mat4(
+        scaleFactor.x, 0.0, 0.0, 0.0,
+        0.0, scaleFactor.y, 0.0, 0.0,
+        0.0, 0.0, scaleFactor.z, 0.0,
+        0.0, 0.0, 0.0, 1.0
+    );
+
     for (int i = 0; i < 3; i++) {
-        vec3 pos = gl_in[i].gl_Position.xyz;
+        vec4 pos = vec4(gl_in[i].gl_Position.xyz, 1.0);
+        pos = scale * pos;
         vec4 outPosition = orthographicProjection(pos, dominantAxisIndex);
         // vec4 outPosition = vec4(pos, 1.0);
         outPosition.z = ((outPosition.z + 1.0) / 2.0); // fix to range 0 - 1.0
