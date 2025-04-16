@@ -5,6 +5,7 @@
 #include "renderer_structs.hpp"
 #include "vma.hpp"
 #include "buffer.hpp"
+#include "image.hpp"
 
 #include <atomic>
 
@@ -16,7 +17,7 @@ namespace wf {
 struct Settings
 {
 	glm::uvec4 resolution;
-	unsigned int numGridLevels {2};
+	unsigned int numGridLevels {1};
 	uint32_t gridSubdivision {4};
 };
 
@@ -68,14 +69,15 @@ private:
 	void advectVelocity(VkCommandBuffer cmd, float dt);
 	void computeDivergence(VkCommandBuffer cmd);
 	void solvePressure(VkCommandBuffer cmd);
-	void projectIncompressible(VkCommandBuffer cmd);
+	void projectIncompressible(VkCommandBuffer cmd, float dt);
 	void diffuseDensity(VkCommandBuffer cmd, float dt);
 	void advectDensity(VkCommandBuffer cmd, float dt);
 	void prolongDensity(VkCommandBuffer cmd, uint32_t coarseGridLevel);
 	void prolongVelocity(VkCommandBuffer cmd, uint32_t coarseGridLevel);
 	void restrictVelocities(VkCommandBuffer cmd);
 	void renderVoxelVolume(VkCommandBuffer cmd);
-	void renderMesh(VkCommandBuffer cmd, Mesh& mesh, const glm::mat4& transform = glm::mat4());
+	void renderMesh(VkCommandBuffer cmd, Mesh& mesh, const glm::mat4& transform = glm::mat4(1.0f));
+	void voxelRasterizeGeometry(VkCommandBuffer cmd, Mesh& mesh);
 	void renderParticles(VkCommandBuffer cmd, float dt);
 	void generateGridLines(VkCommandBuffer cmd);
 	void drawGrid(VkCommandBuffer cmd);
@@ -117,8 +119,9 @@ private:
 	float _decayRate = 0.1f;
 	float _transferAlpha = 0.4f;
 	float _restrictionAlpha = 0.4f;
-	float _diffusionRate = 1.5;
+	float _diffusionRate = 1.5f;
 	float _activationThreshold = 1.5f;
+	float _fluidDensity = 0.1f;
 	uint32_t _rendererSubgridBegin = 0;
 	uint32_t _rendererSubgridLimit = Constants::MAX_SUBGRID_LEVELS;
 
@@ -131,6 +134,7 @@ private:
 	std::vector<float> _timestampAverages;
 
 	GraphicsPipeline _graphicsRenderMesh;
+	GraphicsPipeline _graphicsVoxelRaster;
 	GraphicsPipeline _graphicsParticles;
 	GraphicsPipeline _graphicsGridLines;
 
@@ -150,15 +154,15 @@ private:
 	ComputePipeline _computeProlongVelocity;
 	ComputePipeline _computeRestrictVelocity;
 
-	// Buffer _buffFluidGrid;
-	// Buffer _buffFluidInfo;
 	Buffer _buffParticles;
 	Buffer _buffStaging;
 	Buffer _buffGridLines;
+	Image _voxelImage;
 	
 	Grid _grid {};
 
 	Mesh _gridMesh;
+	std::vector<Mesh> _objMeshes;
 };
 }
 #endif

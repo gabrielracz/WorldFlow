@@ -1,5 +1,6 @@
 #version 450
-#extension GL_EXT_buffer_reference : require
+#extension GL_GOOGLE_include_directive : enable
+#include "../common/grid.comp"
 
 struct Vertex {
 	vec3 position;
@@ -13,14 +14,18 @@ layout(buffer_reference, std430) readonly buffer VertexBuffer {
 	Vertex vertices[];
 };
 
+layout(std430, binding = 0) buffer WorldFlowGridBuffer {
+	WorldFlowGrid wfGrid;
+};
+
 layout (location = 0) out vec3 outColor;
 layout (location = 1) out vec2 outUV;
 layout (location = 2) out vec3 outNormal;
 
 layout(push_constant) uniform PushConstants {
 	mat4 transform;
-	VertexBuffer vertexBuffer; //uint64_t handle due to the definition above
-    uint padding[2];
+	VertexBuffer vertexBuffer;
+    uint64_t padding;
 } pc;
 
 void main() 

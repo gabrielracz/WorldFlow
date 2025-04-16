@@ -1,12 +1,17 @@
 #version 450
+#extension GL_GOOGLE_include_directive : enable
+#include "../common/grid.comp"
 
 layout(triangles) in;
 layout(triangle_strip, max_vertices=3) out;
 
+layout(std430, binding = 0) buffer WorldFlowGridBuffer {
+	WorldFlowGrid wfGrid;
+};
+
 layout (location = 0) in vec3 inColor[]; 
 layout (location = 1) in vec2 inUV[];    
 layout (location = 2) in vec3 inNormal[];
-
 
 layout (location = 0) out vec3 outColor;                       
 layout (location = 1) out vec2 outUV;                       
@@ -43,7 +48,7 @@ vec4 orthographicProjection(vec3 position, int axisIndex)
     mat4 mvpz = mat4(
         1.000000, 0.000000, 0.000000, 0.000000,
         0.000000, 1.000000, 0.000000, 0.000000,
-        0.000000, 0.000000, 1.000000, 0.000000,
+        0.000000, 0.000000, -1.000000, 0.000000,
         0.000000, 0.000000, 0.000000, 1.000000);
 
     mat4 proj;
@@ -62,6 +67,7 @@ void main() {
     for (int i = 0; i < 3; i++) {
         vec3 pos = gl_in[i].gl_Position.xyz;
         vec4 outPosition = orthographicProjection(pos, dominantAxisIndex);
+        // vec4 outPosition = vec4(pos, 1.0);
         outPosition.z = ((outPosition.z + 1.0) / 2.0); // fix to range 0 - 1.0
         gl_Position = outPosition;
         outDepth = outPosition.z;

@@ -11,29 +11,14 @@ layout(std430, binding = 0) buffer WorldFlowGridBuffer {
 };
 
 layout(push_constant) uniform PushConstants {
-	float elapsed;
 	float dt;
-	uint redBlack;
     uint subgridLevel;
+    float fluidDensity;
 } pc;
 
 #define BLOCK_SIZE GRID_LOCAL_SIZE_X
 #define CACHE_SIZE BLOCK_SIZE+2
 shared float sharedPressure[CACHE_SIZE][CACHE_SIZE][CACHE_SIZE];
-
-// float samplePressure(WorldFlowSubGrid grid, uvec3 center, ivec3 offset)
-// {
-// 	ivec3 cell = ivec3(center) + offset;
-// 	bvec3 ge = greaterThanEqual(cell, ivec3(0));
-// 	bvec3 le = lessThan(cell, ivec3(grid.resolution.xyz));
-// 	bool valid = all(ge) && all(le);
-// 	if(!valid) {return grid.pressureBuffer.data[getGridIndex(center, grid.resolution)];}
-
-// 	bool occ = (grid.flagsBuffer.data[getGridIndex(cell, grid.resolution)] & FLAG_OCCUPIED) > 0;
-// 	if(occ) {return 0.0;}
-// 	// if(!valid) {return 0.0;}
-// 	return grid.pressureBuffer.data[getGridIndex(cell, grid.resolution)];
-// }
 
 void loadSharedCache(uint gridIndex, ivec3 gridPos, ivec3 localPos, ivec3 coarseGridPos) {
     // load current cell's value into cache
@@ -82,10 +67,16 @@ void main()
     // float c = sharedPressure[cachePos.z][cachePos.y][cachePos.x];
 	const float h = grid.cellSize;
 
-	float gradX = 0.5 * (r - l) / h;
-	float gradY = 0.5 * (u - d) / h;
-	float gradZ = 0.5 * (f - b) / h;
+    vec3 pressureGrad = vec3(
+        0.5 * (r - l),
+        0.5 * (u - d),
+        0.5 * (f - b)
+    ) / h;
 
-	vec4 newVelocity = grid.velocityBuffer.data[gridIndex] - vec4(gradX, gradY, gradZ, 0.0);
+    const float fluidDensity = 0.05;
+    float scale = pc.dt / pc.fluidDensity;
+    // float scale = 1.0;
+
+	vec4 newVelocity = grid.velocityBuffer.data[gridIndex] - (vec4(pressureGrad, 0.0));
 	grid.velocityBuffer.data[gridIndex] = vec4(newVelocity.xyz, 1.0);
 }

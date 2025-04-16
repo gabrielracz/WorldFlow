@@ -310,7 +310,7 @@ vec4 velocityBoundary(ivec3 samplePos, ivec3 coarseGridSamplePos, WorldFlowGrid 
     if(subgridLevel > 0) {
         WorldFlowSubGrid coarseGrid = wfGrid.subgrids[subgridLevel-1].ref;
         if(!isWithinGridBounds(coarseGridSamplePos, coarseGrid.resolution)) { // should never happen with complete coverage subgrids
-            // return edgeFallback;
+            return edgeFallback;
         }
         uint coarseIndex = getGridIndex(coarseGridSamplePos, coarseGrid.resolution);
         if((coarseGrid.flagsBuffer.data[coarseIndex] & FLAG_ACTIVE) == 0) {

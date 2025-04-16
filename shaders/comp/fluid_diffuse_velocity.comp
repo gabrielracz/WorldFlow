@@ -38,8 +38,6 @@ vec4 sampleVelocity(WorldFlowSubGrid grid, uvec3 center, ivec3 offset)
 	return grid.velocityBuffer.data[getGridIndex(cell, grid.resolution)];
 }
 
-
-
 void main()
 {
     WorldFlowSubGrid grid = wfGrid.subgrids[pc.subgridLevel].ref;

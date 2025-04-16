@@ -19,6 +19,7 @@
 #include <vulkan/vulkan_core.h>
 
 #include "vk_initializers.h"
+#include "vk_loader.h"
 
 namespace wf {
 namespace Constants
@@ -26,11 +27,12 @@ namespace Constants
 
 // constexpr glm::uvec4 VoxelGridDimensions = glm::uvec4(16, 8, 16, 1);
 // constexpr glm::uvec4 VoxelGridDimensions = glm::uvec4(32, 16, 32, 1);
-constexpr glm::uvec4 VoxelGridDimensions = glm::uvec4(64, 32, 64, 1);
-// constexpr glm::uvec4 VoxelGridDimensions = glm::uvec4(128, 64, 128, 1);
+// constexpr glm::uvec4 VoxelGridDimensions = glm::uvec4(64, 32, 64, 1);
+constexpr glm::uvec4 VoxelGridDimensions = glm::uvec4(128, 64, 128, 1);
 // constexpr glm::uvec4 VoxelGridDimensions = glm::uvec4(160, 80, 160, 1);
 // constexpr glm::uvec4 VoxelGridDimensions = glm::uvec4(256, 128, 256, 1);
 // constexpr glm::uvec4 VoxelGridDimensions = glm::uvec4(512, 128, 512, 1);
+
 constexpr size_t VoxelGridResolution = VoxelGridDimensions.x/4;
 
 const uint32_t NumVoxelGridCells = VoxelGridDimensions.x * VoxelGridDimensions.y * VoxelGridDimensions.z;
@@ -52,6 +54,8 @@ constexpr glm::vec4 LightPosition = glm::vec4(500.0, 500.0, 400, 1.0);
 
 constexpr uint32_t NumParticles = 65536;
 constexpr float MaxParticleLifetime = 240.0;
+
+const std::string MeshFile = ASSETS_DIRECTORY"/meshes/glider.glb";
 }
 
 /* FUNCTIONS */
@@ -64,8 +68,9 @@ rollingAverage(float& currentValue, float newValue) {
 /* CLASS */
 WorldFlow::WorldFlow(Renderer& renderer, Settings settings)
 	: _renderer(renderer), _settings(settings), _diffusionIterations(Constants::NumDiffusionIterations), _pressureIterations(Constants::NumPressureIterations),
-	  _advectionIterations(Constants::NumAdvectionIterations), _rendererSubgridLimit(settings.numGridLevels-1), _grid{.numSubgrids = settings.numGridLevels} {
-}
+	  _advectionIterations(Constants::NumAdvectionIterations), _rendererSubgridLimit(settings.numGridLevels-1), _grid{.numSubgrids = settings.numGridLevels},
+	  _objMeshes(10) 
+	  {}
 
 WorldFlow::~WorldFlow() {}
 
@@ -109,7 +114,7 @@ WorldFlow::update(VkCommandBuffer cmd, float dt)
 		computeDivergence(cmd);
 		solvePressure(cmd);
 		if(this->_shouldProjectIncompressible)
-			projectIncompressible(cmd);
+			projectIncompressible(cmd, dt);
 		this->_timestamps.write(cmd, Timestamps::PressureSolve, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
 
 		restrictVelocities(cmd);
@@ -123,8 +128,10 @@ WorldFlow::update(VkCommandBuffer cmd, float dt)
 
 	if(this->_shouldRenderFluid)
 		renderVoxelVolume(cmd);
-	// drawGrid(cmd);
-	// renderParticles(cmd, dt);
+
+	// renderMesh(cmd, this->_objMeshes[0]);
+	voxelRasterizeGeometry(cmd, this->_objMeshes[0]);
+
 	this->_timestamps.write(cmd, Timestamps::FluidRender, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
 }
 
@@ -355,13 +362,15 @@ WorldFlow::solvePressure(VkCommandBuffer cmd)
 }
 
 void
-WorldFlow::projectIncompressible(VkCommandBuffer cmd)
+WorldFlow::projectIncompressible(VkCommandBuffer cmd, float dt)
 {
 	for(uint32_t s = 0; s < this->_grid.numSubgrids; s++) {
 		SubGrid& sg = this->_grid.subgrids[s];
 		this->_computeProjectIncompressible.Bind(cmd);
-		FluidPushConstants pc {
-			.subgridLevel = s
+		ProjectIncompressiblePushConstants pc {
+			.dt = dt,
+			.subgridLevel = s,
+			.fluidDensity = this->_fluidDensity
 		};
 		vkCmdPushConstants(cmd, this->_computeProjectIncompressible.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(pc), &pc);
 		dispatchFluid(cmd, sg);
@@ -473,6 +482,42 @@ WorldFlow::renderMesh(VkCommandBuffer cmd, Mesh& mesh, const glm::mat4& transfor
 	};
 
 	vkCmdPushConstants(cmd, this->_graphicsRenderMesh.layout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(GraphicsPushConstants), &pc);
+	vkCmdBindIndexBuffer(cmd, mesh.indexBuffer.bufferHandle, 0, VK_INDEX_TYPE_UINT32);
+	vkCmdDrawIndexed(cmd, mesh.numIndices, 1, 0, 0, 0);
+	vkCmdEndRendering(cmd);
+}
+
+void
+WorldFlow::voxelRasterizeGeometry(VkCommandBuffer cmd, Mesh& mesh)
+{
+	VkExtent3D voxExtent = this->_voxelImage.imageExtent;
+	VkRenderingAttachmentInfo colorAttachmentInfo = vkinit::attachment_info(this->_voxelImage.imageView, nullptr, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+	VkRenderingInfo renderInfo = vkinit::rendering_info(VkExtent2D{voxExtent.width, voxExtent.height}, &colorAttachmentInfo, nullptr);
+	vkCmdBeginRendering(cmd, &renderInfo);
+	vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, this->_graphicsVoxelRaster.pipeline);
+	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, this->_graphicsVoxelRaster.layout, 0, 1, this->_graphicsVoxelRaster.descriptorSets.data(), 0, nullptr);
+
+	VkViewport viewport = {
+		.x = 0,
+		.y = (float)voxExtent.height,
+		.width = (float)voxExtent.width,
+		.height = -(float)voxExtent.height,
+		.minDepth = 0.0,
+		.maxDepth = 1.0
+	};
+	vkCmdSetViewport(cmd, 0, 1, &viewport);
+
+	VkRect2D scissor = {
+		.offset = { .x = 0, .y = 0 },
+		.extent = { .width = voxExtent.width, .height = voxExtent.height}
+	};
+	vkCmdSetScissor(cmd, 0, 1, &scissor);
+
+	GraphicsPushConstants pc = {
+		.worldMatrix = glm::mat4(1.0),
+		.vertexBuffer = mesh.vertexBufferAddress
+	};
+	vkCmdPushConstants(cmd, this->_graphicsVoxelRaster.layout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(pc), &pc);
 	vkCmdBindIndexBuffer(cmd, mesh.indexBuffer.bufferHandle, 0, VK_INDEX_TYPE_UINT32);
 	vkCmdDrawIndexed(cmd, mesh.numIndices, 1, 0, 0, 0);
 	vkCmdEndRendering(cmd);
@@ -643,6 +688,7 @@ WorldFlow::drawUI()
 		ImGui::DragFloat("transferAlpha", &this->_transferAlpha, 0.01f);
 		ImGui::DragFloat("arestrictionAlpha", &this->_restrictionAlpha, 0.01f);
 		ImGui::DragFloat("diffusionRate", &this->_diffusionRate, 0.01f);
+		ImGui::DragFloat("pressureDensity", &this->_fluidDensity, 0.01f);
 	}
 	ImGui::End();
 }
@@ -795,10 +841,33 @@ WorldFlow::initResources()
 		VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
 		VMA_MEMORY_USAGE_CPU_ONLY
 	);
+	
+	// VOXEL RASTERIZATION ALLOCATION
+	std::vector<std::vector<Vertex>> vertexBuffers;
+	std::vector<std::vector<uint32_t>> indexBuffers;
+	if(!loadGltfMeshes(Constants::MeshFile, vertexBuffers, indexBuffers)) {
+		std::cout << "[ERROR] Failed to load meshes" << std::endl;
+	}
+	for(int m = 0; m < vertexBuffers.size(); m++) {
+		this->_renderer.UploadMesh(this->_objMeshes[m], vertexBuffers[m], indexBuffers[m]);
+		std::cout << "Mesh Triangles: " << indexBuffers[m].size() / 3 << std::endl;
+	}
+	
+	uint32_t maxDimension = std::max(std::max(Constants::VoxelGridDimensions.x, Constants::VoxelGridDimensions.y), Constants::VoxelGridDimensions.z);
+	this->_renderer.CreateImage(this->_voxelImage,
+		VkExtent3D{maxDimension, maxDimension, 1},
+		VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT,
+		VK_IMAGE_ASPECT_COLOR_BIT,
+		VK_FORMAT_R32G32B32A32_SFLOAT,
+        VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL
+	);
+	this->_renderer.ImmediateSubmit([this](VkCommandBuffer cmd) {
+		this->_voxelImage.Clear(cmd, {1.0, 0.0, 0.0, 1.0});
+	});
 
+	// WORLDFLOW GRID ALLOCATION //
 	VkBufferUsageFlags fluidBufferUsage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT;
 	VmaMemoryUsage fluidMemoryUsage = VMA_MEMORY_USAGE_GPU_ONLY;
-
 	// MASTER GRID
 	this->_renderer.CreateBuffer(this->_grid.buffWorldFlowGridGpu, sizeof(WorldFlowGridGpu), fluidBufferUsage, fluidMemoryUsage);
 
@@ -872,6 +941,11 @@ WorldFlow::initPipelines()
 	this->_renderer.CreateGraphicsPipeline(this->_graphicsRenderMesh, SHADER_DIRECTORY"/mesh.vert.spv", SHADER_DIRECTORY"/mesh.frag.spv", "", {}, 0, 
                                            sizeof(GraphicsPushConstants), {.blendMode = BlendMode::Additive});
 
+	this->_renderer.CreateGraphicsPipeline(this->_graphicsVoxelRaster, SHADER_DIRECTORY"/voxel_raster.vert.spv", SHADER_DIRECTORY"/voxel_raster.frag.spv", SHADER_DIRECTORY"/voxel_raster.geom.spv", {
+		BufferDescriptor(0, 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, this->_grid.buffWorldFlowGridGpu.bufferHandle, sizeof(WorldFlowGridGpu)),
+	},
+	VK_SHADER_STAGE_ALL_GRAPHICS, sizeof(GraphicsPushConstants));
+
     this->_renderer.CreateGraphicsPipeline(this->_graphicsParticles, SHADER_DIRECTORY"/particles.vert.spv", SHADER_DIRECTORY"/particles.frag.spv", "", {
 		BufferDescriptor(0, 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, this->_grid.buffWorldFlowGridGpu.bufferHandle, sizeof(WorldFlowGridGpu)),
 		BufferDescriptor(0, 1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, this->_buffParticles.bufferHandle, Constants::NumParticles * sizeof(Particle))
@@ -880,7 +954,7 @@ WorldFlow::initPipelines()
 
 	this->_renderer.CreateGraphicsPipeline(this->_graphicsGridLines, SHADER_DIRECTORY"/line.vert.spv", SHADER_DIRECTORY"/line.frag.spv", "", {}, 0,
 											sizeof(DrawLinesPushConstants), {.inputTopology = VK_PRIMITIVE_TOPOLOGY_LINE_LIST});
-	
+											
 	// COMPUTE
     this->_renderer.CreateComputePipeline(this->_computeRaycastVoxelGrid, SHADER_DIRECTORY"/grid_tracer.comp.spv", {
 		BufferDescriptor(0, 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, this->_grid.buffWorldFlowGridGpu.bufferHandle, sizeof(WorldFlowGridGpu)),
@@ -937,7 +1011,7 @@ WorldFlow::initPipelines()
 	this->_renderer.CreateComputePipeline(this->_computeProjectIncompressible, SHADER_DIRECTORY"/fluid_project_incompressible.comp.spv", {
 		BufferDescriptor(0, 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, this->_grid.buffWorldFlowGridGpu.bufferHandle, sizeof(WorldFlowGridGpu)),
 	},
-	sizeof(FluidPushConstants));
+	sizeof(ProjectIncompressiblePushConstants));
 
 	this->_renderer.CreateComputePipeline(this->_computeProlongDensity, SHADER_DIRECTORY"/fluid_prolong_density.comp.spv", {
 		BufferDescriptor(0, 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, this->_grid.buffWorldFlowGridGpu.bufferHandle, sizeof(WorldFlowGridGpu)),

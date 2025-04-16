@@ -148,10 +148,10 @@ vec4 traceVoxels(vec3 rayOrigin, vec3 rayDir) {
                 density = grid.densityBuffer.data[index];
             }
             else if(pc.renderType == 2) {
-                density = grid.divergenceBuffer.data[index] / grid.cellSize * 10;
+                density = grid.divergenceBuffer.data[index] * 64 * 2;
             }
             else if(pc.renderType == 3) {
-                density = grid.pressureBuffer.data[index] / grid.cellSize * 10;
+                density = grid.pressureBuffer.data[index] * 64 * 2;
             }
             else if(pc.renderType == 4) {
                 density = length(grid.velocityBuffer.data[index].xyz);
@@ -160,7 +160,7 @@ vec4 traceVoxels(vec3 rayOrigin, vec3 rayDir) {
                 density = grid.debugBuffer.data[index].x;
             }
             else if(pc.renderType == 6) {
-                density = ((grid.flagsBuffer.data[index] & FLAG_ACTIVE) > 0) ? 1.0 : 0.0;
+                density = ((grid.flagsBuffer.data[index] & FLAG_ACTIVE) > 0) ? 5.0 : 0.0;
             }
             else if(pc.renderType == 7) {
                 density = length(grid.vorticityBuffer.data[index].xyz)/20.0;

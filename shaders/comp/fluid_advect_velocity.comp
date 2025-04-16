@@ -47,28 +47,9 @@ vec4 sampleVelocity(WorldFlowSubGrid grid, uvec3 center, ivec3 offset)
 	// return grid.velocityBuffer.data[getGridIndex(cell, grid.resolution)];
 }
 
-void main()
-{
-    if(!isWorkgroupActive(wfGrid, pc.subgridLevel, gl_WorkGroupID, gl_NumWorkGroups)) {
-        return;
-    }
-
-    WorldFlowSubGrid grid = wfGrid.subgrids[pc.subgridLevel].ref;
-    uvec3 gridPos = getGridPos(wfGrid, pc.subgridLevel, gl_GlobalInvocationID, gl_LocalInvocationID, gl_WorkGroupID, gl_NumWorkGroups);
-	uint index = getGridIndex(gridPos, grid.resolution);
-	vec3 pos = vec3(gridPos) + 0.5;
-	// TODO: use world space not grid space
-
-	// FIXME
-	vec3 pastPos = traceVelocityField(pos, grid.velocityBuffer.data[index].xyz, pc.dt, grid.cellSize);
-	if(any(greaterThan(pastPos, vec3(grid.resolution.xyz) - 0.5)) || any(lessThan(pastPos, vec3(0.5)))) {
-		vec3 clampedPos = clamp(pastPos, vec3(0.5), vec3(grid.resolution.xyz) - vec3(0.5));
-		uint clampedIndex = getGridIndex(uvec3(floor(clampedPos)), grid.resolution);
-		pastPos = clampedPos;
-	}
-
-	ivec3 center = ivec3(floor(pastPos));
-	vec3 cellPos = fract(pastPos);
+vec4 interpolateVelocity(WorldFlowSubGrid grid, vec3 pos) {
+	ivec3 center = ivec3(floor(pos));
+	vec3 cellPos = fract(pos);
 
     // Determine which neighboring cells to sample based on position
     int i1 = (cellPos.x < 0.5) ? -1 : 1;
@@ -98,9 +79,52 @@ void main()
 
 	// vec4 interpolatedVelocity = triInterp(c000, c100, c010, c110, c001, c101, c011, c111, weights);
 	vec4 interpolatedVelocity = cubicInterp8Point(c000, c100, c010, c110, c001, c101, c011, c111, weights);
-	// vec4 interpolatedVelocity = grid[getGridIndex(center, grid.resolution)].velocity;
+    return interpolatedVelocity;
+}
 
-	atomicExchange(grid.velocityBuffer.data[index].x, interpolatedVelocity.x);
-	atomicExchange(grid.velocityBuffer.data[index].y, interpolatedVelocity.y);
-	atomicExchange(grid.velocityBuffer.data[index].z, interpolatedVelocity.z);
+vec3 clampPos(WorldFlowSubGrid grid, vec3 pos) {
+	// FIXME?
+	if(any(greaterThan(pos, vec3(grid.resolution.xyz) - 0.5)) || any(lessThan(pos, vec3(0.5)))) {
+		vec3 clampedPos = clamp(pos, vec3(0.5), vec3(grid.resolution.xyz) - vec3(0.5));
+		uint clampedIndex = getGridIndex(uvec3(floor(clampedPos)), grid.resolution);
+		pos = clampedPos;
+	}
+    return pos;
+}
+
+void main()
+{
+    if(!isWorkgroupActive(wfGrid, pc.subgridLevel, gl_WorkGroupID, gl_NumWorkGroups)) {
+        return;
+    }
+
+    WorldFlowSubGrid grid = wfGrid.subgrids[pc.subgridLevel].ref;
+    uvec3 gridPos = getGridPos(wfGrid, pc.subgridLevel, gl_GlobalInvocationID, gl_LocalInvocationID, gl_WorkGroupID, gl_NumWorkGroups);
+	uint index = getGridIndex(gridPos, grid.resolution);
+	vec3 pos = vec3(gridPos) + 0.5;
+
+    vec4 currentVelocity = grid.velocityBuffer.data[index];
+	vec3 pastPos = traceVelocityField(pos, currentVelocity.xyz, pc.dt, grid.cellSize);
+    pastPos = clampPos(grid, pastPos);
+    vec4 bkwdVelocity = interpolateVelocity(grid, pastPos);
+
+    vec4 result = bkwdVelocity;
+
+// Optional MacCormack fwd + bwd advection
+// #define MACCORMACK
+#ifdef MACCORMACK
+
+    vec3 forwardPos = traceVelocityField(pos, bkwdVelocity.xyz, -pc.dt, grid.cellSize);
+    vec3 clampedFwdPos = clampPos(grid, forwardPos);
+    vec4 fwdVelocity = interpolateVelocity(grid, forwardPos);
+
+    vec4 errorCorrection = currentVelocity - fwdVelocity;
+    float alpha = clamp(1.0 - length(errorCorrection) / (0.5 * length(currentVelocity)), 0.0, 0.5);
+    result = mix(bkwdVelocity, bkwdVelocity + 0.5 * errorCorrection, alpha);
+
+#endif
+
+	atomicExchange(grid.velocityBuffer.data[index].x, result.x);
+	atomicExchange(grid.velocityBuffer.data[index].y, result.y);
+	atomicExchange(grid.velocityBuffer.data[index].z, result.z);
 }

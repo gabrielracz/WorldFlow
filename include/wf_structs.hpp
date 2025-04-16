@@ -62,6 +62,13 @@ struct alignas(16) SubgridTransferPushConstants
 	float alpha;
 };
 
+struct alignas(16) ProjectIncompressiblePushConstants
+{
+	float dt;
+	uint32_t subgridLevel;
+	float fluidDensity;
+};
+
 struct alignas(16) GenerateIndirectCommandPushConstants
 {
 	uint32_t subgridLevel;
