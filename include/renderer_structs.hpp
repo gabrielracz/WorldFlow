@@ -94,6 +94,7 @@ struct GraphicsPipelineOptions
     VkShaderStageFlags  pushConstantsStages   = VK_SHADER_STAGE_VERTEX_BIT;
     float               lineWidth             = 1.0;
     bool depthTestEnabled 					  = false;
+    float conservativeRasterization           = 0.0;
 };
 
 struct BufferDescriptor

@@ -67,6 +67,6 @@ void main()
 
     if(wfGrid.subgridCount > 1) {
         uint coarseIndex = getCoarseGridIndex(gridPos, wfGrid, fineLevel);
-        wfGrid.subgrids[fineLevel-1].ref.flagsBuffer.data[coarseIndex] |= FLAG_OCCUPIED | FLAG_ACTIVE | FLAG_SOURCE;
+        wfGrid.subgrids[fineLevel-1].ref.flagsBuffer.data[coarseIndex] |= FLAG_ACTIVE | FLAG_OCCUPIED;
     }
 }

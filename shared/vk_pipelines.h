@@ -30,7 +30,7 @@ public:
     PipelineBuilder& disable_blending();
     PipelineBuilder& enable_blending_additive();
     PipelineBuilder& enable_blending_alphablend();
-    PipelineBuilder& set_conservative();
+    PipelineBuilder& set_conservative(float overestimate);
 
     PipelineBuilder& set_color_attachment_format(VkFormat format);
     PipelineBuilder& set_depth_format(VkFormat format);

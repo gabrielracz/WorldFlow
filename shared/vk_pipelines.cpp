@@ -141,14 +141,30 @@ PipelineBuilder& PipelineBuilder::set_polygon_mode(VkPolygonMode mode, float lin
 }
 //< set_poly
 
-//> set_cull
 PipelineBuilder& PipelineBuilder::set_cull_mode(VkCullModeFlags cullMode, VkFrontFace frontFace)
 {
     _rasterizer.cullMode = cullMode;
     _rasterizer.frontFace = frontFace;
+
     return *this;
 }
-//< set_cull
+
+PipelineBuilder& PipelineBuilder::set_conservative(float overestimate)
+{
+    if(overestimate == 0.0) {return *this;}
+
+    VkPipelineRasterizationConservativeStateCreateInfoEXT conservative_rasterization_info{};
+    conservative_rasterization_info.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_CONSERVATIVE_STATE_CREATE_INFO_EXT;
+    // conservative_rasterization_info.conservativeRasterizationMode = (overestimate > 0.0) ? VK_CONSERVATIVE_RASTERIZATION_MODE_OVERESTIMATE_EXT : VK_CONSERVATIVE_RASTERIZATION_MODE_UNDERESTIMATE_EXT;
+    // conservative_rasterization_info.extraPrimitiveOverestimationSize = std::fabs(overestimate);
+
+    conservative_rasterization_info.conservativeRasterizationMode = VK_CONSERVATIVE_RASTERIZATION_MODE_OVERESTIMATE_EXT;
+    conservative_rasterization_info.extraPrimitiveOverestimationSize = 0.75f;
+
+    // Link the conservative rasterization info to the rasterization state create info
+    this->_rasterizer.pNext = &conservative_rasterization_info;
+    return *this;
+}
 
 //> set_multisample
 PipelineBuilder& PipelineBuilder::set_multisampling_none()

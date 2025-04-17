@@ -63,7 +63,7 @@ void main()
     }
 
     if((grid.flagsBuffer.data[index] & FLAG_SOURCE) > 0) {
-        grid.densityBuffer.data[index] += 3.0 * pc.dt;
+        grid.densityBuffer.data[index] = 0.75;
     }
 
     grid.flagsBuffer.data[index] &= ~FLAG_TRANSIENTS;
@@ -71,8 +71,8 @@ void main()
 
 
 
-    // if(distance(gridPos, pc.sourcePosition.xyz) < pc.sourceRadius) {
-    if(gridPos.x < pc.sourceRadius && gridPos.y > pc.sourceRadius && grid.resolution.y - gridPos.y > pc.sourceRadius) {
+    if(distance(gridPos, pc.sourcePosition.xyz) < pc.sourceRadius) {
+    // if(gridPos.x < pc.sourceRadius && gridPos.y > pc.sourceRadius && grid.resolution.y - gridPos.y > pc.sourceRadius) {
         if(pc.addDensity > 0) {
             grid.densityBuffer.data[index] += pc.density * pc.dt;
 			// grid.flagsBuffer.data[index] |= FLAG_SOURCE;

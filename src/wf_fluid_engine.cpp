@@ -27,8 +27,10 @@ namespace Constants
 
 // constexpr glm::uvec4 VoxelGridDimensions = glm::uvec4(16, 8, 16, 1);
 // constexpr glm::uvec4 VoxelGridDimensions = glm::uvec4(32, 16, 32, 1);
-// constexpr glm::uvec4 VoxelGridDimensions = glm::uvec4(64, 32, 64, 1);
+
 constexpr glm::uvec4 VoxelGridDimensions = glm::uvec4(128, 64, 128, 1);
+// constexpr glm::uvec4 VoxelGridDimensions = glm::uvec4(64, 256, 64, 1);
+// constexpr glm::uvec4 VoxelGridDimensions = glm::uvec4(128, 64, 128, 1);
 // constexpr glm::uvec4 VoxelGridDimensions = glm::uvec4(160, 80, 160, 1);
 // constexpr glm::uvec4 VoxelGridDimensions = glm::uvec4(256, 128, 256, 1);
 // constexpr glm::uvec4 VoxelGridDimensions = glm::uvec4(512, 128, 512, 1);
@@ -55,7 +57,7 @@ constexpr glm::vec4 LightPosition = glm::vec4(500.0, 500.0, 400, 1.0);
 constexpr uint32_t NumParticles = 65536;
 constexpr float MaxParticleLifetime = 240.0;
 
-const std::string MeshFile = ASSETS_DIRECTORY"/meshes/glider.glb";
+const std::string MeshFile = ASSETS_DIRECTORY"/meshes/h2a.glb";
 }
 
 /* FUNCTIONS */
@@ -187,7 +189,7 @@ WorldFlow::addSources(VkCommandBuffer cmd, float dt)
 		const AddFluidPropertiesPushConstants pc = {
 			.sourcePosition = glm::vec4(this->_sourcePosition, 1.0) * (float)sg.resolution.w,
 			.velocity = glm::vec4(this->_velocitySourceAmount, 1.0),
-			.objectPosition = glm::vec4(this->_objectPosition, 1.0),
+			.objectPosition = this->_objectPosition,
 			.activationWeights = this->_activationWeights,
 			.elapsed = this->_renderer.GetElapsedTime(),
 			.dt = dt,
@@ -514,8 +516,9 @@ WorldFlow::voxelRasterizeGeometry(VkCommandBuffer cmd, Mesh& mesh)
 	};
 	vkCmdSetScissor(cmd, 0, 1, &scissor);
 
+	glm::mat4 transf = glm::translate(glm::vec3(this->_objectPosition)) * glm::scale(glm::vec3(this->_objectPosition.w));
 	GraphicsPushConstants pc = {
-		.worldMatrix = glm::mat4(1.0),
+		.worldMatrix = transf,
 		.vertexBuffer = mesh.vertexBufferAddress
 	};
 	vkCmdPushConstants(cmd, this->_graphicsVoxelRaster.layout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(pc), &pc);
@@ -675,7 +678,7 @@ WorldFlow::drawUI()
 		ImGui::DragFloat("vel", &this->_velocitySpeed, 0.25f);
 		ImGui::InputFloat3("sourcePos", glm::value_ptr(this->_sourcePosition));
 		// ImGui::DragFloat("objOff", &this->_objectOffset, 0.0025f);
-		ImGui::DragFloat3("objOff", glm::value_ptr(this->_objectPosition), 0.0025f);
+		ImGui::DragFloat4("objPos", glm::value_ptr(this->_objectPosition), 0.0025f);
 		this->_shouldClear = ImGui::Button("clear");
 	}
 	ImGui::End();
@@ -950,7 +953,8 @@ WorldFlow::initPipelines()
 	this->_renderer.CreateGraphicsPipeline(this->_graphicsVoxelRaster, SHADER_DIRECTORY"/voxel_raster.vert.spv", SHADER_DIRECTORY"/voxel_raster.frag.spv", SHADER_DIRECTORY"/voxel_raster.geom.spv", {
 		BufferDescriptor(0, 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, this->_grid.buffWorldFlowGridGpu.bufferHandle, sizeof(WorldFlowGridGpu)),
 	},
-	VK_SHADER_STAGE_ALL_GRAPHICS, sizeof(GraphicsPushConstants));
+	VK_SHADER_STAGE_ALL_GRAPHICS, sizeof(GraphicsPushConstants),
+	{.conservativeRasterization = 0.0f});
 
     this->_renderer.CreateGraphicsPipeline(this->_graphicsParticles, SHADER_DIRECTORY"/particles.vert.spv", SHADER_DIRECTORY"/particles.frag.spv", "", {
 		BufferDescriptor(0, 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, this->_grid.buffWorldFlowGridGpu.bufferHandle, sizeof(WorldFlowGridGpu)),

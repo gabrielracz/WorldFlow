@@ -26,14 +26,33 @@ namespace Constants
 }
 
 static inline void
-printDeviceProperties(vkb::PhysicalDevice& dev)
+printDeviceProperties(vkb::PhysicalDevice& dev, VkInstance instance)
 {
     const uint32_t* wgs = dev.properties.limits.maxComputeWorkGroupCount;
     std::cout << dev.properties.deviceName << "\n" <<
     "WorkGroups:      " << wgs[0] << " x " << wgs[1] << " x " << wgs[2] << ") \n" << 
     "Compute Invocations:      " << dev.properties.limits.maxComputeWorkGroupInvocations  << '\n' <<
     "PushConstants:   " << dev.properties.limits.maxPushConstantsSize << "\n" <<
-    "Uniform Buffers: " << dev.properties.limits.maxUniformBufferRange << std::endl;
+    "Uniform Buffers: " << dev.properties.limits.maxUniformBufferRange << "\n";
+
+    // PFN_vkGetPhysicalDeviceProperties2KHR vkGetPhysicalDeviceProperties2KHR = reinterpret_cast<PFN_vkGetPhysicalDeviceProperties2KHR>(vkGetInstanceProcAddr(instance, "vkGetPhysicalDeviceProperties2KHR"));
+    // assert(vkGetPhysicalDeviceProperties2KHR);
+    // VkPhysicalDeviceProperties2KHR deviceProps2{};
+    // VkPhysicalDeviceConservativeRasterizationPropertiesEXT conservativeRasterProps;
+    // conservativeRasterProps.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_CONSERVATIVE_RASTERIZATION_PROPERTIES_EXT;
+    // deviceProps2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2_KHR;
+    // deviceProps2.pNext = &conservativeRasterProps;
+    // vkGetPhysicalDeviceProperties2KHR(dev.physical_device, &deviceProps2);
+
+    // VkPhysicalDeviceProperties2KHR deviceProps2{};
+    // VkPhysicalDeviceConservativeRasterizationPropertiesEXT conservativeRasterProps;
+    // conservativeRasterProps.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_CONSERVATIVE_RASTERIZATION_PROPERTIES_EXT;
+    // deviceProps2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2_KHR;
+    // deviceProps2.pNext = &conservativeRasterProps;
+    // auto vkGetPhysicalDeviceProperties2KHR = PFN_vkGetPhysicalDeviceProperties2KHR(vkGetDeviceProcAddr(vdev, "vkGetPhysicalDeviceProperties2KHR"));
+    // vkGetPhysicalDeviceProperties2KHR(dev, &deviceProps2);
+
+    // std::cout << "Conservative: " << conservativeRasterProps.maxExtraPrimitiveOverestimationSize << std::endl;
 }
 
 void
@@ -458,7 +477,8 @@ Renderer::CreateGraphicsPipeline(GraphicsPipeline &newPipeline, const std::strin
         .set_multisampling_none()
         .enable_depthtest(options.depthTestEnabled , options.depthTestOp)
         .set_color_attachment_format(options.colorAttachmentFormat)
-        .set_depth_format(options.depthFormat);
+        .set_depth_format(options.depthFormat)
+        .set_conservative(options.conservativeRasterization);
 
     switch(options.blendMode) {
         case BlendMode::Additive:
@@ -639,6 +659,7 @@ Renderer::initVulkan()
         .request_validation_layers(Constants::IsValidationLayersEnabled)
         .add_validation_feature_enable(VK_VALIDATION_FEATURE_ENABLE_SYNCHRONIZATION_VALIDATION_EXT)
         .add_validation_feature_enable(VK_VALIDATION_FEATURE_ENABLE_DEBUG_PRINTF_EXT)
+        .require_api_version(1, 3)
         .enable_extension(VK_EXT_DEBUG_UTILS_EXTENSION_NAME)
         .use_default_debug_messenger()
         .require_api_version(1, 3, 0)
@@ -707,7 +728,7 @@ Renderer::initVulkan()
     this->_device = vkbDevice.device;
     this->_gpu = physDevice.physical_device;
     // print gpu properties
-    printDeviceProperties(physDevice);
+    printDeviceProperties(physDevice, this->_instance);
 	this->_vkbDev = physDevice;
 
     this->_graphicsQueue = vkbDevice.get_queue(vkb::QueueType::graphics).value();
@@ -718,6 +739,7 @@ Renderer::initVulkan()
         .flags = VMA_ALLOCATOR_CREATE_BUFFER_DEVICE_ADDRESS_BIT,
         .physicalDevice = this->_gpu,
         .device = this->_device,
+        .preferredLargeHeapBlockSize = 1024 * 1024 * 1024,
         .instance = this->_instance, 
     };
     vmaCreateAllocator(&allocatorInfo, &this->_allocator);
