@@ -683,6 +683,9 @@ Renderer::initVulkan()
         .shaderSharedFloat32AtomicAdd = true
 	};
 
+    VkPhysicalDeviceFeatures2 physical_device_features2{};
+    physical_device_features2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2;
+
     vkb::PhysicalDeviceSelector selector {vkbInstance};
     vkb::PhysicalDevice physDevice = selector
         .set_minimum_version(1, 3)
@@ -691,6 +694,7 @@ Renderer::initVulkan()
         .set_required_features(featuresBase)
 		.add_required_extension("VK_EXT_shader_atomic_float")
 		.add_required_extension("VK_KHR_shader_non_semantic_info")
+		.add_required_extension(VK_EXT_CONSERVATIVE_RASTERIZATION_EXTENSION_NAME)
         .set_surface(this->_surface)
         .select()
         .value();

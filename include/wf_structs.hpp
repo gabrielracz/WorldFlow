@@ -96,6 +96,7 @@ struct alignas(16) AddFluidPropertiesPushConstants
 	glm::vec4 sourcePosition;
 	glm::vec4 velocity;
 	glm::vec4 objectPosition;
+	glm::vec4 activationWeights;
 	float elapsed;
 	float dt;
 	float sourceRadius;
@@ -109,6 +110,7 @@ struct alignas(16) AddFluidPropertiesPushConstants
 	unsigned int subgridLevel;
 	float activationThreshold;
 };
+const auto s = sizeof(AddFluidPropertiesPushConstants);
 
 struct alignas(16) RayTracerPushConstants
 {
@@ -127,7 +129,6 @@ struct alignas(16) RayTracerPushConstants
 	unsigned int rootGridLevel;
 	unsigned int subgridLimit;
 };
-const auto s = sizeof(RayTracerPushConstants);
 
 struct alignas(16) ParticlesPushConstants
 {

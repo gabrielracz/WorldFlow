@@ -37,7 +37,7 @@ int getDominantAxisIndex(vec3 normal) // Input normal should be in world space
 }
 
 void main() {
-    WorldFlowSubGrid grid = wfGrid.subgrids[0].ref;
+    WorldFlowSubGrid grid = wfGrid.subgrids[wfGrid.subgridCount-1].ref;
     // --- 1. Calculate Dominant Axis ---
     // Use the averaged world-space vertex normals passed from the VS
     vec3 avgWorldNormal = normalize(inWorldNormal[0] + inWorldNormal[1] + inWorldNormal[2]);

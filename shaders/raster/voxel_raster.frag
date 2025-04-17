@@ -33,7 +33,9 @@ layout (location = 0) out vec4 outColor;
 
 void main() 
 {
-    WorldFlowSubGrid grid = wfGrid.subgrids[0].ref;
+
+    uint fineLevel = wfGrid.subgridCount - 1;
+    WorldFlowSubGrid grid = wfGrid.subgrids[fineLevel].ref;
     // uint d = uint(gridDimensions.x) - 1;
     // vec2 uv = gl_FragCoord.xy / maxDim;
     // vec2 boxCoord = uv * boxSize.xy; // Depends on projection plane
@@ -59,8 +61,12 @@ void main()
     outColor = activeColor;
 
 
-    uint gridIndex = getGridIndex(uvec3(pos), grid.resolution);
+    uvec3 gridPos = uvec3(pos);
+    uint gridIndex = getGridIndex(gridPos, grid.resolution);
     grid.flagsBuffer.data[gridIndex] |= FLAG_OCCUPIED;
-    // grid.flagsBuffer.data[gridIndex] |= FLAG_SOURCE;
-    // grid.flagsBuffer.data[0] |= FLAG_OCCUPIED;
+
+    if(wfGrid.subgridCount > 1) {
+        uint coarseIndex = getCoarseGridIndex(gridPos, wfGrid, fineLevel);
+        wfGrid.subgrids[fineLevel-1].ref.flagsBuffer.data[coarseIndex] |= FLAG_OCCUPIED | FLAG_ACTIVE | FLAG_SOURCE;
+    }
 }

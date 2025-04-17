@@ -14,6 +14,7 @@ layout(push_constant) uniform PushConstants {
 	vec4 sourcePosition;
 	vec4 velocity;
 	vec4 objectPosition;
+    vec4 activationWeights;
 	float elapsed;
 	float dt;
 	float sourceRadius;
@@ -51,7 +52,7 @@ void main()
     bool parentWasDeactivated = pc.subgridLevel > 0 && (coarseGrid.flagsBuffer.data[coarseIndex] & FLAG_DEACTIVED) > 0;
 	if(pc.clear > 0 || parentWasDeactivated) {
         clearGridCell(grid, index);
-        grid.debugBuffer.data[index] = vec4(0.4);
+        // grid.debugBuffer.data[index] = vec4(0.4);
         if(parentWasDeactivated)grid.flagsBuffer.data[index] |= FLAG_DEACTIVED;
 		return;
 	}
@@ -61,19 +62,25 @@ void main()
         copyGridCell(coarseGrid, grid, coarseIndex, index);
     }
 
+    if((grid.flagsBuffer.data[index] & FLAG_SOURCE) > 0) {
+        grid.densityBuffer.data[index] += 3.0 * pc.dt;
+    }
+
     grid.flagsBuffer.data[index] &= ~FLAG_TRANSIENTS;
-    grid.pressureBuffer.data[index] = 0.0;
     grid.debugBuffer.data[index] = vec4(0.0);
 
-    if(distance(gridPos, pc.sourcePosition.xyz) < pc.sourceRadius) {
+
+
+    // if(distance(gridPos, pc.sourcePosition.xyz) < pc.sourceRadius) {
+    if(gridPos.x < pc.sourceRadius && gridPos.y > pc.sourceRadius && grid.resolution.y - gridPos.y > pc.sourceRadius) {
         if(pc.addDensity > 0) {
             grid.densityBuffer.data[index] += pc.density * pc.dt;
-			grid.flagsBuffer.data[index] |= FLAG_SOURCE;
+			// grid.flagsBuffer.data[index] |= FLAG_SOURCE;
         }
 
         if(pc.addVelocity > 0) {
             grid.velocityBuffer.data[index] += pc.velocity * pc.dt;
-			grid.flagsBuffer.data[index] |= FLAG_SOURCE;
+			// grid.flagsBuffer.data[index] |= FLAG_SOURCE;
         }
     }
 
@@ -95,9 +102,15 @@ void main()
     //    setActive = true;
     // }
 
-    float activationScore = (length(grid.vorticityBuffer.data[index].xyz) + 
-                             1*abs(grid.densityBuffer.data[index]) +
-                             length(grid.velocityBuffer.data[index].xyz)) / (pc.subgridLevel+1);
+    float vrtWeight = pc.activationWeights.x;
+    float velWeight = pc.activationWeights.y;
+    float dnsWeight = pc.activationWeights.z;
+    float prsWeight = pc.activationWeights.w;
+    float activationScore = (vrtWeight*length(grid.vorticityBuffer.data[index].xyz) + 
+                             dnsWeight*abs(grid.densityBuffer.data[index])          +
+                             velWeight*length(grid.velocityBuffer.data[index].xyz)  +
+                             prsWeight*abs(grid.pressureBuffer.data[index]))
+                             / (pc.subgridLevel+1);
     if(pc.subgridLevel < wfGrid.subgridCount-1 && activationScore > pc.activationThreshold) {
         setActive = true;
     }
@@ -121,8 +134,11 @@ void main()
     }
 
     if(pc.subgridLevel > 0) {
-        // grid.debugBuffer.data[index] = vec4(0.25) * pc.subgridLevel;
+        grid.debugBuffer.data[index] = vec4(0.25) * pc.subgridLevel;
     }
 
     grid.densityBuffer.data[index] *= exp(-pc.decayRate * pc.dt);
+
+    // DELAYED CLEARS
+    grid.pressureBuffer.data[index] = 0.0;
 }

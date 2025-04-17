@@ -17,7 +17,7 @@ namespace wf {
 struct Settings
 {
 	glm::uvec4 resolution;
-	unsigned int numGridLevels {1};
+	unsigned int numGridLevels {2};
 	uint32_t gridSubdivision {4};
 };
 
@@ -124,6 +124,7 @@ private:
 	float _fluidDensity = 0.1f;
 	uint32_t _rendererSubgridBegin = 0;
 	uint32_t _rendererSubgridLimit = Constants::MAX_SUBGRID_LEVELS;
+	glm::vec4 _activationWeights = glm::vec4(1.0f, 0.0f, 0.0f, 0.0f);
 
 	uint32_t _diffusionIterations;
 	uint32_t _pressureIterations;

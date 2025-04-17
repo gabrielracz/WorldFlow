@@ -55,7 +55,7 @@ constexpr glm::vec4 LightPosition = glm::vec4(500.0, 500.0, 400, 1.0);
 constexpr uint32_t NumParticles = 65536;
 constexpr float MaxParticleLifetime = 240.0;
 
-const std::string MeshFile = ASSETS_DIRECTORY"/meshes/monkey.glb";
+const std::string MeshFile = ASSETS_DIRECTORY"/meshes/glider.glb";
 }
 
 /* FUNCTIONS */
@@ -188,6 +188,7 @@ WorldFlow::addSources(VkCommandBuffer cmd, float dt)
 			.sourcePosition = glm::vec4(this->_sourcePosition, 1.0) * (float)sg.resolution.w,
 			.velocity = glm::vec4(this->_velocitySourceAmount, 1.0),
 			.objectPosition = glm::vec4(this->_objectPosition, 1.0),
+			.activationWeights = this->_activationWeights,
 			.elapsed = this->_renderer.GetElapsedTime(),
 			.dt = dt,
 			.sourceRadius = this->_sourceRadius / sg.cellSize,
@@ -684,6 +685,7 @@ WorldFlow::drawUI()
 		ImGui::InputScalar("rndrlvl start", ImGuiDataType_U32, &this->_rendererSubgridBegin, &step);
 		ImGui::InputScalar("rndrlvl end", ImGuiDataType_U32, &this->_rendererSubgridLimit, &step);
 		ImGui::DragFloat("activation", &this->_activationThreshold, 0.01f);
+		ImGui::DragFloat4("vrt/vel/dns/prs", glm::value_ptr(this->_activationWeights), 0.01f);
 		ImGui::InputScalar("diffiter", ImGuiDataType_U32, &this->_diffusionIterations, &step);
 		ImGui::InputScalar("presiter", ImGuiDataType_U32, &this->_pressureIterations, &step);
 		ImGui::InputScalar("iterfactor", ImGuiDataType_U32, &this->_iterationSubgridFactor, &step);
@@ -855,8 +857,9 @@ WorldFlow::initResources()
 		this->_renderer.UploadMesh(this->_objMeshes[m], vertexBuffers[m], indexBuffers[m]);
 		std::cout << "Mesh Triangles: " << indexBuffers[m].size() / 3 << std::endl;
 	}
-	
-	uint32_t maxDimension = std::max(std::max(Constants::VoxelGridDimensions.x, Constants::VoxelGridDimensions.y), Constants::VoxelGridDimensions.z);
+
+	glm::uvec3 finestDimension = Constants::VoxelGridDimensions * (uint32_t)std::pow(this->_settings.gridSubdivision, this->_settings.numGridLevels-1);
+	uint32_t maxDimension = std::max(std::max(finestDimension.x, finestDimension.y), finestDimension.z);
 	this->_renderer.CreateImage(this->_voxelImage,
 		VkExtent3D{maxDimension, maxDimension, 1},
 		VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT,

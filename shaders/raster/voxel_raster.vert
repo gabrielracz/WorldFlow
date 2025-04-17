@@ -37,7 +37,7 @@ layout(push_constant) uniform PushConstants {
 
 void main()
 {
-	WorldFlowSubGrid grid = wfGrid.subgrids[0].ref;
+	WorldFlowSubGrid grid = wfGrid.subgrids[wfGrid.subgridCount-1].ref;
     // 1. Load vertex data
     Vertex v = pc.vertexBuffer.vertices[gl_VertexIndex];
 
