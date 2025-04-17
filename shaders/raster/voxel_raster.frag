@@ -38,36 +38,29 @@ void main()
     // vec2 uv = gl_FragCoord.xy / maxDim;
     // vec2 boxCoord = uv * boxSize.xy; // Depends on projection plane
 
-    vec3 temp = vec3(gl_FragCoord.xy, ((gl_FragCoord.z)) * (grid.resolution.z));
+    vec3 temp = vec3(gl_FragCoord.xy, ((gl_FragCoord.z)) * grid.resolution[axis]);
     vec3 pos = vec3(0.0);
-    // float depth = inDepth * grid.resolution[axis];
+    // float depth = inDepth * ;
     
     // fix the axis to use the right "depth" channel
     outColor = vec4(0.0, 0.0, 0.0, 0.0);
     vec4 activeColor = vec4(0.0, 0.0, 1.0 - inDepth, 1.0);
     if(axis == 0) {
         pos = vec3(temp.z, temp.y, temp.x);
-        return;
+        // return;
     } else if(axis == 1) {
         pos = vec3(temp.x, temp.z, temp.y);
-        return;
+        // return;
     } else {
         pos = vec3(temp.x, temp.y, temp.z);
-        outColor = activeColor;
-        return;
+        // return;
     }
 
-    // direct regular grid insert
-    // uint gridIndex = getIndex(uvec3(floor(pos)));
-    // grid[gridIndex] = 1.0; // TODO: use atomic here
-    
-    // orthographic image visualization
-    // outColour = vec4((1.0 - inDepth)/2.0, 0.0, 0.0, 1.0);
+    outColor = activeColor;
 
-    // insert into voxel fragment list for octree placement
-    // uint fragListIndex = atomicAdd(fragCounter, 1);
-    // VoxelFragment voxelFrag;
-    // voxelFrag.position = (pos / gridDimensions);
-    // voxelFrag.gridIndex = gridIndex;
-    // fragList[fragListIndex] = voxelFrag;
+
+    uint gridIndex = getGridIndex(uvec3(pos), grid.resolution);
+    grid.flagsBuffer.data[gridIndex] |= FLAG_OCCUPIED;
+    // grid.flagsBuffer.data[gridIndex] |= FLAG_SOURCE;
+    // grid.flagsBuffer.data[0] |= FLAG_OCCUPIED;
 }

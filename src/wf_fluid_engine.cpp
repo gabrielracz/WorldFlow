@@ -103,6 +103,7 @@ WorldFlow::update(VkCommandBuffer cmd, float dt)
 		this->_timestamps.write(cmd, Timestamps::GenerateCommands, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
 
 		addSources(cmd, dt);
+		voxelRasterizeGeometry(cmd, this->_objMeshes[0]);
 		this->_timestamps.write(cmd, Timestamps::AddFluidProperties, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
 
 		diffuseVelocity(cmd, dt);
@@ -129,8 +130,7 @@ WorldFlow::update(VkCommandBuffer cmd, float dt)
 	if(this->_shouldRenderFluid)
 		renderVoxelVolume(cmd);
 
-	renderMesh(cmd, this->_objMeshes[0]);
-	voxelRasterizeGeometry(cmd, this->_objMeshes[0]);
+	// renderMesh(cmd, this->_objMeshes[0]);
 
 	this->_timestamps.write(cmd, Timestamps::FluidRender, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
 }
@@ -499,9 +499,9 @@ WorldFlow::voxelRasterizeGeometry(VkCommandBuffer cmd, Mesh& mesh)
 
 	VkViewport viewport = {
 		.x = 0,
-		.y = (float)voxExtent.height,
+		.y = 0,
 		.width = (float)voxExtent.width,
-		.height = -(float)voxExtent.height,
+		.height = (float)voxExtent.height,
 		.minDepth = 0.0,
 		.maxDepth = 1.0
 	};
