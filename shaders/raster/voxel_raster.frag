@@ -40,19 +40,20 @@ void main()
 
     vec3 temp = vec3(gl_FragCoord.xy, ((gl_FragCoord.z)) * (grid.resolution.z));
     vec3 pos = vec3(0.0);
+    // float depth = inDepth * grid.resolution[axis];
     
     // fix the axis to use the right "depth" channel
     outColor = vec4(0.0, 0.0, 0.0, 0.0);
-    vec4 activeColor = vec4(0.0, 1.0, 0.0, 1.0);
+    vec4 activeColor = vec4(0.0, 0.0, 1.0 - inDepth, 1.0);
     if(axis == 0) {
         pos = vec3(temp.z, temp.y, temp.x);
-        outColor = activeColor;
         return;
     } else if(axis == 1) {
         pos = vec3(temp.x, temp.z, temp.y);
         return;
     } else {
         pos = vec3(temp.x, temp.y, temp.z);
+        outColor = activeColor;
         return;
     }
 

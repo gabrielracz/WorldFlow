@@ -521,6 +521,9 @@ WorldFlow::voxelRasterizeGeometry(VkCommandBuffer cmd, Mesh& mesh)
 	vkCmdBindIndexBuffer(cmd, mesh.indexBuffer.bufferHandle, 0, VK_INDEX_TYPE_UINT32);
 	vkCmdDrawIndexed(cmd, mesh.numIndices, 1, 0, 0, 0);
 	vkCmdEndRendering(cmd);
+	
+	// VkImageMemoryBarrier imgBarrier = this->_voxelImage.CreateBarrier(VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, VK_ACCESS_2_MEMORY_READ_BIT);
+	// vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, 0, 0, 0, 0, 0, 1, &imgBarrier);
 }
 
 void
