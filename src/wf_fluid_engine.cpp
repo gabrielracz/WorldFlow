@@ -27,13 +27,17 @@ namespace Constants
 
 // constexpr glm::uvec4 VoxelGridDimensions = glm::uvec4(16, 8, 16, 1);
 // constexpr glm::uvec4 VoxelGridDimensions = glm::uvec4(32, 16, 32, 1);
-
-constexpr glm::uvec4 VoxelGridDimensions = glm::uvec4(128, 64, 128, 1);
-// constexpr glm::uvec4 VoxelGridDimensions = glm::uvec4(64, 256, 64, 1);
+constexpr glm::uvec4 VoxelGridDimensions = glm::uvec4(64, 32, 64, 1);
 // constexpr glm::uvec4 VoxelGridDimensions = glm::uvec4(128, 64, 128, 1);
 // constexpr glm::uvec4 VoxelGridDimensions = glm::uvec4(160, 80, 160, 1);
 // constexpr glm::uvec4 VoxelGridDimensions = glm::uvec4(256, 128, 256, 1);
 // constexpr glm::uvec4 VoxelGridDimensions = glm::uvec4(512, 128, 512, 1);
+
+// constexpr glm::uvec4 VoxelGridDimensions = glm::uvec4(128*2, 32*2, 64*2, 1);
+// constexpr glm::uvec4 VoxelGridDimensions = glm::uvec4(96, 32, 96, 1.0);
+// constexpr glm::uvec4 VoxelGridDimensions = glm::uvec4(256, 96, 256, 1) ;
+// constexpr glm::uvec4 VoxelGridDimensions = glm::uvec4(128, 64, 128, 1);
+// constexpr glm::uvec4 VoxelGridDimensions = glm::uvec4(64, 256, 64, 1);
 
 constexpr size_t VoxelGridResolution = VoxelGridDimensions.x/4;
 
@@ -57,7 +61,7 @@ constexpr glm::vec4 LightPosition = glm::vec4(500.0, 500.0, 400, 1.0);
 constexpr uint32_t NumParticles = 65536;
 constexpr float MaxParticleLifetime = 240.0;
 
-const std::string MeshFile = ASSETS_DIRECTORY"/meshes/h2a.glb";
+const std::string MeshFile = ASSETS_DIRECTORY"/meshes/filledwing.glb";
 }
 
 /* FUNCTIONS */
@@ -184,7 +188,8 @@ void
 WorldFlow::addSources(VkCommandBuffer cmd, float dt)
 {
 	this->_computeAddSources.Bind(cmd);
-	for(uint32_t i = 0; i < this->_grid.numSubgrids; i++) {
+	// for(uint32_t i = 0; i < this->_grid.numSubgrids; i++) {
+	for(int32_t i = this->_grid.numSubgrids-1; i >= 0; i--) {
 		SubGrid& sg = this->_grid.subgrids[i];
 		const AddFluidPropertiesPushConstants pc = {
 			.sourcePosition = glm::vec4(this->_sourcePosition, 1.0) * (float)sg.resolution.w,
@@ -201,7 +206,7 @@ WorldFlow::addSources(VkCommandBuffer cmd, float dt)
 			.objectRadius = this->_objectRadius,
 			.decayRate = this->_decayRate,
 			.clear = this->_shouldClear,
-			.subgridLevel = i,
+			.subgridLevel = (uint32_t)i,
 			.activationThreshold = this->_activationThreshold
 		};
 		vkCmdPushConstants(cmd, this->_computeAddSources.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(pc), &pc);
@@ -696,7 +701,7 @@ WorldFlow::drawUI()
 		ImGui::DragFloat("transferAlpha", &this->_transferAlpha, 0.01f);
 		ImGui::DragFloat("arestrictionAlpha", &this->_restrictionAlpha, 0.01f);
 		ImGui::DragFloat("diffusionRate", &this->_diffusionRate, 0.01f);
-		ImGui::DragFloat("pressureDensity", &this->_fluidDensity, 0.01f);
+		ImGui::DragFloat("pressureDensity", &this->_fluidDensity, 0.0001f);
 	}
 	ImGui::End();
 }

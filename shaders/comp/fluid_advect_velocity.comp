@@ -29,9 +29,9 @@ vec3 traceVelocityField(vec3 pos, vec3 velocity, float dt, float cellSize)
 vec4 sampleVelocity(WorldFlowSubGrid grid, uvec3 center, ivec3 offset)
 {
     ivec3 samplePos = ivec3(center) + offset;
-    // vec4 storedVelocity = grid.velocityBuffer.data[getGridIndex(center, grid.resolution)];
+    vec4 storedVelocity = grid.velocityBuffer.data[getGridIndex(center, grid.resolution)];
     ivec3 coarseGridPos = ivec3(getCoarseGridPos(samplePos, wfGrid, pc.subgridLevel));
-    return velocityBoundary(samplePos, coarseGridPos, wfGrid, pc.subgridLevel);
+    return velocityBoundary(storedVelocity, samplePos, coarseGridPos, wfGrid, pc.subgridLevel);
 
 	// ivec3 cell = ivec3(center) + offset;
 	// bvec3 ge = greaterThanEqual(cell, ivec3(0));

@@ -34,7 +34,7 @@ vec4 sampleVelocity(WorldFlowSubGrid grid, uvec3 center, ivec3 offset)
 {
     ivec3 samplePos = ivec3(center) + offset;
     ivec3 coarseGridPos = ivec3(getCoarseGridPos(samplePos, wfGrid, pc.subgridLevel));
-    return velocityBoundary(samplePos, coarseGridPos, wfGrid, pc.subgridLevel);
+    return velocityBoundary(vec4(0.0), samplePos, coarseGridPos, wfGrid, pc.subgridLevel);
 }
 
 vec3 clampPos(WorldFlowSubGrid grid, vec3 pos) {

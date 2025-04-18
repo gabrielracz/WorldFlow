@@ -300,9 +300,10 @@ vec4 sampleVelocity(uint index, WorldFlowSubGrid grid, vec4 fallback) {
 }
 
 
-vec4 velocityBoundary(ivec3 samplePos, ivec3 coarseGridSamplePos, WorldFlowGrid wfGrid, uint subgridLevel) {
+vec4 velocityBoundary(vec4 neumannValue, ivec3 samplePos, ivec3 coarseGridSamplePos, WorldFlowGrid wfGrid, uint subgridLevel) {
     WorldFlowSubGrid fineGrid = wfGrid.subgrids[subgridLevel].ref;
     vec4 edgeFallback = vec4(0.0); //advection used to use neumann
+    // vec4 edgeFallback = neumannValue;
 
     if(!isWithinGridBounds(samplePos, fineGrid.resolution)) return edgeFallback; //return the value on the edge
 

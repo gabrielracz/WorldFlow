@@ -71,7 +71,8 @@ void main()
     float b = sharedDensity[cachePos.z + 1][cachePos.y][cachePos.x];
     float c = sharedDensity[cachePos.z][cachePos.y][cachePos.x];
     
-    const float N = 1.0/(grid.cellSize*grid.cellSize);
+    // const float N = 1.0/(grid.cellSize*grid.cellSize);
+    const float N = (grid.cellSize*grid.cellSize);
     const float a = pc.diffusionRate*pc.dt*N; 
     
     const float newDns = (c + a*(l + r + u + d + f + b)) / (1+6*a);

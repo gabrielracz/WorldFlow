@@ -77,6 +77,7 @@ void main()
     float scale = pc.dt / pc.fluidDensity;
     // float scale = 1.0;
 
-	vec4 newVelocity = grid.velocityBuffer.data[gridIndex] - (vec4(pressureGrad, 0.0));
+	vec4 newVelocity = grid.velocityBuffer.data[gridIndex] - (vec4(pressureGrad, 0.0)) * scale;
 	grid.velocityBuffer.data[gridIndex] = vec4(newVelocity.xyz, 1.0);
+    grid.vorticityBuffer.data[gridIndex].w = length(pressureGrad);
 }

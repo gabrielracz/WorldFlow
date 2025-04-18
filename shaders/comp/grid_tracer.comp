@@ -160,7 +160,7 @@ vec4 traceVoxels(vec3 rayOrigin, vec3 rayDir) {
                 density = grid.debugBuffer.data[index].x;
             }
             else if(pc.renderType == 6) {
-                density = ((grid.flagsBuffer.data[index] & FLAG_ACTIVE) > 0) ? 5.0 : 0.0;
+                density = grid.vorticityBuffer.data[index].w * 5.0;
             }
             else if(pc.renderType == 7) {
                 density = length(grid.vorticityBuffer.data[index].xyz)/20.0;

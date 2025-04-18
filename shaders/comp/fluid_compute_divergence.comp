@@ -25,7 +25,8 @@ shared vec4 sharedVelocity[CACHE_SIZE][CACHE_SIZE][CACHE_SIZE];
 void loadSharedCache(uint gridIndex, ivec3 gridPos, ivec3 localPos, ivec3 coarseGridPos) {
     // load current cell's value into cache
 	WorldFlowSubGrid grid =  wfGrid.subgrids[pc.subgridLevel].ref;
-    sharedVelocity[localPos.z+1][localPos.y+1][localPos.x+1] = grid.velocityBuffer.data[gridIndex];
+    vec4 storedVelocity = grid.velocityBuffer.data[gridIndex];
+    sharedVelocity[localPos.z+1][localPos.y+1][localPos.x+1] = storedVelocity;
     
 	// load halo boundary cells
     for(int d = 0; d < 3; d++) {
@@ -37,7 +38,7 @@ void loadSharedCache(uint gridIndex, ivec3 gridPos, ivec3 localPos, ivec3 coarse
             ivec3 samplePos = gridPos + offset;
             ivec3 cachePos = localPos + (ivec3(1) + offset);
             ivec3 coarseGridSamplePos = coarseGridPos + offset;
-            sharedVelocity[cachePos.z][cachePos.y][cachePos.x] = velocityBoundary(samplePos, coarseGridSamplePos, wfGrid, pc.subgridLevel);
+            sharedVelocity[cachePos.z][cachePos.y][cachePos.x] = velocityBoundary(storedVelocity, samplePos, coarseGridSamplePos, wfGrid, pc.subgridLevel);
         }
     }
     barrier();
@@ -66,6 +67,7 @@ void main()
     vec4 d = sharedVelocity[cachePos.z][cachePos.y - 1][cachePos.x];
     vec4 f = sharedVelocity[cachePos.z + 1][cachePos.y][cachePos.x];
     vec4 b = sharedVelocity[cachePos.z - 1][cachePos.y][cachePos.x];
+
 
     const float div = -0.5 * grid.cellSize * (r.x-l.x + u.y-d.y + f.z-b.z);
     grid.divergenceBuffer.data[gridIndex] = div;

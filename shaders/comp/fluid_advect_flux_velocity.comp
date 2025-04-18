@@ -50,19 +50,42 @@ void main()
 	const vec4 b = sampleVelocity(grid, center, ivec3(0, 0, -1));
 	const vec4 oldVel = grid.velocityBuffer.data[index];
 
-    float dx = grid.resolution.x;
-    vec4 flux = vec4(0);
-    
-    // X-direction flux
-    flux.x = (r.x * r.x - l.x * l.x) / (2.0 * dx);
-    
-    // Y-direction flux
-    flux.y = (u.y * u.y - d.y * d.y) / (2.0 * dx);
-    
-    // Z-direction flux
-    flux.z = (f.z * f.z - b.z * b.z) / (2.0 * dx);
+    // Sample neighboring velocities
+    const vec4 vel_east = sampleVelocity(grid, center, ivec3(1, 0, 0));
+    const vec4 vel_west = sampleVelocity(grid, center, ivec3(-1, 0, 0));
+    const vec4 vel_north = sampleVelocity(grid, center, ivec3(0, 1, 0));
+    const vec4 vel_south = sampleVelocity(grid, center, ivec3(0, -1, 0));
+    const vec4 vel_front = sampleVelocity(grid, center, ivec3(0, 0, 1));
+    const vec4 vel_back = sampleVelocity(grid, center, ivec3(0, 0, -1));
 
-    vec4 newVel = oldVel - flux * pc.dt;
+    vec4 newVel = oldVel;
+	// float h = grid.cellSize;
+	float h = 1.0;
 
-	grid.velocityBuffer.data[index] = newVel;
+    // Simple first-order upwind advection (for each velocity component)
+    // X-component advection by the x-velocity
+    float u_east = vel_east.x;
+    float u_west = vel_west.x;
+    float u_center = oldVel.x;
+    float dudx_plus = max(0.0, u_center) * (u_center - u_west) / h;
+    float dudx_minus = min(0.0, u_center) * (u_east - u_center) / h;
+    newVel.x -= pc.dt * (dudx_plus + dudx_minus);
+
+    // Y-component advection by the y-velocity
+    float v_north = vel_north.y;
+    float v_south = vel_south.y;
+    float v_center = oldVel.y;
+    float dvdy_plus = max(0.0, v_center) * (v_center - v_south) / h;
+    float dvdy_minus = min(0.0, v_center) * (v_north - v_center) / h;
+    newVel.y -= pc.dt * (dvdy_plus + dvdy_minus);
+
+    // Z-component advection by the z-velocity
+    float w_front = vel_front.z;
+    float w_back = vel_back.z;
+    float w_center = oldVel.z;
+    float dwdz_plus = max(0.0, w_center) * (w_center - w_back) / h;
+    float dwdz_minus = min(0.0, w_center) * (w_front - w_center) / h;
+    newVel.z -= pc.dt * (dwdz_plus + dwdz_minus);
+
+    grid.velocityBuffer.data[index] = newVel;
 }

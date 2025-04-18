@@ -109,7 +109,7 @@ void main()
     float activationScore = (vrtWeight*length(grid.vorticityBuffer.data[index].xyz) + 
                              dnsWeight*abs(grid.densityBuffer.data[index])          +
                              velWeight*length(grid.velocityBuffer.data[index].xyz)  +
-                             prsWeight*abs(grid.pressureBuffer.data[index]))
+                             prsWeight*abs(grid.vorticityBuffer.data[index].w))
                              / (pc.subgridLevel+1);
     if(pc.subgridLevel < wfGrid.subgridCount-1 && activationScore > pc.activationThreshold) {
         setActive = true;
