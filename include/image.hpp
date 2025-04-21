@@ -13,7 +13,7 @@ public:
     VkImageMemoryBarrier CreateBarrier(VkAccessFlags srcAccess, VkAccessFlags dstAccess);
     VkImageMemoryBarrier2 CreateBarrier2(VkPipelineStageFlags2 srcStage, VkPipelineStageFlags2 dstStage, VkAccessFlags srcAccess, VkAccessFlags dstAccess);
 
-    static void Copy(VkCommandBuffer cmd, Image src, Image dst, bool stretch = true);
+    static void Copy(VkCommandBuffer cmd, Image src, Image dst, bool stretch = true, VkExtent3D srcExtent = {}, VkExtent3D dstExtent = {});
 
     VkImage image {};
     VkImageView imageView {};

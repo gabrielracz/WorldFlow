@@ -120,7 +120,7 @@ vec4 traceVoxels(vec3 rayOrigin, vec3 rayDir) {
     uint subgridLevel = pc.rootGridLevel;
     vec3 crossingAxis = tMaxAxis;
     float distThroughCell = rootGrid.cellSize;
-    for (int i = 0; i < pc.maxDistance*4; i++) {
+    for (int i = 0; i < pc.maxDistance; i++) {
         WorldFlowSubGrid grid = wfGrid.subgrids[subgridLevel].ref;
         uint index = getGridIndex(uvec3(mapPos), grid.resolution);
         // Bounds check;

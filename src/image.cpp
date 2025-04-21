@@ -1,5 +1,6 @@
 #include "image.hpp"
 #include "vk_initializers.h"
+#include <vulkan/vulkan_core.h>
 
 void
 Image::Transition(VkCommandBuffer cmd, VkImageLayout newLayout)
@@ -42,21 +43,23 @@ Image::Clear(VkCommandBuffer cmd, VkClearColorValue color)
 }
 
 void
-Image::Copy(VkCommandBuffer cmd, Image src, Image dst, bool stretch)
+Image::Copy(VkCommandBuffer cmd, Image src, Image dst, bool stretch, VkExtent3D srcExtent, VkExtent3D dstExtent)
 {
+	if(srcExtent.width == 0) srcExtent = src.imageExtent;
+	if(dstExtent.width == 0) dstExtent = dst.imageExtent;
 
 	VkImageBlit2 blitRegion{ .sType = VK_STRUCTURE_TYPE_IMAGE_BLIT_2, .pNext = nullptr };
-	blitRegion.srcOffsets[1].x = src.imageExtent.width;
-	blitRegion.srcOffsets[1].y = src.imageExtent.height;
+	blitRegion.srcOffsets[1].x = srcExtent.width;
+	blitRegion.srcOffsets[1].y = srcExtent.height;
 	blitRegion.srcOffsets[1].z = 1;
     
     if(stretch) {
-        blitRegion.dstOffsets[1].x = dst.imageExtent.width;
-        blitRegion.dstOffsets[1].y = dst.imageExtent.height;
+        blitRegion.dstOffsets[1].x = dstExtent.width;
+        blitRegion.dstOffsets[1].y = dstExtent.height;
         blitRegion.dstOffsets[1].z = 1;
     } else {
-        blitRegion.dstOffsets[1].x = src.imageExtent.width;
-        blitRegion.dstOffsets[1].y = src.imageExtent.height;
+        blitRegion.dstOffsets[1].x = srcExtent.width;
+        blitRegion.dstOffsets[1].y = srcExtent.height;
         blitRegion.dstOffsets[1].z = 1;
     }
 
@@ -75,7 +78,7 @@ Image::Copy(VkCommandBuffer cmd, Image src, Image dst, bool stretch)
 	blitInfo.dstImageLayout = dst.layout;
 	blitInfo.srcImage = src.image;
 	blitInfo.srcImageLayout = src.layout;
-	blitInfo.filter = VK_FILTER_LINEAR;
+	blitInfo.filter = VK_FILTER_NEAREST;
 	blitInfo.regionCount = 1;
 	blitInfo.pRegions = &blitRegion;
 

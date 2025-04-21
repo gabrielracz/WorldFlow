@@ -93,5 +93,7 @@ void main()
     // Scale by grid cell size for proper units
     vorticity.xyz *= (1.0 / grid.cellSize);
 
+	if(any(equal(gridPos, uvec3(0))) || any(equal(gridPos, grid.resolution.xyz-1))) {vorticity = vec4(0.0);}
+
     grid.vorticityBuffer.data[gridIndex] = vorticity;
 }

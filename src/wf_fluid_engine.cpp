@@ -34,8 +34,10 @@ namespace Constants
 // constexpr glm::uvec4 VoxelGridDimensions = glm::uvec4(256, 256, 256, 1);
 // constexpr glm::uvec4 VoxelGridDimensions = glm::uvec4(256+128, 128, 256+128, 1);
 
-constexpr glm::uvec4 VoxelGridDimensions = glm::uvec4(128, 64, 128, 1);
-// constexpr glm::uvec4 VoxelGridDimensions = glm::uvec4(96, 32, 96, 1.0);
+// constexpr glm::uvec4 VoxelGridDimensions = glm::uvec4(128, 64, 128, 1);
+// constexpr glm::uvec4 VoxelGridDimensions = glm::uvec4(96, 48, 96, 1.0);
+// constexpr glm::uvec4 VoxelGridDimensions = glm::uvec4(128+32, 48, 96, 1.0);
+constexpr glm::uvec4 VoxelGridDimensions = glm::uvec4(32, 256, 32, 1.0);
 // constexpr glm::uvec4 VoxelGridDimensions = glm::uvec4(256, 96, 256, 1) ;
 // constexpr glm::uvec4 VoxelGridDimensions = glm::uvec4(128, 64, 128, 1);
 // constexpr glm::uvec4 VoxelGridDimensions = glm::uvec4(64, 256, 64, 1);
@@ -62,7 +64,7 @@ constexpr glm::vec4 LightPosition = glm::vec4(500.0, 500.0, 400, 1.0);
 constexpr uint32_t NumParticles = 65536;
 constexpr float MaxParticleLifetime = 240.0;
 
-const std::string MeshFile = ASSETS_DIRECTORY"/meshes/h2.glb";
+const std::string MeshFile = ASSETS_DIRECTORY"/meshes/tomcat.glb";
 }
 
 /* FUNCTIONS */
@@ -442,7 +444,9 @@ WorldFlow::restrictVelocities(VkCommandBuffer cmd)
 void
 WorldFlow::renderVoxelVolume(VkCommandBuffer cmd)
 {
-	this->_renderer.GetDrawImage().Transition(cmd, VK_IMAGE_LAYOUT_GENERAL);
+	// this->_renderer.GetDrawImage().Transition(cmd, VK_IMAGE_LAYOUT_GENERAL);
+	this->_fluidImage.Clear(cmd);
+	this->_fluidImage.Transition(cmd, VK_IMAGE_LAYOUT_GENERAL);
 	vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, this->_computeRaycastVoxelGrid.pipeline);
 	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, this->_computeRaycastVoxelGrid.layout, 0, 1, this->_computeRaycastVoxelGrid.descriptorSets.data(), 0, nullptr);
 
@@ -455,7 +459,7 @@ WorldFlow::renderVoxelVolume(VkCommandBuffer cmd)
 		.inverseView = invView,
 		.cameraPos = invView * glm::vec4(0.0, 0.0, 0.0, 1.0),
 		.nearPlane = 0.1f,
-		.screenSize = glm::vec2(this->_renderer.GetWindowExtent2D().width, this->_renderer.GetWindowExtent2D().height),
+		.screenSize = glm::vec2(this->_renderer.GetWindowExtent2D().width/this->_rendererDownsampling, this->_renderer.GetWindowExtent2D().height/this->_rendererDownsampling),
 		.maxDistance = Constants::VoxelDiagonal*2,
 		.stepSize = 0.1f,
 		.gridSize = glm::vec3(Constants::VoxelGridDimensions),
@@ -468,7 +472,15 @@ WorldFlow::renderVoxelVolume(VkCommandBuffer cmd)
 	};
 	vkCmdPushConstants(cmd, this->_computeRaycastVoxelGrid.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(RayTracerPushConstants), &rtpc);
 	VkExtent3D groupCounts = this->_renderer.GetWorkgroupCounts(8);
-	vkCmdDispatch(cmd, groupCounts.width, groupCounts.height, groupCounts.depth);
+	vkCmdDispatch(cmd, groupCounts.width/this->_rendererDownsampling, groupCounts.height/this->_rendererDownsampling, groupCounts.depth);
+
+	VkImageMemoryBarrier barrier = this->_fluidImage.CreateBarrier(VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_TRANSFER_READ_BIT);
+	vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, 0, 0, 0, 1, &barrier);
+	this->_fluidImage.Transition(cmd, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+	VkExtent3D drawImgExtent = this->_renderer.GetWindowExtent3D();
+	VkExtent3D fluidImgExtent{drawImgExtent.width/this->_rendererDownsampling, drawImgExtent.height/this->_rendererDownsampling, 1};
+	this->_renderer.GetDrawImage().Transition(cmd, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+	Image::Copy(cmd, this->_fluidImage, this->_renderer.GetDrawImage(), true, fluidImgExtent, drawImgExtent);
 }
 
 void
@@ -693,6 +705,8 @@ WorldFlow::drawUI()
 		const uint32_t step = 1;
 		ImGui::InputScalar("rndrlvl start", ImGuiDataType_U32, &this->_rendererSubgridBegin, &step);
 		ImGui::InputScalar("rndrlvl end", ImGuiDataType_U32, &this->_rendererSubgridLimit, &step);
+		ImGui::InputScalar("rndr downsample", ImGuiDataType_U32, &this->_rendererDownsampling, &step);
+		this->_rendererDownsampling = std::max(this->_rendererDownsampling, 1u);
 		ImGui::DragFloat("activation", &this->_activationThreshold, 0.01f);
 		ImGui::DragFloat4("vrt/vel/dns/prs", glm::value_ptr(this->_activationWeights), 0.01f);
 		ImGui::InputScalar("diffiter", ImGuiDataType_U32, &this->_diffusionIterations, &step);
@@ -826,6 +840,16 @@ WorldFlow::initResources()
 		Constants::NumParticles * sizeof(Particle),
 		VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
 		VMA_MEMORY_USAGE_GPU_ONLY
+	);
+
+	VkExtent3D maxRes{2560, 1440, 1};
+	this->_renderer.CreateImage(
+		this->_fluidImage,
+		maxRes,
+		VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_STORAGE_BIT,
+		VK_IMAGE_ASPECT_COLOR_BIT,
+		VK_FORMAT_R32G32B32A32_SFLOAT,
+		VK_IMAGE_LAYOUT_GENERAL
 	);
 
 	Particle* particles = new Particle[Constants::NumParticles];
@@ -974,7 +998,8 @@ WorldFlow::initPipelines()
 	// COMPUTE
     this->_renderer.CreateComputePipeline(this->_computeRaycastVoxelGrid, SHADER_DIRECTORY"/grid_tracer.comp.spv", {
 		BufferDescriptor(0, 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, this->_grid.buffWorldFlowGridGpu.bufferHandle, sizeof(WorldFlowGridGpu)),
-        ImageDescriptor(0, 1, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, this->_renderer.GetDrawImage().imageView, VK_NULL_HANDLE, this->_renderer.GetDrawImage().layout),
+        // ImageDescriptor(0, 1, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, this->_renderer.GetDrawImage().imageView, VK_NULL_HANDLE, this->_renderer.GetDrawImage().layout),
+        ImageDescriptor(0, 1, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, this->_fluidImage.imageView, VK_NULL_HANDLE, this->_fluidImage.layout),
     },
     sizeof(RayTracerPushConstants));
 

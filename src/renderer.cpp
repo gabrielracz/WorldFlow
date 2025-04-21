@@ -1161,6 +1161,12 @@ Renderer::GetWindowExtent2D()
     return VkExtent2D{this->_windowExtent.width, this->_windowExtent.height};
 }
 
+VkExtent3D
+Renderer::GetWindowExtent3D()
+{
+    return VkExtent3D{this->_windowExtent.width, this->_windowExtent.height, 1};
+}
+
 float
 Renderer::GetElapsedTime()
 {

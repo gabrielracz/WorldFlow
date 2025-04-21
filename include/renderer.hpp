@@ -58,6 +58,7 @@ public:
     VkViewport GetWindowViewport();
     VkRect2D GetWindowScissor();
     VkExtent2D GetWindowExtent2D();
+    VkExtent3D GetWindowExtent3D();
     float GetElapsedTime();
     uint32_t GetFrameNumber();
 
