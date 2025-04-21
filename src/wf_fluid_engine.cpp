@@ -27,13 +27,14 @@ namespace Constants
 
 // constexpr glm::uvec4 VoxelGridDimensions = glm::uvec4(16, 8, 16, 1);
 // constexpr glm::uvec4 VoxelGridDimensions = glm::uvec4(32, 16, 32, 1);
-constexpr glm::uvec4 VoxelGridDimensions = glm::uvec4(64, 32, 64, 1);
+// constexpr glm::uvec4 VoxelGridDimensions = glm::uvec4(64, 32, 64, 1);
 // constexpr glm::uvec4 VoxelGridDimensions = glm::uvec4(128, 64, 128, 1);
 // constexpr glm::uvec4 VoxelGridDimensions = glm::uvec4(160, 80, 160, 1);
 // constexpr glm::uvec4 VoxelGridDimensions = glm::uvec4(256, 128, 256, 1);
-// constexpr glm::uvec4 VoxelGridDimensions = glm::uvec4(512, 128, 512, 1);
+// constexpr glm::uvec4 VoxelGridDimensions = glm::uvec4(256, 256, 256, 1);
+// constexpr glm::uvec4 VoxelGridDimensions = glm::uvec4(256+128, 128, 256+128, 1);
 
-// constexpr glm::uvec4 VoxelGridDimensions = glm::uvec4(128*2, 32*2, 64*2, 1);
+constexpr glm::uvec4 VoxelGridDimensions = glm::uvec4(128, 64, 128, 1);
 // constexpr glm::uvec4 VoxelGridDimensions = glm::uvec4(96, 32, 96, 1.0);
 // constexpr glm::uvec4 VoxelGridDimensions = glm::uvec4(256, 96, 256, 1) ;
 // constexpr glm::uvec4 VoxelGridDimensions = glm::uvec4(128, 64, 128, 1);
@@ -61,7 +62,7 @@ constexpr glm::vec4 LightPosition = glm::vec4(500.0, 500.0, 400, 1.0);
 constexpr uint32_t NumParticles = 65536;
 constexpr float MaxParticleLifetime = 240.0;
 
-const std::string MeshFile = ASSETS_DIRECTORY"/meshes/filledwing.glb";
+const std::string MeshFile = ASSETS_DIRECTORY"/meshes/h2.glb";
 }
 
 /* FUNCTIONS */
@@ -876,7 +877,7 @@ WorldFlow::initResources()
         VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL
 	);
 	this->_renderer.ImmediateSubmit([this](VkCommandBuffer cmd) {
-		this->_voxelImage.Clear(cmd, {1.0, 0.0, 0.0, 1.0});
+		this->_voxelImage.Clear(cmd, {0.7, 0.7, 0.7, 1.0});
 	});
 
 	// WORLDFLOW GRID ALLOCATION //

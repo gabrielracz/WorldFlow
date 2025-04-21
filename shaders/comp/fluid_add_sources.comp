@@ -92,11 +92,10 @@ void main()
         setActive = true;
     }
 
-    // float objectProximityScale = 2.0*float(pc.subgridLevel);
-    // float objectProximityScale = 1.5*(wfGrid.subgridCount - pc.subgridLevel);
-    // if(pc.subgridLevel < wfGrid.subgridCount-1 && objDist < (pc.objectRadius*objectProximityScale)) {
-    //     setActive = true;
-    // }
+    float objectProximityScale = 1.5*(wfGrid.subgridCount - pc.subgridLevel);
+    if(pc.subgridLevel < wfGrid.subgridCount-1 && objDist < (pc.objectRadius*objectProximityScale)) {
+        // setActive = true;
+    }
 
     // if(pc.subgridLevel == 0) {
     //    setActive = true;
@@ -110,7 +109,7 @@ void main()
                              dnsWeight*abs(grid.densityBuffer.data[index])          +
                              velWeight*length(grid.velocityBuffer.data[index].xyz)  +
                              prsWeight*abs(grid.vorticityBuffer.data[index].w))
-                             / (pc.subgridLevel+1);
+                             / (pc.subgridLevel+1) / (pc.subgridLevel+1);
     if(pc.subgridLevel < wfGrid.subgridCount-1 && activationScore > pc.activationThreshold) {
         setActive = true;
     }
@@ -134,7 +133,7 @@ void main()
     }
 
     if(pc.subgridLevel > 0) {
-        grid.debugBuffer.data[index] = vec4(0.25) * pc.subgridLevel;
+        grid.debugBuffer.data[index] = vec4(0.75) * pc.subgridLevel;
     }
 
     grid.densityBuffer.data[index] *= exp(-pc.decayRate * pc.dt);

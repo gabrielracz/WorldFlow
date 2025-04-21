@@ -70,9 +70,11 @@ void main()
     float d = sharedPressure[cachePos.z][cachePos.y - 1][cachePos.x];
     float f = sharedPressure[cachePos.z + 1][cachePos.y][cachePos.x];
     float b = sharedPressure[cachePos.z - 1][cachePos.y][cachePos.x];
+    float h = grid.cellSize;
 
 	const float oldPres = grid.pressureBuffer.data[gridIndex];
     const float newPres = (grid.divergenceBuffer.data[gridIndex] + r + l + u + d + f + b) / 6.0;
+    // const float newPres = (grid.divergenceBuffer.data[gridIndex]h*h + r + l + u + d + f + b) / 6.0;
 
 	// SOR
 	const float result = SOR(oldPres, newPres, avg3(grid.resolution.xyx));

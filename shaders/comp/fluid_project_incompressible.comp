@@ -71,7 +71,7 @@ void main()
         0.5 * (r - l),
         0.5 * (u - d),
         0.5 * (f - b)
-    ) / h;
+    ) / (h);
 
     const float fluidDensity = 0.05;
     float scale = pc.dt / pc.fluidDensity;

@@ -124,6 +124,33 @@ void main()
 
 #endif
 
+// Unconditionally Stable MacCormack Method from Paper
+// #define STABLE_MACCORMACK
+#ifdef STABLE_MACCORMACK
+
+    vec3 forwardPos = traceVelocityField(pos, bkwdVelocity.xyz, -pc.dt, grid.cellSize);
+    vec3 clampedFwdPos = clampPos(grid, forwardPos);
+    vec4 fwdVelocity = interpolateVelocity(grid, forwardPos); // This is \hat{\phi}^n
+
+    // Calculate error estimate: e = (\hat{\phi}^n - \phi^n) / 2
+    vec4 error_e = (fwdVelocity - currentVelocity) / 2.0;
+
+    // Correct the predicted value: \phi^{n+1} = \hat{\phi}^{n+1} - e
+    vec4 corrected_velocity = bkwdVelocity - error_e;
+
+    // Implement limiter by reverting to first order (semi-Lagrangian) if new extrema are created
+    vec4 limited_velocity = corrected_velocity;
+    for(int i = 0; i < 3; ++i) { // Apply to x, y, z components
+        float min_val = min(currentVelocity[i], bkwdVelocity[i]);
+        float max_val = max(currentVelocity[i], bkwdVelocity[i]);
+        if (limited_velocity[i] > max_val || limited_velocity[i] < min_val) {
+            limited_velocity[i] = bkwdVelocity[i];
+        }
+    }
+    result = limited_velocity;
+
+#endif
+
 	atomicExchange(grid.velocityBuffer.data[index].x, result.x);
 	atomicExchange(grid.velocityBuffer.data[index].y, result.y);
 	atomicExchange(grid.velocityBuffer.data[index].z, result.z);

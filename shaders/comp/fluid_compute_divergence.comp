@@ -69,7 +69,10 @@ void main()
     vec4 b = sharedVelocity[cachePos.z - 1][cachePos.y][cachePos.x];
 
 
-    const float div = -0.5 * grid.cellSize * (r.x-l.x + u.y-d.y + f.z-b.z);
+    float h = grid.cellSize;
+    const float div = -0.5 * h * (r.x-l.x + u.y-d.y + f.z-b.z);
+    // non-scaled version
+    // const float div = -(r.x-l.x + u.y-d.y + f.z-b.z)/(2*h);
     grid.divergenceBuffer.data[gridIndex] = div;
 
 	// Compute finite difference approximations of partial derivatives

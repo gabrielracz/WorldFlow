@@ -245,7 +245,6 @@ bool isWorkgroupActive(WorldFlowGrid wfGrid, uint level, uvec3 workGroupID, uvec
     return getWorkgroupIndex(workGroupID, numWorkGroups) < wfGrid.subgrids[level].ref.indexCount;
 }
 
-// TODO: support non full coverage subgrids
 uvec3 getSubgridWorkgroupOffset(uint workgroupOffsetIndex, WorldFlowSubGrid coarseGrid, WorldFlowSubGrid fineGrid)
 {
     uvec3 gridPos = unflattenGridIndex(fineGrid.indexOffsets.data[workgroupOffsetIndex], coarseGrid.resolution) * (fineGrid.resolution.w / coarseGrid.resolution.w);
@@ -347,7 +346,7 @@ float pressureBoundary(float neumannValue, ivec3 samplePos, ivec3 coarseGridSamp
         }
         uint coarseIndex = getGridIndex(coarseGridSamplePos, coarseGrid.resolution);
         if((coarseGrid.flagsBuffer.data[coarseIndex] & FLAG_ACTIVE) == 0) {
-            return samplePressure(coarseIndex, coarseGrid, edgeFallback);
+            return samplePressure(coarseIndex, coarseGrid, edgeFallback) / ( fineGrid.resolution.w - coarseGrid.resolution.w + ((subgridLevel == 1) ? 1 : 0)); // fix pressure units (due to difference between h)
         }
     }
 

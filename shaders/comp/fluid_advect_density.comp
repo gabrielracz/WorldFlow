@@ -151,6 +151,43 @@ void main()
     result = (sign(result) != sign(currentDensity)) ? bkwdDensity : result;
 #endif
 
+// Unconditionally Stable MacCormack Method from Paper
+// #define UNCONDITIONALLY_STABLE_MACCORMACK_DENSITY_PAPER
+#ifdef UNCONDITIONALLY_STABLE_MACCORMACK_DENSITY_PAPER
+
+    // Predictor step (already computed as bkwdDensity)
+    // bkwdDensity corresponds to \hat{\phi}^{n+1} in the paper (semi-Lagrangian A(\phi^n))
+
+    // Backward step to estimate error
+    // Get the velocity at the departure point of the backward trace
+    vec4 bkwdVelocity_paper = interpolateVelocity(grid, pastPos);
+
+    // Trace forward from pos using the velocity at the backward traced point to get \hat{\phi}^n
+    float currentDensity = grid.densityBuffer.data[index];
+    vec3 forwardPos_paper = traceVelocityField(pos, bkwdVelocity_paper.xyz, -pc.dt, grid.cellSize);
+    vec3 clampedFwdPos_paper = clampPos(grid, forwardPos_paper);
+    float fwdDensity_paper = interpolatedDensity(grid, clampedFwdPos_paper); // This is \hat{\phi}^n
+
+    // Calculate error estimate: e = (\hat{\phi}^n - \phi^n) / 2
+    float error_e = (fwdDensity_paper - currentDensity) / 2.0;
+
+    // Correct the predicted value: \phi^{n+1} = \hat{\phi}^{n+1} - e
+    float corrected_density = bkwdDensity - error_e;
+
+    // Implement limiter by reverting to first order (semi-Lagrangian) if new extrema are created
+    // Compare corrected_density with the range of currentDensity and bkwdDensity
+    float min_val = min(currentDensity, bkwdDensity);
+    float max_val = max(currentDensity, bkwdDensity);
+    
+    float limited_density = corrected_density;
+    if (limited_density > max_val || limited_density < min_val) {
+        limited_density = bkwdDensity;
+    }
+
+    result = limited_density;
+
+#endif
+
 	// float interpolatedDensity = grid[getGridIndex(center, grid.resolution)].density;
 
 	atomicExchange(grid.densityBuffer.data[index], result);

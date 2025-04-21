@@ -116,8 +116,6 @@ vec4 traceVoxels(vec3 rayOrigin, vec3 rayDir) {
     tMaxAxis.z = (step.z > 0.0) ? tVoxelMax.z : tVoxelMin.z;
     
     int missteps = 0;
-    // Main ray traversal loop
-    // ivec3 prevMapPos = mapPos;
     vec3 prevPos = pos;
     uint subgridLevel = pc.rootGridLevel;
     vec3 crossingAxis = tMaxAxis;
@@ -148,10 +146,10 @@ vec4 traceVoxels(vec3 rayOrigin, vec3 rayDir) {
                 density = grid.densityBuffer.data[index];
             }
             else if(pc.renderType == 2) {
-                density = grid.divergenceBuffer.data[index] * 64 * 2;
+                density = grid.divergenceBuffer.data[index] / grid.cellSize * 2;
             }
             else if(pc.renderType == 3) {
-                density = grid.pressureBuffer.data[index] * 64 * 2;
+                density = grid.pressureBuffer.data[index] / grid.cellSize * 2;
             }
             else if(pc.renderType == 4) {
                 density = length(grid.velocityBuffer.data[index].xyz);
