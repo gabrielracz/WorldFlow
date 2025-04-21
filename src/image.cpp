@@ -84,7 +84,7 @@ Image::Copy(VkCommandBuffer cmd, Image src, Image dst, bool stretch, VkExtent3D 
 
 	vkCmdBlitImage2(cmd, &blitInfo);
 
-    VkImageMemoryBarrier2 barrier = dst.CreateBarrier2(VK_PIPELINE_STAGE_2_BLIT_BIT, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, VK_ACCESS_2_MEMORY_WRITE_BIT, VK_ACCESS_2_MEMORY_READ_BIT);
+    VkImageMemoryBarrier2 barrier = dst.CreateBarrier2(VK_PIPELINE_STAGE_2_BLIT_BIT, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, VK_ACCESS_2_MEMORY_WRITE_BIT, VK_ACCESS_2_MEMORY_READ_BIT | VK_ACCESS_2_MEMORY_WRITE_BIT);
     VkDependencyInfo depInfo = {
         .sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO,
         .imageMemoryBarrierCount = 1,
@@ -99,7 +99,7 @@ VkImageMemoryBarrier
 Image::CreateBarrier(VkAccessFlags srcAccess, VkAccessFlags dstAccess)
 {
     return VkImageMemoryBarrier {
-        .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
+        .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
         .srcAccessMask = srcAccess,
         .dstAccessMask = dstAccess,
         .oldLayout = this->layout,
@@ -119,7 +119,7 @@ VkImageMemoryBarrier2
 Image::CreateBarrier2(VkPipelineStageFlags2 srcStage, VkPipelineStageFlags2 dstStage, VkAccessFlags srcAccess, VkAccessFlags dstAccess)
 {
     return VkImageMemoryBarrier2 {
-        .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
+        .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
         .srcStageMask = srcStage,
         .srcAccessMask = srcAccess,
         .dstStageMask = dstStage,

@@ -14,7 +14,7 @@
 
 namespace Constants
 {
-    constexpr bool IsValidationLayersEnabled = false;
+    constexpr bool IsValidationLayersEnabled = true;
     constexpr bool VSYNCEnabled = true;
 
     constexpr uint32_t FPSMeasurePeriod = 60;
@@ -184,6 +184,8 @@ Renderer::render(float dt)
     VK_ASSERT(vkBeginCommandBuffer(cmd, &cmdBeginInfo));
 
     this->_drawImage.Clear(cmd);
+	VkImageMemoryBarrier clearBarrier = this->_drawImage.CreateBarrier(VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_2_MEMORY_WRITE_BIT);
+	vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, 0, 0, 0, 0, 0, 1, &clearBarrier);
 
     /* BEGIN USER COMMANDS */
 

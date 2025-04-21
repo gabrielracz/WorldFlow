@@ -161,6 +161,7 @@ private:
 	Buffer _buffGridLines;
 	Image _voxelImage;
 	Image _fluidImage;
+	Image _depthImage;
 	
 	Grid _grid {};
 
