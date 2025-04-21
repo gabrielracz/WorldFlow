@@ -37,8 +37,8 @@ namespace Constants
 
 // constexpr glm::uvec4 VoxelGridDimensions = glm::uvec4(128, 64, 128, 1);
 // constexpr glm::uvec4 VoxelGridDimensions = glm::uvec4(96, 48, 96, 1.0);
-// constexpr glm::uvec4 VoxelGridDimensions = glm::uvec4(128+32, 48, 96, 1.0);
-constexpr glm::uvec4 VoxelGridDimensions = glm::uvec4(64, 192, 64, 1.0);
+constexpr glm::uvec4 VoxelGridDimensions = glm::uvec4(128+32, 48, 96, 1.0);
+// constexpr glm::uvec4 VoxelGridDimensions = glm::uvec4(64, 192, 64, 1.0);
 // constexpr glm::uvec4 VoxelGridDimensions = glm::uvec4(256, 96, 256, 1) ;
 // constexpr glm::uvec4 VoxelGridDimensions = glm::uvec4(128, 64, 128, 1);
 // constexpr glm::uvec4 VoxelGridDimensions = glm::uvec4(64, 256, 64, 1);
@@ -137,10 +137,12 @@ WorldFlow::update(VkCommandBuffer cmd, float dt)
 		this->_timestamps.write(cmd, Timestamps::DensityAdvect, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
 	}
 
+	if(this->_shouldRenderGeometry)
+		renderMesh(cmd, this->_objMeshes[0]);
+
 	if(this->_shouldRenderFluid)
 		renderVoxelVolume(cmd);
 
-	renderMesh(cmd, this->_objMeshes[0]);
 
 	this->_timestamps.write(cmd, Timestamps::FluidRender, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
 }
@@ -445,7 +447,6 @@ WorldFlow::restrictVelocities(VkCommandBuffer cmd)
 void
 WorldFlow::renderVoxelVolume(VkCommandBuffer cmd)
 {
-	// this->_renderer.GetDrawImage().Transition(cmd, VK_IMAGE_LAYOUT_GENERAL);
 	this->_fluidImage.Clear(cmd);
 	VkImageMemoryBarrier clearbBarrier = this->_fluidImage.CreateBarrier(VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_MEMORY_READ_BIT | VK_ACCESS_MEMORY_WRITE_BIT);
 	vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, 0, 0, 0, 0, 0, 1, &clearbBarrier);
@@ -481,22 +482,38 @@ WorldFlow::renderVoxelVolume(VkCommandBuffer cmd)
 	VkExtent3D groupCounts = this->_renderer.GetDrawImageWorkgroupCounts(16);
 	vkCmdDispatch(cmd, groupCounts.width/this->_rendererDownsampling, groupCounts.height/this->_rendererDownsampling, groupCounts.depth);
 
-	VkImageMemoryBarrier barrier = this->_fluidImage.CreateBarrier(VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_TRANSFER_READ_BIT);
-	vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, 0, 0, 0, 1, &barrier);
+	VkImageMemoryBarrier barrier = this->_fluidImage.CreateBarrier(VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT);
+	vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, 0, 0, 0, 1, &barrier);
 
-	this->_fluidImage.Transition(cmd, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
-	this->_renderer.GetDrawImage().Transition(cmd, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
-	Image::Copy(cmd, this->_fluidImage, this->_renderer.GetDrawImage(), true, sampleExtent, dstExtent);
+
+	this->_renderer.GetDrawImage().Transition(cmd, VK_IMAGE_LAYOUT_GENERAL);
+	this->_computeCompositeVoxelImage.Bind(cmd);
+	CompositorPushConstants pc = {.downsampleLevel = this->_rendererDownsampling};
+	vkCmdPushConstants(cmd, this->_computeCompositeVoxelImage.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(pc), &pc);
+	vkCmdDispatch(cmd, groupCounts.width, groupCounts.height, 1);
+
+	VkImageMemoryBarrier drawBarrier = this->_renderer.GetDrawImage().CreateBarrier(VK_ACCESS_SHADER_WRITE_BIT | VK_ACCESS_SHADER_READ_BIT, VK_ACCESS_MEMORY_READ_BIT);
+	vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, 0, 0, 0, 0, 0, 1, &drawBarrier);
+
+
+	// this->_fluidImage.Transition(cmd, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+	// this->_renderer.GetDrawImage().Transition(cmd, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+	// Image::Copy(cmd, this->_fluidImage, this->_renderer.GetDrawImage(), true, sampleExtent, dstExtent);
 }
 
 void
 WorldFlow::renderMesh(VkCommandBuffer cmd, Mesh& mesh, const glm::mat4& transform)
 {
+	// this->_depthImage.Clear(cmd);
+	// VkImageMemoryBarrier depthBarrier = this->_depthImage.CreateBarrier(VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_MEMORY_READ_BIT);
+	// vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_ALL_GRAPHICS_BIT, 0, 0, 0, 0, 0, 1, &depthBarrier);
+	// this->_depthImage.Transition(cmd, VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL);
+
 	this->_renderer.GetDrawImage().Transition(cmd, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
 	VkRenderingAttachmentInfo colorAttachmentInfo = vkinit::attachment_info(this->_renderer.GetDrawImage().imageView, nullptr, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
 	VkRenderingAttachmentInfo depthAttachmentInfo = vkinit::depth_attachment_info(this->_depthImage.imageView, this->_depthImage.layout);
 
-	VkRenderingInfo renderInfo = vkinit::rendering_info(this->_renderer.GetWindowExtent2D(), &colorAttachmentInfo, nullptr);
+	VkRenderingInfo renderInfo = vkinit::rendering_info(this->_renderer.GetWindowExtent2D(), &colorAttachmentInfo, &depthAttachmentInfo);
 	vkCmdBeginRendering(cmd, &renderInfo);
 
 	vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, this->_graphicsRenderMesh.pipeline);
@@ -506,12 +523,15 @@ WorldFlow::renderMesh(VkCommandBuffer cmd, Mesh& mesh, const glm::mat4& transfor
 	vkCmdSetScissor(cmd, 0, 1, &scissor);
 
 	glm::mat4 transf = glm::translate(glm::vec3(this->_objectPosition)) * glm::scale(glm::vec3(this->_objectPosition.w));
-	GraphicsPushConstants pc = {
-		.worldMatrix = this->_renderer.GetCamera().GetProjectionMatrix() * this->_renderer.GetCamera().GetViewMatrix() * transf * transform,
+	glm::mat4 modelView = this->_renderer.GetCamera().GetViewMatrix() * transf;
+	RenderMeshPushConstants pc = {
+		.modelViewMatrix = modelView,
+		.projectionMatrix = this->_renderer.GetCamera().GetProjectionMatrix(),
+		.normalMatrix = glm::transpose(glm::inverse(modelView)),
 		.vertexBuffer = mesh.vertexBufferAddress
 	};
 
-	vkCmdPushConstants(cmd, this->_graphicsRenderMesh.layout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(GraphicsPushConstants), &pc);
+	vkCmdPushConstants(cmd, this->_graphicsRenderMesh.layout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(pc), &pc);
 	vkCmdBindIndexBuffer(cmd, mesh.indexBuffer.bufferHandle, 0, VK_INDEX_TYPE_UINT32);
 	vkCmdDrawIndexed(cmd, mesh.numIndices, 1, 0, 0, 0);
 	vkCmdEndRendering(cmd);
@@ -684,6 +704,10 @@ WorldFlow::drawUI()
 		ImGui::SameLine();
 		ImGui::PushID("ShouldRender");
 		ImGui::Checkbox("", &this->_shouldRenderFluid);
+		ImGui::PopID();
+		ImGui::SameLine();
+		ImGui::PushID("ShouldGeom");
+		ImGui::Checkbox("", &this->_shouldRenderGeometry);
 		ImGui::PopID();
 		ImGui::Separator();
 		ImGui::DragFloat("Tick", &this->_tickRate, 0.0025f);
@@ -884,7 +908,7 @@ WorldFlow::initResources()
 	this->_renderer.CreateImage(
 		this->_depthImage,
 		maxRes,
-		VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT,
+		VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT,
 		VK_IMAGE_ASPECT_DEPTH_BIT,
 		VK_FORMAT_D32_SFLOAT,
 		VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL
@@ -1016,7 +1040,7 @@ WorldFlow::initPipelines()
 {
 	// GRAPHICS
 	this->_renderer.CreateGraphicsPipeline(this->_graphicsRenderMesh, SHADER_DIRECTORY"/mesh.vert.spv", SHADER_DIRECTORY"/mesh.frag.spv", "", {}, 0, 
-                                           sizeof(GraphicsPushConstants), {.blendMode = BlendMode::Additive, .depthTestEnabled = true});
+                                           sizeof(RenderMeshPushConstants), {.depthTestEnabled = true});
 
 	this->_renderer.CreateGraphicsPipeline(this->_graphicsVoxelRaster, SHADER_DIRECTORY"/voxel_raster.vert.spv", SHADER_DIRECTORY"/voxel_raster.frag.spv", SHADER_DIRECTORY"/voxel_raster.geom.spv", {
 		BufferDescriptor(0, 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, this->_grid.buffWorldFlowGridGpu.bufferHandle, sizeof(WorldFlowGridGpu)),
@@ -1036,10 +1060,15 @@ WorldFlow::initPipelines()
 	// COMPUTE
     this->_renderer.CreateComputePipeline(this->_computeRaycastVoxelGrid, SHADER_DIRECTORY"/grid_tracer.comp.spv", {
 		BufferDescriptor(0, 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, this->_grid.buffWorldFlowGridGpu.bufferHandle, sizeof(WorldFlowGridGpu)),
-        // ImageDescriptor(0, 1, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, this->_renderer.GetDrawImage().imageView, VK_NULL_HANDLE, this->_renderer.GetDrawImage().layout),
         ImageDescriptor(0, 1, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, this->_fluidImage.imageView, VK_NULL_HANDLE, this->_fluidImage.layout),
     },
     sizeof(RayTracerPushConstants));
+
+    this->_renderer.CreateComputePipeline(this->_computeCompositeVoxelImage, SHADER_DIRECTORY"/grid_composite_image.comp.spv", {
+        ImageDescriptor(0, 0, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, this->_fluidImage.imageView, VK_NULL_HANDLE, this->_fluidImage.layout),
+        ImageDescriptor(0, 1, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, this->_renderer.GetDrawImage().imageView, VK_NULL_HANDLE, this->_renderer.GetDrawImage().layout),
+    },
+    sizeof(CompositorPushConstants));
 
 	this->_renderer.CreateComputePipeline(this->_computeGenerateSubgridOffsets, SHADER_DIRECTORY"/fluid_generate_subgrid_offsets.comp.spv", {
 		BufferDescriptor(0, 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, this->_grid.buffWorldFlowGridGpu.bufferHandle, sizeof(WorldFlowGridGpu)),
@@ -1109,6 +1138,8 @@ WorldFlow::initPipelines()
 
 	this->_renderer.CreateComputePipeline(this->_computeGenerateGridLines, SHADER_DIRECTORY"/grid_generate_lines.comp.spv", {
 	}, sizeof(GenerateLinesPushConstants));
+
+
 	return true;	
 }
 

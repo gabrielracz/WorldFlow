@@ -177,5 +177,18 @@ struct alignas(16) GraphicsPushConstants
     VkDeviceAddress vertexBuffer;
     uint32_t padding[2];
 };
+
+struct alignas(16) RenderMeshPushConstants
+{
+    glm::mat4 modelViewMatrix;
+	glm::mat4 projectionMatrix;
+	glm::mat4 normalMatrix;
+    VkDeviceAddress vertexBuffer;
+};
+
+struct alignas(16) CompositorPushConstants
+{
+	uint downsampleLevel;
+};
 }
 #endif

@@ -20,7 +20,7 @@ Image::Transition(VkCommandBuffer cmd, VkImageLayout newLayout)
     imageBarrier.oldLayout = this->layout;
     imageBarrier.newLayout = newLayout;
 
-    VkImageAspectFlags aspectMask = (newLayout == VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL) ? VK_IMAGE_ASPECT_DEPTH_BIT : VK_IMAGE_ASPECT_COLOR_BIT;
+    VkImageAspectFlags aspectMask = this->aspectMask;
     imageBarrier.subresourceRange = vkinit::image_subresource_range(aspectMask);
     imageBarrier.image = image;
 
@@ -34,12 +34,19 @@ Image::Transition(VkCommandBuffer cmd, VkImageLayout newLayout)
 	this->layout = newLayout;
 }
 
-void 
+void 		
 Image::Clear(VkCommandBuffer cmd, VkClearColorValue color)
 {
-	VkImageSubresourceRange clearRange = vkinit::image_subresource_range(VK_IMAGE_ASPECT_COLOR_BIT);
-	Transition(cmd, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
-	vkCmdClearColorImage(cmd, this->image, this->layout, &color, 1, &clearRange);
+	if(this->aspectMask & VK_IMAGE_ASPECT_DEPTH_BIT) {
+		VkImageSubresourceRange clearRange = vkinit::image_subresource_range(aspectMask);
+		Transition(cmd, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+		VkClearDepthStencilValue depthVal = {0.0f, 0};
+		vkCmdClearDepthStencilImage(cmd, this->image, this->layout, &depthVal, 1, &clearRange);
+	} else {
+		VkImageSubresourceRange clearRange = vkinit::image_subresource_range(VK_IMAGE_ASPECT_COLOR_BIT);
+		Transition(cmd, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+		vkCmdClearColorImage(cmd, this->image, this->layout, &color, 1, &clearRange);
+	}
 }
 
 void

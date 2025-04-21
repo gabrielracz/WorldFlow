@@ -357,6 +357,7 @@ Renderer::CreateImage(Image &newImg, VkExtent3D extent, VkImageUsageFlags usageF
     };
     VK_CHECK(vkCreateImageView(this->_device, &imgViewCreateInfo, nullptr, &newImg.imageView));
    
+	newImg.aspectMask = aspectFlags;
     ImmediateSubmit([&newImg, layout](VkCommandBuffer cmd) {
         newImg.Transition(cmd, layout);
     });
@@ -960,7 +961,7 @@ Renderer::initDescriptorPool()
 
 bool Renderer::initCamera()
 {
-    this->_camera.SetPerspective(glm::perspective(glm::radians(70.f), (float)this->_windowExtent.width / (float)_windowExtent.height, 0.01f, 1000.0f));
+    this->_camera.SetPerspective(glm::perspective(glm::radians(70.f), (float)this->_windowExtent.width / (float)_windowExtent.height, 0.01f, 100.0f));
     if(this->_resizeRequested) return true;
     this->_origin.SetPosition(glm::vec3(0.0, Constants::CameraPosition.y, 0.0));
     this->_origin.Update();

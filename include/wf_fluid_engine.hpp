@@ -102,6 +102,7 @@ private:
 	bool _shouldDiffuseDensity {false};
 	bool _shouldProjectIncompressible {true};
 	bool _shouldRenderFluid {true};
+	bool _shouldRenderGeometry {true};
 	bool _shouldClear {false};
 	bool _toggle {false};
 	bool _shouldAddObstacle {false};
@@ -155,6 +156,7 @@ private:
 	ComputePipeline _computeProlongDensity;
 	ComputePipeline _computeProlongVelocity;
 	ComputePipeline _computeRestrictVelocity;
+	ComputePipeline _computeCompositeVoxelImage;
 
 	Buffer _buffParticles;
 	Buffer _buffStaging;

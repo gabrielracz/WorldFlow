@@ -358,5 +358,6 @@ void main() {
 
     
     // Write result to output image
-    imageStore(outputImage, pixelPos, vec4(mix(voxelColor.rgb, storedColor.rgb, (1-voxelColor.a)), 1.0));
+    // imageStore(outputImage, pixelPos, vec4(mix(voxelColor.rgb, storedColor.rgb, (1-voxelColor.a)), 1.0));
+    imageStore(outputImage, pixelPos, voxelColor);
 }

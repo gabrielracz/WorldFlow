@@ -1,0 +1,24 @@
+#version 450
+layout(local_size_x = 16, local_size_y = 16) in;
+
+layout(rgba32f, set = 0, binding = 0) uniform readonly image2D voxelImage;
+layout(rgba32f, set = 0, binding = 1) uniform image2D outputImage;
+
+layout(push_constant) uniform PushConstants {
+	uint sampleLevel;
+} pc;
+
+void main()
+{
+	ivec2 pos = ivec2(gl_GlobalInvocationID.xy);
+	uvec2 imgSize = imageSize(outputImage);
+	if(any(greaterThanEqual(uvec2(pos), imgSize))) {
+		return;
+	}
+
+	vec4 voxelColor = imageLoad(voxelImage, pos/int(pc.sampleLevel));
+	vec4 currentColor = imageLoad(outputImage, pos);
+
+	vec4 outputColor = vec4(mix(currentColor.rgb, voxelColor.rgb, voxelColor.a), 1.0);
+	imageStore(outputImage, pos, outputColor);
+}
