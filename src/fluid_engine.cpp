@@ -289,7 +289,7 @@ FluidEngine::rayCastVoxelVolume(VkCommandBuffer cmd)
 		.baseColor = glm::vec4(0.8, 0.8, 0.8, 1.0)
 	};
 	vkCmdPushConstants(cmd, this->_raytracerPipeline.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(RayTracerPushConstants), &rtpc);
-	VkExtent3D groupCounts = this->_renderer.GetWorkgroupCounts(8);
+	VkExtent3D groupCounts = this->_renderer.GetDrawImageWorkgroupCounts(8);
 	vkCmdDispatch(cmd, groupCounts.width, groupCounts.height, groupCounts.depth);
 }
 

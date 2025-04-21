@@ -6,7 +6,7 @@
 #define FLT_MAX 3.402823466e+38
 #define HEXCOLORVEC(h) vec4(((h&0xFF0000)>>16)/255.0f, ((h&0x00FF00)>>8)/255.0f, (h&0x0000FF)/255.0f, 1.0f)
 
-layout(local_size_x = 8, local_size_y = 8) in;
+layout(local_size_x = 16, local_size_y = 16) in;
 
 // Input data structures
 layout(set = 0, binding = 0) readonly buffer WorldFlowGridBuffer {
@@ -127,6 +127,8 @@ vec4 traceVoxels(vec3 rayOrigin, vec3 rayDir) {
         if(isWithinGridBounds(mapPos, grid.resolution)) {
             float density = 0.0;
             vec4 color = pc.baseColor;
+			vec4 outColour = vec4(0.0);
+			bool useHeatColor = true;
             if((grid.flagsBuffer.data[index] & FLAG_OCCUPIED) > 0 && pc.renderType < 5) {
                 vec3 worldPos = rayOrigin + t * rayDir;
                 vec3 normal = -crossingAxis;
@@ -168,13 +170,15 @@ vec4 traceVoxels(vec3 rayOrigin, vec3 rayDir) {
             // float attenuation = exp(-t * 0.07);
             float attenuation = 1.0;
 
-			vec4 heatColor = viridisColor(abs(density));
-            if(density < 0.0) {
-            	heatColor = infernoColor(abs(density));
-            }
+			if(useHeatColor) {
+				outColour = viridisColor(abs(density));
+				if(density < 0.0) {
+					outColour = infernoColor(abs(density));
+				}
+			}
 
             // contribution = clamp(contribution, 0.0, 1.0);
-            vec4 voxelColor = vec4(vec3(heatColor.rgb * attenuation), contribution);
+            vec4 voxelColor = vec4(vec3(outColour.rgb * attenuation), contribution);
             
             voxelColor.rgb *= voxelColor.a;
             accumColor += voxelColor * (1.0 - accumColor.a);

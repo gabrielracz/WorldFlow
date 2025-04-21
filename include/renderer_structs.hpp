@@ -16,6 +16,7 @@ struct Mouse
 {
     bool first_captured = false;
     bool captured = true;
+	bool moved = false;
     float scroll = 0.0;
     glm::vec2 prev {};
     glm::vec2 move {};

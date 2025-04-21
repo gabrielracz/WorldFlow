@@ -125,7 +125,7 @@ private:
 	uint32_t _rendererSubgridBegin = 0;
 	uint32_t _rendererSubgridLimit = Constants::MAX_SUBGRID_LEVELS;
 	glm::vec4 _activationWeights = glm::vec4(1.0f, 0.0f, 0.0f, 0.0f);
-	uint32_t _rendererDownsampling = 1;
+	uint32_t _rendererDownsampling = 4;
 
 	uint32_t _diffusionIterations;
 	uint32_t _pressureIterations;

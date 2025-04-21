@@ -392,7 +392,7 @@ UniformFluidEngine::renderVoxelVolume(VkCommandBuffer cmd)
 		.renderType = this->_renderType
 	};
 	vkCmdPushConstants(cmd, this->_computeRaycastVoxelGrid.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(RayTracerPushConstants), &rtpc);
-	VkExtent3D groupCounts = this->_renderer.GetWorkgroupCounts(8);
+	VkExtent3D groupCounts = this->_renderer.GetDrawImageWorkgroupCounts(8);
 	vkCmdDispatch(cmd, groupCounts.width, groupCounts.height, groupCounts.depth);
 }
 

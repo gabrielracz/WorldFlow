@@ -1,5 +1,6 @@
 // #include "uniform_fluid_engine.hpp"
 #include "wf_fluid_engine.hpp"
+#include "SDL_keycode.h"
 #include "wf_structs.hpp"
 #include "renderer.hpp"
 #include "path_config.hpp"
@@ -42,7 +43,7 @@ constexpr glm::uvec4 VoxelGridDimensions = glm::uvec4(32, 256, 32, 1.0);
 // constexpr glm::uvec4 VoxelGridDimensions = glm::uvec4(128, 64, 128, 1);
 // constexpr glm::uvec4 VoxelGridDimensions = glm::uvec4(64, 256, 64, 1);
 
-constexpr size_t VoxelGridResolution = VoxelGridDimensions.x/4;
+constexpr size_t VoxelGridResolution = VoxelGridDimensions.x;
 
 const uint32_t NumVoxelGridCells = VoxelGridDimensions.x * VoxelGridDimensions.y * VoxelGridDimensions.z;
 const float VoxelGridScale = 2.0f;
@@ -450,6 +451,8 @@ WorldFlow::renderVoxelVolume(VkCommandBuffer cmd)
 	vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, this->_computeRaycastVoxelGrid.pipeline);
 	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, this->_computeRaycastVoxelGrid.layout, 0, 1, this->_computeRaycastVoxelGrid.descriptorSets.data(), 0, nullptr);
 
+	VkExtent3D dstExtent = this->_renderer.GetWindowExtent3D();
+	VkExtent3D sampleExtent = VkExtent3D{dstExtent.width / this->_rendererDownsampling, dstExtent.height / this->_rendererDownsampling, 1};
 	glm::mat4 view = this->_renderer.GetCamera().GetViewMatrix();
 	glm::mat4 invView = glm::inverse(view);
 	glm::mat4 projection = this->_renderer.GetCamera().GetProjectionMatrix();
@@ -459,7 +462,7 @@ WorldFlow::renderVoxelVolume(VkCommandBuffer cmd)
 		.inverseView = invView,
 		.cameraPos = invView * glm::vec4(0.0, 0.0, 0.0, 1.0),
 		.nearPlane = 0.1f,
-		.screenSize = glm::vec2(this->_renderer.GetWindowExtent2D().width/this->_rendererDownsampling, this->_renderer.GetWindowExtent2D().height/this->_rendererDownsampling),
+		.screenSize = glm::vec2(sampleExtent.width, sampleExtent.height),
 		.maxDistance = Constants::VoxelDiagonal*2,
 		.stepSize = 0.1f,
 		.gridSize = glm::vec3(Constants::VoxelGridDimensions),
@@ -471,16 +474,15 @@ WorldFlow::renderVoxelVolume(VkCommandBuffer cmd)
 		.subgridLimit = this->_rendererSubgridLimit
 	};
 	vkCmdPushConstants(cmd, this->_computeRaycastVoxelGrid.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(RayTracerPushConstants), &rtpc);
-	VkExtent3D groupCounts = this->_renderer.GetWorkgroupCounts(8);
+	VkExtent3D groupCounts = this->_renderer.GetDrawImageWorkgroupCounts(16);
 	vkCmdDispatch(cmd, groupCounts.width/this->_rendererDownsampling, groupCounts.height/this->_rendererDownsampling, groupCounts.depth);
 
 	VkImageMemoryBarrier barrier = this->_fluidImage.CreateBarrier(VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_TRANSFER_READ_BIT);
 	vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, 0, 0, 0, 1, &barrier);
+
 	this->_fluidImage.Transition(cmd, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
-	VkExtent3D drawImgExtent = this->_renderer.GetWindowExtent3D();
-	VkExtent3D fluidImgExtent{drawImgExtent.width/this->_rendererDownsampling, drawImgExtent.height/this->_rendererDownsampling, 1};
 	this->_renderer.GetDrawImage().Transition(cmd, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
-	Image::Copy(cmd, this->_fluidImage, this->_renderer.GetDrawImage(), true, fluidImgExtent, drawImgExtent);
+	Image::Copy(cmd, this->_fluidImage, this->_renderer.GetDrawImage(), true, sampleExtent, dstExtent);
 }
 
 void
@@ -727,13 +729,18 @@ WorldFlow::checkControls(KeyMap& keyMap, MouseMap& mouseMap, Mouse& mouse, float
 	if(keyMap[SDLK_F4]) {
 		this->_renderer.Close();
 	}
-
-	if(mouseMap[SDL_BUTTON_RIGHT]) {
-		const float mouse_sens = -1.2f;
-		glm::vec2 look = mouse.move * mouse_sens * dt;
-		this->_renderer.GetCamera().OrbitYaw(-look.x);
-		this->_renderer.GetCamera().OrbitPitch(-look.y);
-		mouse.move = {0.0, 0.0};
+	
+	if(mouseMap[SDL_BUTTON_RIGHT] && mouse.moved) {
+		if(keyMap[SDLK_LSHIFT]) {
+			const float mouse_move_sens = 0.5;
+			this->_renderer.GetCameraOrigin().Translate(glm::vec3(0.0, mouse.move.y * mouse_move_sens * dt, 0.0));
+		} else {
+			const float mouse_sens = -1.2f;
+			glm::vec2 look = mouse.move * mouse_sens * dt;
+			this->_renderer.GetCamera().OrbitYaw(-look.x);
+			this->_renderer.GetCamera().OrbitPitch(-look.y);
+			mouse.move = {0.0, 0.0};
+		}
 	}
 
 	if(mouse.scroll != 0.0f) {
@@ -810,6 +817,20 @@ WorldFlow::checkControls(KeyMap& keyMap, MouseMap& mouseMap, Mouse& mouse, float
 			this->_renderType = i;
 			keyMap[SDLK_0 + i] = false;
 		}
+	}
+	
+	float ms = 0.1;
+	if(keyMap[SDLK_UP]) {
+		this->_renderer.GetCameraOrigin().Translate(glm::vec3(0.0, ms, 0.0));
+	}
+	if(keyMap[SDLK_DOWN]) {
+		this->_renderer.GetCameraOrigin().Translate(glm::vec3(0.0, -ms, 0.0));
+	}
+	if(keyMap[SDLK_RIGHT]) {
+		this->_renderer.GetCameraOrigin().Translate(glm::vec3(ms, 0.0, 0.0));
+	}
+	if(keyMap[SDLK_LEFT]) {
+		this->_renderer.GetCameraOrigin().Translate(glm::vec3(-ms, 0.0, 0.0));
 	}
 }
 

@@ -129,6 +129,7 @@ Renderer::Update(float dt)
 {
     this->_elapsed += dt;
     updatePerformanceCounters(dt);
+	this->_mouse.moved = false; 
     pollEvents();
     if(this->_resizeRequested) {
 		std::cout << "resize" << std::endl;
@@ -1039,6 +1040,7 @@ int
 Renderer::eventCallback(void* userdata, SDL_Event* event)
 {
 	Renderer* renderer = (Renderer*) userdata;
+	Mouse& mouse = renderer->_mouse;
 	if(event->type == SDL_WINDOWEVENT) {
 		if (event->window.event == SDL_WINDOWEVENT_RESIZED) {
 			renderer->_resizeRequested = true;
@@ -1054,13 +1056,13 @@ Renderer::eventCallback(void* userdata, SDL_Event* event)
 	}
 	
 	else if(event->type == SDL_MOUSEMOTION) {
-		Mouse& mouse = renderer->_mouse;
 		if (mouse.first_captured) {
 			mouse.prev = {event->motion.x, event->motion.y};
 			mouse.first_captured = false;
 		}
 		mouse.move = glm::vec2(event->motion.x, event->motion.y) - mouse.prev;
 		mouse.prev = {event->motion.x, event->motion.y};
+		mouse.moved = true;
 	}
 
 	else if(event->type == SDL_MOUSEWHEEL) {
@@ -1119,6 +1121,12 @@ Camera&
 Renderer::GetCamera()
 {
     return this->_camera;
+}
+
+Transform&
+Renderer::GetCameraOrigin()
+{
+	return this->_origin;
 }
 
 Image&
@@ -1180,7 +1188,7 @@ Renderer::GetFrameNumber()
 }
 
 VkExtent3D
-Renderer::GetWorkgroupCounts(uint32_t localGroupSize)
+Renderer::GetDrawImageWorkgroupCounts(uint32_t localGroupSize)
 {
     return VkExtent3D {
         .width = static_cast<uint32_t>(std::ceil(this->_windowExtent.width/(float)localGroupSize)),

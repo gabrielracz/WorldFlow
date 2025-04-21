@@ -54,6 +54,7 @@ public:
 	void CreateTimestampQueryPool(TimestampQueryPool& pool, uint32_t numTimestamps);
 
     Camera& GetCamera();
+	Transform& GetCameraOrigin();
     Image& GetDrawImage();
     VkViewport GetWindowViewport();
     VkRect2D GetWindowScissor();
@@ -63,7 +64,7 @@ public:
     uint32_t GetFrameNumber();
 
 	VkDevice GetDevice();
-    VkExtent3D GetWorkgroupCounts(uint32_t localGroupSize = 16);
+    VkExtent3D GetDrawImageWorkgroupCounts(uint32_t localGroupSize = 16);
     KeyMap& GetKeyMap();
     MouseMap& GetMouseMap();
     Mouse& GetMouse();
