@@ -116,18 +116,16 @@ struct alignas(16) RayTracerPushConstants
 {
     glm::mat4 inverseProjection;  // Inverse projection matrix
     glm::mat4 inverseView;        // Inverse view matrix
-    glm::vec3 cameraPos;         // Camera position in world space
-    float nearPlane;        // Near plane distance
-    glm::vec2 screenSize;        // Width and height of output image
-    uint32_t maxDistance;      // Maximum ray travel distance
-    float stepSize;         // Base color accumulation per step
-    glm::vec3 gridSize;          // Size of the voxel grid in each dimension
-    float gridScale;          // Size of the voxel grid in each dimension
+    glm::vec4 cameraPos;         // Camera position in world space
     glm::vec4 lightSource;
     glm::vec4 baseColor;
+    glm::vec2 screenSize;        // Width and height of output image
+	uint32_t padding[2];
+    uint32_t maxDistance;      // Maximum ray travel distance
     int renderType;
 	unsigned int rootGridLevel;
 	unsigned int subgridLimit;
+	float densityMultiplier;
 };
 
 struct alignas(16) ParticlesPushConstants
@@ -188,7 +186,7 @@ struct alignas(16) RenderMeshPushConstants
 
 struct alignas(16) CompositorPushConstants
 {
-	uint downsampleLevel;
+	uint32_t downsampleLevel;
 };
 }
 #endif

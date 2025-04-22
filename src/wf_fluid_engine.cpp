@@ -37,7 +37,7 @@ namespace Constants
 
 // constexpr glm::uvec4 VoxelGridDimensions = glm::uvec4(128, 64, 128, 1);
 // constexpr glm::uvec4 VoxelGridDimensions = glm::uvec4(96, 48, 96, 1.0);
-constexpr glm::uvec4 VoxelGridDimensions = glm::uvec4(128+32, 48, 96, 1.0);
+constexpr glm::uvec4 VoxelGridDimensions = glm::uvec4(128+32, 48, 96, 1.0)*glm::uvec4(1,1,1,1);
 // constexpr glm::uvec4 VoxelGridDimensions = glm::uvec4(64, 192, 64, 1.0);
 // constexpr glm::uvec4 VoxelGridDimensions = glm::uvec4(256, 96, 256, 1) ;
 // constexpr glm::uvec4 VoxelGridDimensions = glm::uvec4(128, 64, 128, 1);
@@ -48,7 +48,7 @@ constexpr size_t VoxelGridResolution = VoxelGridDimensions.x/4;
 const uint32_t NumVoxelGridCells = VoxelGridDimensions.x * VoxelGridDimensions.y * VoxelGridDimensions.z;
 const float VoxelGridScale = 2.0f;
 const uint32_t VoxelDiagonal = VoxelGridDimensions.x + VoxelGridDimensions.y + VoxelGridDimensions.z;
-constexpr glm::vec3 VoxelGridCenter = glm::vec3(VoxelGridDimensions) * 0.5f + glm::vec3(1.0);
+constexpr glm::vec3 VoxelGridCenter = glm::vec3(VoxelGridDimensions) * 0.5f + glm::vec3(1.0f);
 constexpr float VoxelCellSize = 1.0 / VoxelGridResolution;
 
 constexpr uint32_t NumGridLines = VoxelGridDimensions.y*VoxelGridDimensions.z + VoxelGridDimensions.x*VoxelGridDimensions.y + VoxelGridDimensions.x*VoxelGridDimensions.z;
@@ -65,7 +65,7 @@ constexpr glm::vec4 LightPosition = glm::vec4(500.0, 500.0, 400, 1.0);
 constexpr uint32_t NumParticles = 65536;
 constexpr float MaxParticleLifetime = 240.0;
 
-const std::string MeshFile = ASSETS_DIRECTORY"/meshes/tomcat.glb";
+const std::string MeshFile = ASSETS_DIRECTORY"/meshes/mech.glb";
 }
 
 /* FUNCTIONS */
@@ -466,17 +466,14 @@ WorldFlow::renderVoxelVolume(VkCommandBuffer cmd)
 		.inverseProjection = glm::inverse(projection),
 		.inverseView = invView,
 		.cameraPos = invView * glm::vec4(0.0, 0.0, 0.0, 1.0),
-		.nearPlane = 0.1f,
-		.screenSize = glm::vec2(sampleExtent.width, sampleExtent.height),
-		.maxDistance = Constants::VoxelDiagonal*2,
-		.stepSize = 0.1f,
-		.gridSize = glm::vec3(Constants::VoxelGridDimensions),
-		.gridScale = Constants::VoxelGridScale,
 		.lightSource = Constants::LightPosition,
 		.baseColor = glm::vec4(0.8, 0.8, 0.8, 1.0),
+		.screenSize = glm::vec2(sampleExtent.width, sampleExtent.height),
+		.maxDistance = Constants::VoxelDiagonal*2,
 		.renderType = this->_renderType,
 		.rootGridLevel = this->_rendererSubgridBegin,
-		.subgridLimit = this->_rendererSubgridLimit
+		.subgridLimit = this->_rendererSubgridLimit,
+		.densityMultiplier = this->_densityMultiplier
 	};
 	vkCmdPushConstants(cmd, this->_computeRaycastVoxelGrid.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(RayTracerPushConstants), &rtpc);
 	VkExtent3D groupCounts = this->_renderer.GetDrawImageWorkgroupCounts(16);
@@ -739,17 +736,22 @@ WorldFlow::drawUI()
 		ImGui::InputScalar("rndrlvl start", ImGuiDataType_U32, &this->_rendererSubgridBegin, &step);
 		ImGui::InputScalar("rndrlvl end", ImGuiDataType_U32, &this->_rendererSubgridLimit, &step);
 		ImGui::InputScalar("rndr downsample", ImGuiDataType_U32, &this->_rendererDownsampling, &step);
+		ImGui::DragFloat("density multiplier", &this->_densityMultiplier, 0.001);
+		ImGui::Separator();
+
 		this->_rendererDownsampling = std::max(this->_rendererDownsampling, 1u);
 		ImGui::DragFloat("activation", &this->_activationThreshold, 0.01f);
 		ImGui::DragFloat4("vrt/vel/dns/prs", glm::value_ptr(this->_activationWeights), 0.01f);
+		ImGui::DragFloat("diffusionRate", &this->_diffusionRate, 0.01f);
+
+		ImGui::DragFloat("pressureDensity", &this->_fluidDensity, 0.0001f);
 		ImGui::InputScalar("diffiter", ImGuiDataType_U32, &this->_diffusionIterations, &step);
 		ImGui::InputScalar("presiter", ImGuiDataType_U32, &this->_pressureIterations, &step);
 		ImGui::InputScalar("iterfactor", ImGuiDataType_U32, &this->_iterationSubgridFactor, &step);
 		ImGui::InputScalar("advectiter", ImGuiDataType_U32, &this->_advectionIterations, &step);
-		ImGui::DragFloat("transferAlpha", &this->_transferAlpha, 0.01f);
 		ImGui::DragFloat("arestrictionAlpha", &this->_restrictionAlpha, 0.01f);
-		ImGui::DragFloat("diffusionRate", &this->_diffusionRate, 0.01f);
-		ImGui::DragFloat("pressureDensity", &this->_fluidDensity, 0.0001f);
+		ImGui::DragFloat("transferAlpha", &this->_transferAlpha, 0.01f);
+
 	}
 	ImGui::End();
 }
@@ -766,7 +768,7 @@ WorldFlow::checkControls(KeyMap& keyMap, MouseMap& mouseMap, Mouse& mouse, float
 			const float mouse_move_sens = 0.5;
 			this->_renderer.GetCameraOrigin().Translate(glm::vec3(0.0, mouse.move.y * mouse_move_sens * dt, 0.0));
 		} else {
-			const float mouse_sens = -1.2f;
+			const float mouse_sens = -0.6f;
 			glm::vec2 look = mouse.move * mouse_sens * dt;
 			this->_renderer.GetCamera().OrbitYaw(-look.x);
 			this->_renderer.GetCamera().OrbitPitch(-look.y);
@@ -850,7 +852,7 @@ WorldFlow::checkControls(KeyMap& keyMap, MouseMap& mouseMap, Mouse& mouse, float
 		}
 	}
 	
-	float ms = 0.1;
+	float ms = 0.1f;
 	if(keyMap[SDLK_UP]) {
 		this->_renderer.GetCameraOrigin().Translate(glm::vec3(0.0, ms, 0.0));
 	}
@@ -963,7 +965,7 @@ WorldFlow::initResources()
         VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL
 	);
 	this->_renderer.ImmediateSubmit([this](VkCommandBuffer cmd) {
-		this->_voxelImage.Clear(cmd, {0.7, 0.7, 0.7, 1.0});
+		this->_voxelImage.Clear(cmd, {0.7f, 0.7f, 0.7f, 1.0f});
 	});
 
 	// WORLDFLOW GRID ALLOCATION //

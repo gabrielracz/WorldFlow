@@ -18,18 +18,16 @@ layout(rgba32f, set = 0, binding = 1) uniform image2D outputImage;
 layout(push_constant) uniform constants {
     mat4 inverseProjection;  // Inverse projection matrix
     mat4 inverseView;        // Inverse view matrix
-    vec3 cameraPos;         // Camera position in world space
-    float nearPlane;        // Near plane distance
-    vec2 screenSize;        // Width and height of output image
-    uint maxDistance;      // Maximum ray travel distance
-    float stepSize;         // Base color accumulation per step
-    vec3 gridSize;          // Size of the voxel grid in each dimension
-    float gridScale;        
+    vec4 cameraPos;         // Camera position in world space
     vec4 lightSource;        
     vec4 baseColor;        
+    vec2 screenSize;        // Width and height of output image
+    uint padding[2];
+    uint maxDistance;      // Maximum ray travel distance
     int renderType;
     uint rootGridLevel;
     uint subgridLimit;
+    float densityMultiplier;
 } pc;
 
 // Helper function to get ray direction from pixel coordinates
@@ -160,11 +158,12 @@ vec4 traceVoxels(vec3 rayOrigin, vec3 rayDir) {
                 density = grid.debugBuffer.data[index].x;
             }
             else if(pc.renderType == 6) {
-                density = grid.vorticityBuffer.data[index].w * 5.0;
+                density = grid.vorticityBuffer.data[index].w * -5.0;
             }
             else if(pc.renderType == 7) {
-                density = length(grid.vorticityBuffer.data[index].xyz)/20.0;
+                density = -length(grid.vorticityBuffer.data[index].xyz)/25.0;
             }
+            // density *= pc.densityMultiplier;
             float contribution = abs(density) * distThroughCell * 10;
 
             // float attenuation = exp(-t * 0.07);
@@ -353,7 +352,7 @@ void main() {
     vec3 rayDir = getRayDirection(vec2(pixelPos) + 0.5);  // Add 0.5 for pixel center
     
     // Trace ray and accumulate color
-    vec4 voxelColor = traceVoxels(pc.cameraPos, rayDir);
+    vec4 voxelColor = traceVoxels(pc.cameraPos.xyz, rayDir);
     vec4 storedColor = imageLoad(outputImage, pixelPos);
 
     
