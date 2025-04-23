@@ -65,7 +65,7 @@ constexpr glm::vec4 LightPosition = glm::vec4(500.0, 500.0, 400, 1.0);
 constexpr uint32_t NumParticles = 65536;
 constexpr float MaxParticleLifetime = 240.0;
 
-const std::string MeshFile = ASSETS_DIRECTORY"/meshes/mech.glb";
+const std::string MeshFile = ASSETS_DIRECTORY"/meshes/senna.glb";
 }
 
 /* FUNCTIONS */
